@@ -2,32 +2,31 @@ import SwiftData
 import Foundation
 import RoyalVNCKit
 
-/// Quality presets mapping to VNC color depth
+/// Quality presets mapping to VNC color depth.
+/// Note: 8-bit depth uses palettized color map mode which most modern
+/// VNC servers (including macOS Screen Sharing) don't support, so the
+/// lowest usable depth is 16-bit.
 enum ConnectionQuality: Int, CaseIterable, Codable {
-    case low = 8       // 256 colors
-    case medium = 16   // 65K colors
+    case low = 16      // 65K colors
     case high = 24     // 16.7M colors (full color)
 
     var label: String {
         switch self {
         case .low: "Low"
-        case .medium: "Medium"
         case .high: "High"
         }
     }
 
     var detail: String {
         switch self {
-        case .low: "8-bit, 256 colors"
-        case .medium: "16-bit, 65K colors"
+        case .low: "16-bit, 65K colors — lower bandwidth"
         case .high: "24-bit, full color"
         }
     }
 
     var vncColorDepth: VNCConnection.Settings.ColorDepth {
         switch self {
-        case .low: .depth8Bit
-        case .medium: .depth16Bit
+        case .low: .depth16Bit
         case .high: .depth24Bit
         }
     }
