@@ -40,10 +40,14 @@ final class SavedConnection {
     var port: Int
     var label: String
     var lastConnected: Date?
-    var qualityRawValue: Int
-    var autoLogin: Bool
-    var savedUsername: String
-    var savedPassword: String
+
+    // Keep the original column name so lightweight migration works with existing stores
+    @Attribute(originalName: "colorDepth")
+    var qualityRawValue: Int = 24
+
+    var autoLogin: Bool = false
+    var savedUsername: String = ""
+    var savedPassword: String = ""
 
     var quality: ConnectionQuality {
         get { ConnectionQuality(rawValue: qualityRawValue) ?? .high }
