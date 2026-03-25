@@ -3,7 +3,7 @@ import RoyalVNCKit
 
 struct RemoteDesktopView: View {
     @Environment(VNCConnectionManager.self) private var connectionManager
-    @Environment(\.dismiss) private var dismiss
+    @Environment(\.dismissWindow) private var dismissWindow
 
     @State private var viewSize: CGSize = .zero
     @State private var showKeyboardInput = false
@@ -50,12 +50,19 @@ struct RemoteDesktopView: View {
         .sheet(isPresented: $showKeyboardInput) {
             KeyboardInputView()
         }
+        .onDisappear {
+            // When the window is closed (by system close button or programmatically),
+            // ensure the VNC connection is torn down.
+            if connectionManager.connectionState.isActive {
+                connectionManager.disconnect()
+            }
+        }
         .onChange(of: connectionManager.connectionState) { _, newValue in
             if case .disconnected = newValue {
-                // Auto-dismiss after a short delay on disconnect
+                // Server-initiated disconnect: close the window after a brief delay
                 Task {
-                    try? await Task.sleep(for: .seconds(2))
-                    dismiss()
+                    try? await Task.sleep(for: .seconds(1))
+                    dismissWindow(id: "remote-desktop")
                 }
             }
         }
@@ -72,7 +79,7 @@ struct RemoteDesktopView: View {
                 Text(error ?? "Disconnected")
                     .font(.headline)
                 Button("Close") {
-                    dismiss()
+                    dismissWindow(id: "remote-desktop")
                 }
             } else {
                 ProgressView()
@@ -97,6 +104,7 @@ struct RemoteDesktopView: View {
 
             Button(action: {
                 connectionManager.disconnect()
+                dismissWindow(id: "remote-desktop")
             }) {
                 Label("Disconnect", systemImage: "xmark.circle")
             }

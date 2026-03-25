@@ -103,9 +103,11 @@ struct ConnectionListView: View {
             Button {
                 connectionToEdit = connection
             } label: {
-                Image(systemName: "pencil.circle")
-                    .font(.title3)
+                Image(systemName: "pencil.circle.fill")
+                    .font(.title)
+                    .imageScale(.large)
                     .foregroundStyle(.secondary)
+                    .contentShape(Circle())
             }
             .buttonStyle(.plain)
         }
