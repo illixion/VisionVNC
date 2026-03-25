@@ -11,6 +11,11 @@ struct RemoteDesktopView: View {
 
     var body: some View {
         ZStack {
+            // Invisible hardware keyboard capture
+            HardwareKeyboardView(connectionManager: connectionManager)
+                .frame(width: 0, height: 0)
+                .opacity(0)
+
             // Framebuffer display
             GeometryReader { geometry in
                 ZStack {

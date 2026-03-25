@@ -1,0 +1,233 @@
+import SwiftUI
+import UIKit
+import RoyalVNCKit
+
+/// A UIViewRepresentable that captures hardware/Bluetooth keyboard events
+/// and forwards them as VNC key events.
+struct HardwareKeyboardView: UIViewRepresentable {
+    let connectionManager: VNCConnectionManager
+
+    func makeUIView(context: Context) -> KeyCaptureView {
+        let view = KeyCaptureView()
+        view.connectionManager = connectionManager
+        return view
+    }
+
+    func updateUIView(_ uiView: KeyCaptureView, context: Context) {
+        uiView.connectionManager = connectionManager
+    }
+}
+
+/// A UIView that becomes first responder to intercept hardware keyboard press events.
+final class KeyCaptureView: UIView {
+    var connectionManager: VNCConnectionManager?
+
+    override var canBecomeFirstResponder: Bool { true }
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        if window != nil {
+            becomeFirstResponder()
+        }
+    }
+
+    // MARK: - Press Events
+
+    override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        var handled = false
+
+        for press in presses {
+            guard let key = press.key else { continue }
+
+            // Handle modifier flags that changed
+            sendModifierChanges(for: key, isDown: true)
+
+            // Map the key to a VNC key code and send it
+            if let vncKey = vncKeyCode(for: key) {
+                connectionManager?.sendKeyDown(vncKey)
+                handled = true
+            } else {
+                // Printable character — send each character
+                let characters = key.characters
+                if !characters.isEmpty {
+                    for char in characters {
+                        let keyCodes = VNCKeyCode.withCharacter(char)
+                        for keyCode in keyCodes {
+                            connectionManager?.sendKeyDown(keyCode)
+                        }
+                    }
+                    handled = true
+                }
+            }
+        }
+
+        if !handled {
+            super.pressesBegan(presses, with: event)
+        }
+    }
+
+    override func pressesEnded(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        var handled = false
+
+        for press in presses {
+            guard let key = press.key else { continue }
+
+            // Handle modifier flags that changed
+            sendModifierChanges(for: key, isDown: false)
+
+            if let vncKey = vncKeyCode(for: key) {
+                connectionManager?.sendKeyUp(vncKey)
+                handled = true
+            } else {
+                let characters = key.characters
+                if !characters.isEmpty {
+                    for char in characters {
+                        let keyCodes = VNCKeyCode.withCharacter(char)
+                        for keyCode in keyCodes {
+                            connectionManager?.sendKeyUp(keyCode)
+                        }
+                    }
+                    handled = true
+                }
+            }
+        }
+
+        if !handled {
+            super.pressesEnded(presses, with: event)
+        }
+    }
+
+    override func pressesCancelled(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        // Treat cancellation as key up to avoid stuck keys
+        pressesEnded(presses, with: event)
+    }
+
+    // MARK: - Modifier Handling
+
+    /// Send modifier key down/up when they change.
+    /// Modifier-only presses (e.g. pressing just Shift) have a keyCode but no characters.
+    private func sendModifierChanges(for key: UIKey, isDown: Bool) {
+        let modifiers = key.modifierFlags
+
+        // We only send modifier events for standalone modifier presses.
+        // For combined presses (e.g. Ctrl+C), the modifier is part of the HID key code
+        // and handled by the server.
+        if isModifierOnlyKey(key.keyCode) {
+            // Already handled by vncKeyCode mapping below
+            return
+        }
+
+        // For non-modifier keys pressed with modifiers, the modifier state is
+        // implicitly tracked by the server from prior modifier key events.
+        _ = modifiers // suppress unused warning
+    }
+
+    private func isModifierOnlyKey(_ keyCode: UIKeyboardHIDUsage) -> Bool {
+        switch keyCode {
+        case .keyboardLeftShift, .keyboardRightShift,
+             .keyboardLeftControl, .keyboardRightControl,
+             .keyboardLeftAlt, .keyboardRightAlt,
+             .keyboardLeftGUI, .keyboardRightGUI,
+             .keyboardCapsLock:
+            return true
+        default:
+            return false
+        }
+    }
+
+    // MARK: - HID to VNC Key Code Mapping
+
+    /// Maps UIKeyboardHIDUsage to VNCKeyCode for non-printable/special keys.
+    /// Returns nil for printable characters (handled via UIKey.characters).
+    private func vncKeyCode(for key: UIKey) -> VNCKeyCode? {
+        switch key.keyCode {
+        // Modifier keys
+        case .keyboardLeftShift:     return .shift
+        case .keyboardRightShift:    return .rightShift
+        case .keyboardLeftControl:   return .control
+        case .keyboardRightControl:  return .rightControl
+        case .keyboardLeftAlt:       return .option
+        case .keyboardRightAlt:      return .rightOption
+        case .keyboardLeftGUI:       return .command
+        case .keyboardRightGUI:      return .rightCommand
+        case .keyboardCapsLock:      return VNCKeyCode(0xffe5) // XK_Caps_Lock
+
+        // Navigation
+        case .keyboardReturnOrEnter: return .return
+        case .keyboardEscape:        return .escape
+        case .keyboardDeleteOrBackspace: return .delete
+        case .keyboardDeleteForward: return .forwardDelete
+        case .keyboardTab:           return .tab
+        case .keyboardSpacebar:      return .space
+        case .keyboardInsert:        return .insert
+        case .keyboardHome:          return .home
+        case .keyboardEnd:           return .end
+        case .keyboardPageUp:        return .pageUp
+        case .keyboardPageDown:      return .pageDown
+
+        // Arrow keys
+        case .keyboardLeftArrow:     return .leftArrow
+        case .keyboardRightArrow:    return .rightArrow
+        case .keyboardUpArrow:       return .upArrow
+        case .keyboardDownArrow:     return .downArrow
+
+        // Function keys
+        case .keyboardF1:            return .f1
+        case .keyboardF2:            return .f2
+        case .keyboardF3:            return .f3
+        case .keyboardF4:            return .f4
+        case .keyboardF5:            return .f5
+        case .keyboardF6:            return .f6
+        case .keyboardF7:            return .f7
+        case .keyboardF8:            return .f8
+        case .keyboardF9:            return .f9
+        case .keyboardF10:           return .f10
+        case .keyboardF11:           return .f11
+        case .keyboardF12:           return .f12
+        case .keyboardF13:           return .f13
+        case .keyboardF14:           return .f14
+        case .keyboardF15:           return .f15
+        case .keyboardF16:           return .f16
+        case .keyboardF17:           return .f17
+        case .keyboardF18:           return .f18
+        case .keyboardF19:           return .f19
+
+        // Misc
+        case .keyboardPrintScreen:   return VNCKeyCode(0xff61) // XK_Print
+        case .keyboardScrollLock:    return VNCKeyCode(0xff14) // XK_Scroll_Lock
+        case .keyboardPause:         return VNCKeyCode(0xff13) // XK_Pause
+        case .keyboardLockingNumLock: return VNCKeyCode(0xff7f) // XK_Num_Lock
+
+        // Keypad
+        case .keypadEnter:           return VNCKeyCode(0xff8d) // XK_KP_Enter
+        case .keypad0:               return VNCKeyCode(0xffb0) // XK_KP_0
+        case .keypad1:               return VNCKeyCode(0xffb1)
+        case .keypad2:               return VNCKeyCode(0xffb2)
+        case .keypad3:               return VNCKeyCode(0xffb3)
+        case .keypad4:               return VNCKeyCode(0xffb4)
+        case .keypad5:               return VNCKeyCode(0xffb5)
+        case .keypad6:               return VNCKeyCode(0xffb6)
+        case .keypad7:               return VNCKeyCode(0xffb7)
+        case .keypad8:               return VNCKeyCode(0xffb8)
+        case .keypad9:               return VNCKeyCode(0xffb9)
+        case .keypadPeriod:          return VNCKeyCode(0xffae) // XK_KP_Decimal
+        case .keypadPlus:            return VNCKeyCode(0xffab) // XK_KP_Add
+        case .keypadHyphen:          return VNCKeyCode(0xffad) // XK_KP_Subtract
+        case .keypadAsterisk:        return VNCKeyCode(0xffaa) // XK_KP_Multiply
+        case .keypadSlash:           return VNCKeyCode(0xffaf) // XK_KP_Divide
+        case .keypadEqualSign:       return VNCKeyCode(0xffbd) // XK_KP_Equal
+        case .keypadNumLock:         return VNCKeyCode(0xff7f) // XK_Num_Lock
+
+        default:
+            // For printable characters, return nil so we fall through to UIKey.characters
+            if isModifierOnlyKey(key.keyCode) {
+                return nil
+            }
+            // Check if it's a printable key by looking at characters
+            if !key.charactersIgnoringModifiers.isEmpty {
+                return nil // Will be handled by the character path
+            }
+            return nil
+        }
+    }
+}
