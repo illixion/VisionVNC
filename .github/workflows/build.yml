@@ -3,13 +3,19 @@ name: Build VisionVNC
 on:
   push:
     branches: [main]
+    paths:
+      - 'VisionVNC.xcodeproj/**'
+      - 'VisionVNC/**'
   pull_request:
     branches: [main]
   workflow_dispatch:
 
 jobs:
-  build:
+  build-and-release:
     runs-on: macos-15
+    permissions:
+      contents: write
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -47,8 +53,38 @@ jobs:
           cd $RUNNER_TEMP
           zip -r VisionVNC-unsigned.ipa Payload
 
-      - name: Upload IPA
-        uses: actions/upload-artifact@v4
+      - name: Create a version string from git SHA
+        id: version
+        run: |
+          VERSION="0.1.0-${GITHUB_SHA::8}"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Rename IPA with version
+        id: ipa
+        run: |
+          IPA_NAME="VisionVNC-${{ steps.version.outputs.version }}-unsigned.ipa"
+          cp $RUNNER_TEMP/VisionVNC-unsigned.ipa "$IPA_NAME"
+          echo "ipa_file=$IPA_NAME" >> $GITHUB_OUTPUT
+
+      - name: Create GitHub Release
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          name: VisionVNC-unsigned
-          path: ${{ runner.temp }}/VisionVNC-unsigned.ipa
+          tag_name: ${{ steps.version.outputs.version }}
+          release_name: Latest Release
+          draft: false
+          prerelease: false
+
+      - name: Upload Release Asset
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ${{ steps.ipa.outputs.ipa_file }}
+          asset_name: ${{ steps.ipa.outputs.ipa_file }}
+          asset_content_type: application/octet-stream
