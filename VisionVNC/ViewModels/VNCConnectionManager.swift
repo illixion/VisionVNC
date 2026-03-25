@@ -39,6 +39,7 @@ final class VNCConnectionManager: NSObject, VNCConnectionDelegate {
     // MARK: - Observable State
 
     var connectionState: AppConnectionState = .idle
+    var connectionTitle: String = ""
     var framebufferImage: CGImage?
     var framebufferSize: CGSize = .zero
 
@@ -60,9 +61,10 @@ final class VNCConnectionManager: NSObject, VNCConnectionDelegate {
 
     // MARK: - Connection Lifecycle
 
-    func connect(hostname: String, port: UInt16, username: String? = nil, password: String? = nil, colorDepth: VNCConnection.Settings.ColorDepth = .depth24Bit) {
+    func connect(hostname: String, port: UInt16, username: String? = nil, password: String? = nil, colorDepth: VNCConnection.Settings.ColorDepth = .depth24Bit, title: String? = nil) {
         disconnect()
 
+        connectionTitle = title ?? "\(hostname):\(port)"
         storedUsername = username
         storedPassword = password
 

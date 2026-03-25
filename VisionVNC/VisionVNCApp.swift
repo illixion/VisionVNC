@@ -18,5 +18,12 @@ struct VisionVNCApp: App {
         }
         .defaultSize(width: 1280, height: 800)
         .windowResizability(.contentMinSize)
+
+        WindowGroup("Keyboard", id: "keyboard") {
+            KeyboardInputView()
+                .environment(connectionManager)
+        }
+        .defaultSize(width: 500, height: 400)
+        .windowResizability(.contentSize)
     }
 }

@@ -3,7 +3,7 @@ import RoyalVNCKit
 
 struct KeyboardInputView: View {
     @Environment(VNCConnectionManager.self) private var connectionManager
-    @Environment(\.dismiss) private var dismiss
+    @Environment(\.dismissWindow) private var dismissWindow
 
     @State private var textInput: String = ""
     @FocusState private var isTextFieldFocused: Bool
@@ -15,74 +15,64 @@ struct KeyboardInputView: View {
     @State private var cmdActive = false
 
     var body: some View {
-        NavigationStack {
-            VStack(spacing: 24) {
-                Text("Type text to send to the remote desktop")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+        VStack(spacing: 24) {
+            Text("Type text to send to the remote desktop")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
 
-                TextField("Type here…", text: $textInput)
-                    .textFieldStyle(.roundedBorder)
-                    .focused($isTextFieldFocused)
-                    .onChange(of: textInput) { oldValue, newValue in
-                        sendNewCharacters(old: oldValue, new: newValue)
-                    }
-                    .padding(.horizontal)
-
-                // Modifier keys
-                HStack(spacing: 12) {
-                    modifierToggle("Ctrl", isActive: $ctrlActive, keyDown: .control, keyUp: .control)
-                    modifierToggle("Alt", isActive: $altActive, keyDown: .option, keyUp: .option)
-                    modifierToggle("Shift", isActive: $shiftActive, keyDown: .shift, keyUp: .shift)
-                    modifierToggle("Cmd", isActive: $cmdActive, keyDown: .command, keyUp: .command)
+            TextField("Type here…", text: $textInput)
+                .textFieldStyle(.roundedBorder)
+                .focused($isTextFieldFocused)
+                .onChange(of: textInput) { oldValue, newValue in
+                    sendNewCharacters(old: oldValue, new: newValue)
                 }
+                .padding(.horizontal)
 
-                // Special keys
-                HStack(spacing: 12) {
-                    specialKeyButton("Esc", keyCode: .escape)
-                    specialKeyButton("Tab", keyCode: .tab)
-                    specialKeyButton("Enter", keyCode: .return)
-                    specialKeyButton("Del", keyCode: .delete)
-                }
-
-                // Arrow keys
-                VStack(spacing: 8) {
-                    specialKeyButton("↑", keyCode: .upArrow)
-                    HStack(spacing: 16) {
-                        specialKeyButton("←", keyCode: .leftArrow)
-                        specialKeyButton("↓", keyCode: .downArrow)
-                        specialKeyButton("→", keyCode: .rightArrow)
-                    }
-                }
-
-                // Function keys
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        ForEach(functionKeys, id: \.label) { fk in
-                            specialKeyButton(fk.label, keyCode: fk.keyCode)
-                        }
-                    }
-                    .padding(.horizontal)
-                }
-
-                Spacer()
+            // Modifier keys
+            HStack(spacing: 12) {
+                modifierToggle("Ctrl", isActive: $ctrlActive, keyDown: .control, keyUp: .control)
+                modifierToggle("Alt", isActive: $altActive, keyDown: .option, keyUp: .option)
+                modifierToggle("Shift", isActive: $shiftActive, keyDown: .shift, keyUp: .shift)
+                modifierToggle("Cmd", isActive: $cmdActive, keyDown: .command, keyUp: .command)
             }
-            .padding(.top)
-            .navigationTitle("Keyboard")
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") {
-                        releaseAllModifiers()
-                        dismiss()
-                    }
+
+            // Special keys
+            HStack(spacing: 12) {
+                specialKeyButton("Esc", keyCode: .escape)
+                specialKeyButton("Tab", keyCode: .tab)
+                specialKeyButton("Enter", keyCode: .return)
+                specialKeyButton("Del", keyCode: .delete)
+            }
+
+            // Arrow keys
+            VStack(spacing: 8) {
+                specialKeyButton("↑", keyCode: .upArrow)
+                HStack(spacing: 16) {
+                    specialKeyButton("←", keyCode: .leftArrow)
+                    specialKeyButton("↓", keyCode: .downArrow)
+                    specialKeyButton("→", keyCode: .rightArrow)
                 }
             }
-            .onAppear {
-                isTextFieldFocused = true
+
+            // Function keys
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(functionKeys, id: \.label) { fk in
+                        specialKeyButton(fk.label, keyCode: fk.keyCode)
+                    }
+                }
+                .padding(.horizontal)
             }
-            .onDisappear {
-                releaseAllModifiers()
-            }
+
+            Spacer()
+        }
+        .padding(.top)
+        .navigationTitle("Keyboard")
+        .onAppear {
+            isTextFieldFocused = true
+        }
+        .onDisappear {
+            releaseAllModifiers()
         }
     }
 

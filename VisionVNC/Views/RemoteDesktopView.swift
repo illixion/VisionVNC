@@ -3,65 +3,67 @@ import RoyalVNCKit
 
 struct RemoteDesktopView: View {
     @Environment(VNCConnectionManager.self) private var connectionManager
+    @Environment(\.openWindow) private var openWindow
     @Environment(\.dismissWindow) private var dismissWindow
 
     @State private var viewSize: CGSize = .zero
-    @State private var showKeyboardInput = false
     @State private var isDragging = false
 
     var body: some View {
-        ZStack {
-            // Invisible hardware keyboard capture
-            HardwareKeyboardView(connectionManager: connectionManager)
-                .frame(width: 0, height: 0)
-                .opacity(0)
+        NavigationStack {
+            ZStack {
+                // Invisible hardware keyboard capture
+                HardwareKeyboardView(connectionManager: connectionManager)
+                    .frame(width: 0, height: 0)
+                    .opacity(0)
 
-            // Framebuffer display
-            GeometryReader { geometry in
-                ZStack {
-                    if let cgImage = connectionManager.framebufferImage {
-                        Image(uiImage: UIImage(cgImage: cgImage))
-                            .resizable()
-                            .aspectRatio(contentMode: .fit)
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    } else {
-                        statusView
+                // Framebuffer display
+                GeometryReader { geometry in
+                    ZStack {
+                        if let cgImage = connectionManager.framebufferImage {
+                            Image(uiImage: UIImage(cgImage: cgImage))
+                                .resizable()
+                                .aspectRatio(contentMode: .fit)
+                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        } else {
+                            statusView
+                        }
+                    }
+                    .frame(width: geometry.size.width, height: geometry.size.height)
+                    .contentShape(Rectangle())
+                    .gesture(tapGesture)
+                    .gesture(dragGesture)
+                    .onAppear {
+                        viewSize = geometry.size
+                    }
+                    .onChange(of: geometry.size) { _, newSize in
+                        viewSize = newSize
                     }
                 }
-                .frame(width: geometry.size.width, height: geometry.size.height)
-                .contentShape(Rectangle())
-                .gesture(tapGesture)
-                .gesture(dragGesture)
-                .onAppear {
-                    viewSize = geometry.size
-                }
-                .onChange(of: geometry.size) { _, newSize in
-                    viewSize = newSize
-                }
             }
-        }
-        .overlay(alignment: .bottom) {
-            toolbar
-                .padding(.bottom, 16)
+            .navigationTitle(connectionManager.connectionTitle)
+            .overlay(alignment: .bottom) {
+                toolbar
+                    .padding(.bottom, 16)
+            }
         }
         .sheet(isPresented: Bindable(connectionManager).isCredentialPromptPresented) {
             CredentialPromptView()
         }
-        .sheet(isPresented: $showKeyboardInput) {
-            KeyboardInputView()
-        }
         .onDisappear {
             // When the window is closed (by system close button or programmatically),
-            // ensure the VNC connection is torn down.
+            // ensure the VNC connection is torn down and keyboard window is closed.
+            dismissWindow(id: "keyboard")
             if connectionManager.connectionState.isActive {
                 connectionManager.disconnect()
             }
         }
         .onChange(of: connectionManager.connectionState) { _, newValue in
             if case .disconnected = newValue {
-                // Server-initiated disconnect: close the window after a brief delay
+                // Server-initiated disconnect: close windows after a brief delay
                 Task {
                     try? await Task.sleep(for: .seconds(1))
+                    dismissWindow(id: "keyboard")
                     dismissWindow(id: "remote-desktop")
                 }
             }
@@ -94,7 +96,7 @@ struct RemoteDesktopView: View {
 
     private var toolbar: some View {
         HStack(spacing: 20) {
-            Button(action: { showKeyboardInput = true }) {
+            Button(action: { openWindow(id: "keyboard") }) {
                 Label("Keyboard", systemImage: "keyboard")
             }
 
@@ -104,6 +106,7 @@ struct RemoteDesktopView: View {
 
             Button(action: {
                 connectionManager.disconnect()
+                dismissWindow(id: "keyboard")
                 dismissWindow(id: "remote-desktop")
             }) {
                 Label("Disconnect", systemImage: "xmark.circle")
