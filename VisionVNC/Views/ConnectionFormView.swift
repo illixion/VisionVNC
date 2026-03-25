@@ -11,8 +11,14 @@ struct ConnectionFormView: View {
 
     @State private var hostname: String = ""
     @State private var port: String = "5900"
-    @State private var password: String = ""
     @State private var label: String = ""
+    @State private var autoLogin: Bool = false
+    @State private var username: String = ""
+    @State private var password: String = ""
+
+    private var hasCredentials: Bool {
+        !password.isEmpty
+    }
 
     var body: some View {
         Form {
@@ -27,7 +33,24 @@ struct ConnectionFormView: View {
             }
 
             Section("Authentication") {
-                SecureField("Password (optional)", text: $password)
+                Toggle("Auto Login", isOn: $autoLogin)
+
+                if autoLogin {
+                    TextField("Username (optional)", text: $username)
+                        .textContentType(.username)
+                        .autocorrectionDisabled()
+                        .textInputAutocapitalization(.never)
+
+                    SecureField("Password", text: $password)
+                        .textContentType(.password)
+
+                    if savedConnection != nil && hasCredentials {
+                        Button("Clear Saved Credentials", role: .destructive) {
+                            username = ""
+                            password = ""
+                        }
+                    }
+                }
             }
 
             Section("Label") {
@@ -35,10 +58,10 @@ struct ConnectionFormView: View {
             }
 
             Section {
-                Button(action: connectToServer) {
+                Button(action: saveConnection) {
                     HStack {
                         Spacer()
-                        Label("Connect", systemImage: "display")
+                        Label("Save", systemImage: "checkmark.circle")
                             .font(.headline)
                         Spacer()
                     }
@@ -52,39 +75,36 @@ struct ConnectionFormView: View {
                 hostname = saved.hostname
                 port = String(saved.port)
                 label = saved.label
+                autoLogin = saved.autoLogin
+                username = saved.savedUsername
+                password = saved.savedPassword
             }
         }
     }
 
-    private func connectToServer() {
+    private func saveConnection() {
         let trimmedHost = hostname.trimmingCharacters(in: .whitespaces)
-        let portNum = UInt16(port) ?? 5900
+        let portNum = Int(port) ?? 5900
 
-        // Save or update the connection
         if let saved = savedConnection {
             saved.hostname = trimmedHost
-            saved.port = Int(portNum)
-            saved.label = label
-            saved.lastConnected = Date()
+            saved.port = portNum
+            saved.label = label.isEmpty ? "\(trimmedHost):\(portNum)" : label
+            saved.autoLogin = autoLogin
+            saved.savedUsername = autoLogin ? username : ""
+            saved.savedPassword = autoLogin ? password : ""
         } else {
             let newConnection = SavedConnection(
                 hostname: trimmedHost,
-                port: Int(portNum),
+                port: portNum,
                 label: label
             )
-            newConnection.lastConnected = Date()
+            newConnection.autoLogin = autoLogin
+            newConnection.savedUsername = autoLogin ? username : ""
+            newConnection.savedPassword = autoLogin ? password : ""
             modelContext.insert(newConnection)
         }
 
-        // Initiate the VNC connection
-        connectionManager.connect(
-            hostname: trimmedHost,
-            port: portNum,
-            password: password.isEmpty ? nil : password
-        )
-
-        // Open the remote desktop window
-        openWindow(id: "remote-desktop")
         dismiss()
     }
 }

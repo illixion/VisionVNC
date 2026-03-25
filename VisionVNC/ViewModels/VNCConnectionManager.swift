@@ -50,6 +50,7 @@ final class VNCConnectionManager: NSObject, VNCConnectionDelegate {
 
     private var connection: VNCConnection?
     private var framebuffer: VNCFramebuffer?
+    private var storedUsername: String?
     private var storedPassword: String?
     private var credentialCompletion: (((VNCCredential?) -> Void))?
 
@@ -59,9 +60,10 @@ final class VNCConnectionManager: NSObject, VNCConnectionDelegate {
 
     // MARK: - Connection Lifecycle
 
-    func connect(hostname: String, port: UInt16, password: String? = nil) {
+    func connect(hostname: String, port: UInt16, username: String? = nil, password: String? = nil) {
         disconnect()
 
+        storedUsername = username
         storedPassword = password
 
         let settings = VNCConnection.Settings(
@@ -147,12 +149,18 @@ final class VNCConnectionManager: NSObject, VNCConnectionDelegate {
                 return
             }
 
-            // Auto-submit stored password if available and auth type is VNC (password-only)
-            if let password = self.storedPassword, !password.isEmpty,
-               !authenticationType.requiresUsername {
+            // Auto-submit stored credentials if available
+            if let password = self.storedPassword, !password.isEmpty {
                 self.storedPassword = nil
-                completion(VNCPasswordCredential(password: password))
-                return
+                if authenticationType.requiresUsername, let username = self.storedUsername, !username.isEmpty {
+                    self.storedUsername = nil
+                    completion(VNCUsernamePasswordCredential(username: username, password: password))
+                    return
+                } else if !authenticationType.requiresUsername {
+                    completion(VNCPasswordCredential(password: password))
+                    return
+                }
+                // If username required but not provided, fall through to prompt
             }
 
             // Present credential prompt

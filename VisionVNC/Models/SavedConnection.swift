@@ -9,6 +9,9 @@ final class SavedConnection {
     var label: String
     var lastConnected: Date?
     var colorDepth: Int
+    var autoLogin: Bool
+    var savedUsername: String
+    var savedPassword: String
 
     init(hostname: String, port: Int = 5900, label: String = "", colorDepth: Int = 24) {
         self.id = UUID()
@@ -17,6 +20,9 @@ final class SavedConnection {
         self.label = label.isEmpty ? "\(hostname):\(port)" : label
         self.colorDepth = colorDepth
         self.lastConnected = nil
+        self.autoLogin = false
+        self.savedUsername = ""
+        self.savedPassword = ""
     }
 
     var displayName: String {
