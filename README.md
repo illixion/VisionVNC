@@ -20,7 +20,7 @@ A native VNC viewer for Apple Vision Pro, built in Swift with SwiftUI.
 
 ## Setup
 
-VisionVNC uses [RoyalVNCKit](https://github.com/royalapps/royalvnc) for the VNC protocol implementation.
+VisionVNC uses [RoyalVNCKit](https://github.com/royalapplications/royalvnc) for the VNC protocol implementation.
 
 1. Clone this repository:
    ```bash
@@ -31,7 +31,7 @@ VisionVNC uses [RoyalVNCKit](https://github.com/royalapps/royalvnc) for the VNC 
 2. Clone the RoyalVNCKit dependency:
    ```bash
    mkdir -p repos
-   git clone https://github.com/royalapps/royalvnc.git repos/royalvnc
+   git clone https://github.com/royalapplications/royalvnc.git repos/royalvnc
    ```
 
 3. Change the RoyalVNCKit library type to static in `repos/royalvnc/Package.swift`:
@@ -67,7 +67,7 @@ Contributions are welcome! Please feel free to submit a pull request.
 
 ## Third-Party Software
 
-This project uses [RoyalVNCKit](https://github.com/royalapps/royalvnc) by Royal Apps, licensed under the MIT License. See the in-app Third-Party Notices for full license text.
+This project uses [RoyalVNCKit](https://github.com/royalapplications/royalvnc) by Royal Apps, licensed under the MIT License. See the in-app Third-Party Notices for full license text.
 
 ## License
 
