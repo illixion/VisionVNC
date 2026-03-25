@@ -3,12 +3,14 @@ import SwiftData
 
 struct ConnectionListView: View {
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.openWindow) private var openWindow
     @Environment(VNCConnectionManager.self) private var connectionManager
 
     @Query(sort: \SavedConnection.lastConnected, order: .reverse)
     private var savedConnections: [SavedConnection]
 
     @State private var showingNewConnection = false
+    @State private var connectionToEdit: SavedConnection?
 
     var body: some View {
         NavigationStack {
@@ -22,11 +24,26 @@ struct ConnectionListView: View {
                 } else {
                     List {
                         ForEach(savedConnections) { connection in
-                            NavigationLink(value: connection) {
+                            Button {
+                                connectTo(connection)
+                            } label: {
                                 connectionRow(connection)
                             }
+                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                Button(role: .destructive) {
+                                    modelContext.delete(connection)
+                                } label: {
+                                    Label("Delete", systemImage: "trash")
+                                }
+
+                                Button {
+                                    connectionToEdit = connection
+                                } label: {
+                                    Label("Edit", systemImage: "pencil")
+                                }
+                                .tint(.blue)
+                            }
                         }
-                        .onDelete(perform: deleteConnections)
                     }
                 }
             }
@@ -37,9 +54,6 @@ struct ConnectionListView: View {
                         showingNewConnection = true
                     }
                 }
-            }
-            .navigationDestination(for: SavedConnection.self) { connection in
-                ConnectionFormView(savedConnection: connection)
             }
             .sheet(isPresented: $showingNewConnection) {
                 NavigationStack {
@@ -53,28 +67,72 @@ struct ConnectionListView: View {
                         }
                 }
             }
+            .sheet(item: $connectionToEdit) { connection in
+                NavigationStack {
+                    ConnectionFormView(savedConnection: connection)
+                        .toolbar {
+                            ToolbarItem(placement: .cancellationAction) {
+                                Button("Done") {
+                                    connectionToEdit = nil
+                                }
+                            }
+                        }
+                }
+            }
         }
     }
 
     private func connectionRow(_ connection: SavedConnection) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(connection.displayName)
-                .font(.headline)
-            Text("\(connection.hostname):\(connection.port)")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            if let date = connection.lastConnected {
-                Text("Last connected: \(date, style: .relative) ago")
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
+        HStack {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(connection.displayName)
+                    .font(.headline)
+                Text("\(connection.hostname):\(connection.port)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                if let date = connection.lastConnected {
+                    Text("Last connected: \(date, style: .relative) ago")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
             }
+            .padding(.vertical, 2)
+
+            Spacer()
+
+            Button {
+                connectionToEdit = connection
+            } label: {
+                Image(systemName: "pencil.circle")
+                    .font(.title3)
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
         }
-        .padding(.vertical, 2)
     }
 
-    private func deleteConnections(at offsets: IndexSet) {
-        for index in offsets {
-            modelContext.delete(savedConnections[index])
+    private func connectTo(_ connection: SavedConnection) {
+        connection.lastConnected = Date()
+
+        var username: String?
+        var password: String?
+
+        if connection.autoLogin {
+            if !connection.savedUsername.isEmpty {
+                username = connection.savedUsername
+            }
+            if !connection.savedPassword.isEmpty {
+                password = connection.savedPassword
+            }
         }
+
+        connectionManager.connect(
+            hostname: connection.hostname,
+            port: UInt16(connection.port),
+            username: username,
+            password: password
+        )
+
+        openWindow(id: "remote-desktop")
     }
 }
