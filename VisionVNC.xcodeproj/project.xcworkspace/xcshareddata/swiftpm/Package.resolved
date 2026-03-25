@@ -1,0 +1,24 @@
+{
+  "originHash" : "9aefbb9a5168c68a35483d3f897cd7d58b036805a5f0683332d9ca7a95e582be",
+  "pins" : [
+    {
+      "identity" : "cryptoswift",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/royalapplications/CryptoSwift.git",
+      "state" : {
+        "branch" : "foundationessentials",
+        "revision" : "a59b4d91ebb22011656c830f874fe7152e183a57"
+      }
+    },
+    {
+      "identity" : "cstb",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/troughton/Cstb",
+      "state" : {
+        "revision" : "a47f4ecf3a139ac2f53ed27a984853c9f98097f1",
+        "version" : "1.0.6"
+      }
+    }
+  ],
+  "version" : 3
+}
