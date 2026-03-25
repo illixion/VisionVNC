@@ -15,6 +15,7 @@ struct KeyboardInputView: View {
     @State private var cmdActive = false
 
     var body: some View {
+        NavigationStack {
         VStack(spacing: 24) {
             Text("Type text to send to the remote desktop")
                 .font(.subheadline)
@@ -67,13 +68,14 @@ struct KeyboardInputView: View {
             Spacer()
         }
         .padding(.top)
-        .navigationTitle("Keyboard")
+        .navigationTitle("Keyboard — \(connectionManager.connectionTitle)")
         .onAppear {
             isTextFieldFocused = true
         }
         .onDisappear {
             releaseAllModifiers()
         }
+        } // NavigationStack
     }
 
     // MARK: - Character Sending
