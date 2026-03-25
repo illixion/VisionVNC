@@ -55,6 +55,20 @@ struct ConnectionListView: View {
                     }
                 }
             }
+            .safeAreaInset(edge: .bottom) {
+                HStack {
+                    Spacer()
+                    NavigationLink {
+                        ThirdPartyNoticesView()
+                    } label: {
+                        Label("Third-Party Notices", systemImage: "info.circle")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .padding()
+                }
+            }
             .sheet(isPresented: $showingNewConnection) {
                 NavigationStack {
                     ConnectionFormView(savedConnection: nil)
