@@ -60,7 +60,7 @@ final class VNCConnectionManager: NSObject, VNCConnectionDelegate {
 
     // MARK: - Connection Lifecycle
 
-    func connect(hostname: String, port: UInt16, username: String? = nil, password: String? = nil) {
+    func connect(hostname: String, port: UInt16, username: String? = nil, password: String? = nil, colorDepth: VNCConnection.Settings.ColorDepth = .depth24Bit) {
         disconnect()
 
         storedUsername = username
@@ -75,7 +75,7 @@ final class VNCConnectionManager: NSObject, VNCConnectionDelegate {
             useDisplayLink: false,
             inputMode: .forwardKeyboardShortcutsIfNotInUseLocally,
             isClipboardRedirectionEnabled: true,
-            colorDepth: .depth24Bit,
+            colorDepth: colorDepth,
             frameEncodings: .default
         )
 

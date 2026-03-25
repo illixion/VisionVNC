@@ -12,6 +12,7 @@ struct ConnectionFormView: View {
     @State private var hostname: String = ""
     @State private var port: String = "5900"
     @State private var label: String = ""
+    @State private var quality: ConnectionQuality = .high
     @State private var autoLogin: Bool = false
     @State private var username: String = ""
     @State private var password: String = ""
@@ -53,6 +54,19 @@ struct ConnectionFormView: View {
                 }
             }
 
+            Section("Quality") {
+                Picker("Quality", selection: $quality) {
+                    ForEach(ConnectionQuality.allCases, id: \.self) { q in
+                        Text(q.label).tag(q)
+                    }
+                }
+                .pickerStyle(.segmented)
+
+                Text(quality.detail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             Section("Label") {
                 TextField("Display Name (optional)", text: $label)
             }
@@ -75,6 +89,7 @@ struct ConnectionFormView: View {
                 hostname = saved.hostname
                 port = String(saved.port)
                 label = saved.label
+                quality = saved.quality
                 autoLogin = saved.autoLogin
                 username = saved.savedUsername
                 password = saved.savedPassword
@@ -90,6 +105,7 @@ struct ConnectionFormView: View {
             saved.hostname = trimmedHost
             saved.port = portNum
             saved.label = label.isEmpty ? "\(trimmedHost):\(portNum)" : label
+            saved.quality = quality
             saved.autoLogin = autoLogin
             saved.savedUsername = autoLogin ? username : ""
             saved.savedPassword = autoLogin ? password : ""
@@ -97,7 +113,8 @@ struct ConnectionFormView: View {
             let newConnection = SavedConnection(
                 hostname: trimmedHost,
                 port: portNum,
-                label: label
+                label: label,
+                quality: quality
             )
             newConnection.autoLogin = autoLogin
             newConnection.savedUsername = autoLogin ? username : ""

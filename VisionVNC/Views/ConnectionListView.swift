@@ -130,7 +130,8 @@ struct ConnectionListView: View {
             hostname: connection.hostname,
             port: UInt16(connection.port),
             username: username,
-            password: password
+            password: password,
+            colorDepth: connection.quality.vncColorDepth
         )
 
         openWindow(id: "remote-desktop")
