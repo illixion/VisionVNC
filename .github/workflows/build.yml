@@ -1,0 +1,54 @@
+name: Build VisionVNC
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_26.3.app/Contents/Developer
+
+      - name: Clone and patch RoyalVNC
+        run: |
+          git clone https://github.com/royalapplications/royalvnc.git repos/royalvnc
+          sed -i '' 's/type: .dynamic/type: .static/' repos/royalvnc/Package.swift
+
+      - name: Resolve packages
+        run: |
+          xcodebuild -resolvePackageDependencies \
+            -project VisionVNC.xcodeproj \
+            -scheme VisionVNC
+
+      - name: Build archive
+        run: |
+          xcodebuild archive \
+            -project VisionVNC.xcodeproj \
+            -scheme VisionVNC \
+            -destination 'generic/platform=visionOS' \
+            -archivePath $RUNNER_TEMP/VisionVNC.xcarchive \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY=""
+
+      - name: Create unsigned IPA
+        run: |
+          cd $RUNNER_TEMP/VisionVNC.xcarchive/Products/Applications
+          mkdir -p $RUNNER_TEMP/Payload
+          cp -R VisionVNC.app $RUNNER_TEMP/Payload/
+          cd $RUNNER_TEMP
+          zip -r VisionVNC-unsigned.ipa Payload
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: VisionVNC-unsigned
+          path: ${{ runner.temp }}/VisionVNC-unsigned.ipa
