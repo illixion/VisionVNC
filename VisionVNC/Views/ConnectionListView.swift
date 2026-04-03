@@ -5,12 +5,14 @@ struct ConnectionListView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.openWindow) private var openWindow
     @Environment(VNCConnectionManager.self) private var connectionManager
+    @Environment(MoonlightConnectionManager.self) private var moonlightManager
 
     @Query(sort: \SavedConnection.lastConnected, order: .reverse)
     private var savedConnections: [SavedConnection]
 
     @State private var showingNewConnection = false
     @State private var connectionToEdit: SavedConnection?
+    @State private var moonlightConnection: SavedConnection?
 
     var body: some View {
         NavigationStack {
@@ -92,6 +94,10 @@ struct ConnectionListView: View {
                             }
                         }
                 }
+            }
+            .sheet(item: $moonlightConnection) { connection in
+                MoonlightPairingView(connection: connection)
+                    .environment(moonlightManager)
             }
         }
     }
@@ -185,9 +191,7 @@ struct ConnectionListView: View {
     }
 
     private func connectMoonlight(_ connection: SavedConnection) {
-        // TODO: Phase 2+ — launch MoonlightConnectionManager flow
-        // For now, this is a placeholder. The Moonlight connection manager
-        // will be implemented in Sprint 2 (HTTP client + pairing) and
-        // Sprint 3 (streaming core).
+        moonlightManager.connect(to: connection)
+        moonlightConnection = connection
     }
 }

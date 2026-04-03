@@ -4,11 +4,13 @@ import SwiftData
 @main
 struct VisionVNCApp: App {
     @State private var connectionManager = VNCConnectionManager()
+    @State private var moonlightManager = MoonlightConnectionManager()
 
     var body: some Scene {
         WindowGroup {
             ConnectionListView()
                 .environment(connectionManager)
+                .environment(moonlightManager)
         }
         .modelContainer(for: SavedConnection.self)
 
