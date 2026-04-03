@@ -19,7 +19,7 @@ struct ConnectionListView: View {
                     ContentUnavailableView(
                         "No Connections",
                         systemImage: "display",
-                        description: Text("Add a VNC connection to get started.")
+                        description: Text("Add a VNC or Moonlight connection to get started.")
                     )
                 } else {
                     List {
@@ -98,12 +98,33 @@ struct ConnectionListView: View {
 
     private func connectionRow(_ connection: SavedConnection) -> some View {
         HStack {
+            Image(systemName: connection.connectionType.systemImage)
+                .font(.title2)
+                .foregroundStyle(.tint)
+                .frame(width: 32)
+
             VStack(alignment: .leading, spacing: 4) {
                 Text(connection.displayName)
                     .font(.headline)
-                Text("\(connection.hostname):\(connection.port)")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+
+                HStack(spacing: 4) {
+                    Text(connection.connectionType.label)
+                        .font(.caption)
+                        .fontWeight(.medium)
+                        .foregroundStyle(.secondary)
+                    Text("·")
+                        .foregroundStyle(.tertiary)
+                    Text("\(connection.hostname):\(connection.port)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                if connection.connectionType == .moonlight {
+                    Text("\(connection.moonlightResolutionLabel) · \(connection.moonlightFPS) FPS")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
+
                 if let date = connection.lastConnected {
                     Text("Last connected: \(date, style: .relative) ago")
                         .font(.caption2)
@@ -130,6 +151,15 @@ struct ConnectionListView: View {
     private func connectTo(_ connection: SavedConnection) {
         connection.lastConnected = Date()
 
+        switch connection.connectionType {
+        case .vnc:
+            connectVNC(connection)
+        case .moonlight:
+            connectMoonlight(connection)
+        }
+    }
+
+    private func connectVNC(_ connection: SavedConnection) {
         var username: String?
         var password: String?
 
@@ -152,5 +182,12 @@ struct ConnectionListView: View {
         )
 
         openWindow(id: "remote-desktop")
+    }
+
+    private func connectMoonlight(_ connection: SavedConnection) {
+        // TODO: Phase 2+ — launch MoonlightConnectionManager flow
+        // For now, this is a placeholder. The Moonlight connection manager
+        // will be implemented in Sprint 2 (HTTP client + pairing) and
+        // Sprint 3 (streaming core).
     }
 }
