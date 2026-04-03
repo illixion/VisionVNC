@@ -88,7 +88,7 @@ struct ConnectionListView: View {
                     ConnectionFormView(savedConnection: connection)
                         .toolbar {
                             ToolbarItem(placement: .cancellationAction) {
-                                Button("Done") {
+                                Button("Cancel") {
                                     connectionToEdit = nil
                                 }
                             }

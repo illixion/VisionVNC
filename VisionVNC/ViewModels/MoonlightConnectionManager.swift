@@ -63,6 +63,11 @@ class MoonlightConnectionManager: MoonlightStreamDelegate {
     var serverInfo: ServerInfo?
     var apps: [MoonlightApp] = []
     var statusMessage: String = ""
+    /// Touch mode for the active connection (relative trackpad vs absolute positioning).
+    var touchMode: TouchMode = .relative
+    /// Stream resolution for coordinate mapping in absolute mode.
+    var streamWidth: Int = 1920
+    var streamHeight: Int = 1080
 
     /// Video renderer — exposed so MoonlightStreamView can check streaming state.
     var videoRenderer: MoonlightVideoRenderer?
@@ -300,6 +305,9 @@ class MoonlightConnectionManager: MoonlightStreamDelegate {
                     self.videoRenderer = video
                     self.audioRenderer = audio
                     self.isStreamActive = true
+                    self.touchMode = connection.moonlightTouchMode
+                    self.streamWidth = connection.moonlightResolutionWidth
+                    self.streamHeight = connection.moonlightResolutionHeight
                     self.streamStats = StreamStats(
                         videoCodec: codecName,
                         resolution: "\(connection.moonlightResolutionWidth)x\(connection.moonlightResolutionHeight)",
@@ -519,6 +527,39 @@ class MoonlightConnectionManager: MoonlightStreamDelegate {
                 return VIDEO_FORMAT_H264 | VIDEO_FORMAT_H265
             }
             return VIDEO_FORMAT_H264
+        }
+    }
+
+    /// Quit the currently running app on the server (ends the session).
+    func quitServerSession() {
+        guard let client = httpClient else { return }
+        Task {
+            do {
+                try await client.quitApp()
+                // Refresh server info to update currentGameId
+                if let info = try? await client.getServerInfo() {
+                    serverInfo = info
+                }
+                statusMessage = "Session ended on server"
+            } catch {
+                statusMessage = "Failed to quit: \(error.localizedDescription)"
+            }
+        }
+    }
+
+    /// Stop the local stream AND quit the app on the server.
+    func stopStreamingAndQuit() {
+        guard isStreamActive else { return }
+        let client = httpClient
+        Task.detached {
+            stopMoonlightStream()
+            // End the session on the server
+            try? await client?.quitApp()
+            await MainActor.run {
+                self.cleanupStream()
+                self.connectionState = .ready
+                self.statusMessage = "Session ended"
+            }
         }
     }
 

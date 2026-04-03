@@ -65,9 +65,16 @@ struct ConnectionFormView: View {
             }
 
             labelSection
-            saveSection
         }
         .navigationTitle(isEditing ? "Edit Connection" : "New Connection")
+        .toolbar {
+            ToolbarItem(placement: .confirmationAction) {
+                Button("Save") {
+                    saveConnection()
+                }
+                .disabled(hostname.trimmingCharacters(in: .whitespaces).isEmpty)
+            }
+        }
         .onAppear(perform: loadFromSavedConnection)
         .onChange(of: connectionType) { _, newType in
             port = String(newType.defaultPort)
@@ -103,20 +110,6 @@ struct ConnectionFormView: View {
     private var labelSection: some View {
         Section("Label") {
             TextField("Display Name (optional)", text: $label)
-        }
-    }
-
-    private var saveSection: some View {
-        Section {
-            Button(action: saveConnection) {
-                HStack {
-                    Spacer()
-                    Label("Save", systemImage: "checkmark.circle")
-                        .font(.headline)
-                    Spacer()
-                }
-            }
-            .disabled(hostname.trimmingCharacters(in: .whitespaces).isEmpty)
         }
     }
 

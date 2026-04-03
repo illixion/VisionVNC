@@ -112,6 +112,20 @@ struct MoonlightPairingView: View {
                 Text("Available Apps")
                     .font(.headline)
 
+                // Show "Quit Session" button if an app is currently running
+                if let info = manager.serverInfo, info.currentGameId != 0 {
+                    let runningApp = manager.apps.first { $0.id == info.currentGameId }
+                    Button(role: .destructive) {
+                        manager.quitServerSession()
+                    } label: {
+                        Label(
+                            "Quit \(runningApp?.name ?? "Active Session")",
+                            systemImage: "stop.circle"
+                        )
+                    }
+                    .buttonStyle(.bordered)
+                }
+
                 List(manager.apps) { app in
                     Button {
                         manager.launchApp(app)
@@ -127,6 +141,15 @@ struct MoonlightPairingView: View {
                                 .font(.body)
 
                             Spacer()
+
+                            if let info = manager.serverInfo, info.currentGameId == app.id {
+                                Text("Running")
+                                    .font(.caption2)
+                                    .fontWeight(.semibold)
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 2)
+                                    .background(.green.opacity(0.2), in: Capsule())
+                            }
 
                             if app.hdrSupported {
                                 Text("HDR")
