@@ -10,7 +10,6 @@ class MoonlightConnectionManager {
         case idle
         case connecting
         case fetchingServerInfo
-        case needsPairing(pin: String)
         case pairing(pin: String)
         case paired
         case fetchingApps
@@ -25,8 +24,6 @@ class MoonlightConnectionManager {
                  (.paired, .paired), (.fetchingApps, .fetchingApps),
                  (.ready, .ready), (.streaming, .streaming):
                 return true
-            case (.needsPairing(let a), .needsPairing(let b)):
-                return a == b
             case (.pairing(let a), .pairing(let b)):
                 return a == b
             case (.error(let a), .error(let b)):
@@ -43,6 +40,7 @@ class MoonlightConnectionManager {
     var statusMessage: String = ""
 
     private var httpClient: NvHTTPClient?
+    private var activeConnection: SavedConnection?
     private let cryptoManager = CryptoManager.shared
     private let pairingManager = NvPairingManager()
 
@@ -56,6 +54,7 @@ class MoonlightConnectionManager {
         statusMessage = "Connecting to \(connection.hostname)..."
         apps = []
         serverInfo = nil
+        activeConnection = connection
 
         let hostname = connection.hostname
         let port = UInt16(connection.port)
@@ -85,7 +84,7 @@ class MoonlightConnectionManager {
                     // Already paired — configure HTTPS if not already done
                     if savedServerCert == nil, let uuid = serverInfo?.uuid, !uuid.isEmpty {
                         // Paired but we don't have the cert stored — need to re-pair
-                        startPairing()
+                        startPairing(connection: connection)
                         return
                     }
 
@@ -94,7 +93,7 @@ class MoonlightConnectionManager {
                     await fetchApps()
                 } else {
                     // Need to pair
-                    startPairing()
+                    startPairing(connection: connection)
                 }
             } catch {
                 connectionState = .error(error.localizedDescription)
@@ -103,18 +102,13 @@ class MoonlightConnectionManager {
         }
     }
 
-    /// Initiate pairing — generates PIN and waits for user action.
-    private func startPairing() {
+    /// Initiate pairing — generates PIN and immediately starts the handshake.
+    /// The first pair request blocks on the server until the user enters the PIN,
+    /// so we fire it immediately and display the PIN while waiting.
+    private func startPairing(connection: SavedConnection) {
         let pin = String(format: "%04d", Int.random(in: 0...9999))
-        connectionState = .needsPairing(pin: pin)
-        statusMessage = "Enter PIN on your server"
-    }
-
-    /// Begin the pairing handshake after user has seen the PIN.
-    func beginPairing(pin: String, connection: SavedConnection) {
-        guard case .needsPairing = connectionState else { return }
         connectionState = .pairing(pin: pin)
-        statusMessage = "Pairing... Enter PIN \(pin) on your server"
+        statusMessage = "Enter PIN \(pin) on your server"
 
         Task {
             do {
@@ -174,6 +168,7 @@ class MoonlightConnectionManager {
     /// Disconnect and reset state.
     func disconnect() {
         httpClient = nil
+        activeConnection = nil
         connectionState = .idle
         serverInfo = nil
         apps = []

@@ -14,11 +14,8 @@ struct MoonlightPairingView: View {
                 case .connecting, .fetchingServerInfo:
                     connectingView
 
-                case .needsPairing(let pin):
-                    pinView(pin: pin)
-
                 case .pairing(let pin):
-                    pairingInProgressView(pin: pin)
+                    pairingView(pin: pin)
 
                 case .paired, .fetchingApps:
                     fetchingAppsView
@@ -57,7 +54,7 @@ struct MoonlightPairingView: View {
         }
     }
 
-    private func pinView(pin: String) -> some View {
+    private func pairingView(pin: String) -> some View {
         VStack(spacing: 24) {
             Image(systemName: "lock.shield")
                 .font(.system(size: 48))
@@ -72,38 +69,14 @@ struct MoonlightPairingView: View {
                 .padding(.vertical, 16)
                 .background(.quaternary, in: RoundedRectangle(cornerRadius: 16))
 
+            ProgressView()
+                .controlSize(.regular)
+
             Text("Open your Sunshine web interface and enter this PIN when prompted.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal)
-
-            Button {
-                manager.beginPairing(pin: pin, connection: connection)
-            } label: {
-                Label("Start Pairing", systemImage: "link")
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
-        }
-    }
-
-    private func pairingInProgressView(pin: String) -> some View {
-        VStack(spacing: 24) {
-            ProgressView()
-                .controlSize(.large)
-
-            Text("Pairing in progress...")
-                .font(.headline)
-
-            Text("PIN: \(pin)")
-                .font(.system(size: 36, weight: .bold, design: .monospaced))
-                .foregroundStyle(.secondary)
-
-            Text("Waiting for server to accept the PIN...")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
         }
     }
 

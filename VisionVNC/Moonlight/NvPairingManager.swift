@@ -218,7 +218,7 @@ actor NvPairingManager {
         // Step 6: Final pair challenge over HTTPS
         let step6Response = try await client.pairRequest(args: [
             ("phrase", "pairchallenge"),
-        ])
+        ], useHTTPS: true)
 
         // Note: Step 6 may not verify status cleanly on all servers,
         // but if we get here without error the pairing is successful.

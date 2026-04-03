@@ -179,12 +179,16 @@ actor NvHTTPClient {
     // MARK: - Pairing Endpoints (called by NvPairingManager)
 
     /// Send a pairing request. Returns parsed XML elements.
-    func pairRequest(args: [(String, String)], timeout: TimeInterval? = nil) async throws -> XMLResponse {
+    /// Pass `timeout: nil` for the default (5s), or `timeout: 0` for indefinite wait (getservercert).
+    /// Pass `useHTTPS: true` for the final pair challenge (step 6).
+    func pairRequest(args: [(String, String)], timeout: TimeInterval? = nil, useHTTPS: Bool = false) async throws -> XMLResponse {
         var allArgs = [("devicename", Self.deviceName), ("updateState", "1")]
         allArgs.append(contentsOf: args)
 
-        let effectiveTimeout = timeout ?? 5
-        return try await request("pair", args: allArgs, session: httpSession, useHTTPS: false, timeout: effectiveTimeout)
+        // timeout 0 means "wait indefinitely" (server blocks until user enters PIN)
+        let effectiveTimeout: TimeInterval = timeout == 0 ? 300 : (timeout ?? 5)
+        let session = useHTTPS ? (httpsSession ?? httpSession) : httpSession
+        return try await request("pair", args: allArgs, session: session, useHTTPS: useHTTPS, timeout: effectiveTimeout)
     }
 
     func unpair() async throws {
