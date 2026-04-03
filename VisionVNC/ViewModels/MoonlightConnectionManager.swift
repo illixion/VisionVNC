@@ -1,6 +1,15 @@
 import Foundation
 import SwiftUI
+import QuartzCore
 @preconcurrency import MoonlightCommonC
+
+/// NSObject proxy for CADisplayLink target (since MoonlightConnectionManager doesn't extend NSObject).
+private class DisplayLinkProxy: NSObject {
+    var handler: (() -> Void)?
+    @objc func displayLinkFired() {
+        handler?()
+    }
+}
 
 /// Orchestrates the Moonlight connection lifecycle:
 /// server info → pairing → app list → stream launch.
@@ -42,10 +51,16 @@ class MoonlightConnectionManager: MoonlightStreamDelegate {
     var apps: [MoonlightApp] = []
     var statusMessage: String = ""
 
-    /// Video renderer — exposed so MoonlightStreamView can access the display layer.
+    /// Video renderer — exposed so MoonlightStreamView can check streaming state.
     var videoRenderer: MoonlightVideoRenderer?
+    /// Latest decoded video frame for SwiftUI display.
+    var streamFrameImage: CGImage?
     private var audioRenderer: MoonlightAudioRenderer?
     private var isStreamActive = false
+
+    /// Display link proxy and timer for throttled frame updates.
+    private var displayLinkProxy: DisplayLinkProxy?
+    private var streamDisplayLink: CADisplayLink?
 
     private var httpClient: NvHTTPClient?
     private var activeConnection: SavedConnection?
@@ -312,9 +327,48 @@ class MoonlightConnectionManager: MoonlightStreamDelegate {
     }
 
     private func cleanupStream() {
+        stopDisplayLink()
         videoRenderer = nil
         audioRenderer = nil
         isStreamActive = false
+        streamFrameImage = nil
+    }
+
+    private func startDisplayLink() {
+        let proxy = DisplayLinkProxy()
+        proxy.handler = { [weak self] in
+            self?.updateStreamFrame()
+        }
+        displayLinkProxy = proxy
+        let link = CADisplayLink(target: proxy, selector: #selector(DisplayLinkProxy.displayLinkFired))
+        link.preferredFrameRateRange = CAFrameRateRange(minimum: 30, maximum: 120, preferred: 60)
+        link.add(to: .main, forMode: .common)
+        streamDisplayLink = link
+    }
+
+    private func stopDisplayLink() {
+        streamDisplayLink?.invalidate()
+        streamDisplayLink = nil
+        displayLinkProxy = nil
+    }
+
+    private nonisolated(unsafe) var displayLinkLogCount = 0
+    private func updateStreamFrame() {
+        guard let renderer = videoRenderer else {
+            if displayLinkLogCount < 3 {
+                print("[MoonlightStream] Display link: no videoRenderer")
+                displayLinkLogCount += 1
+            }
+            return
+        }
+        let frame = renderer.latestFrame
+        if displayLinkLogCount < 5 {
+            print("[MoonlightStream] Display link tick: latestFrame=\(frame != nil ? "yes" : "nil")")
+            displayLinkLogCount += 1
+        }
+        if let frame = frame, frame !== streamFrameImage {
+            streamFrameImage = frame
+        }
     }
 
     // MARK: - MoonlightStreamDelegate
@@ -341,6 +395,7 @@ class MoonlightConnectionManager: MoonlightStreamDelegate {
         Task { @MainActor in
             self.connectionState = .streaming
             self.statusMessage = "Streaming"
+            self.startDisplayLink()
         }
     }
 

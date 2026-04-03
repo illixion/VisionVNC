@@ -1,5 +1,4 @@
 import SwiftUI
-import AVFoundation
 @preconcurrency import MoonlightCommonC
 
 /// SwiftUI view that displays the Moonlight video stream and handles touch input.
@@ -12,8 +11,10 @@ struct MoonlightStreamView: View {
         ZStack {
             Color.black.ignoresSafeArea()
 
-            if let renderer = manager.videoRenderer {
-                VideoDisplayView(displayLayer: renderer.displayLayer)
+            if let frame = manager.streamFrameImage {
+                Image(decorative: frame, scale: 1.0)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
                     .ignoresSafeArea()
                     .gesture(
                         DragGesture(minimumDistance: 0)
@@ -63,35 +64,5 @@ struct MoonlightStreamView: View {
         .onDisappear {
             manager.stopStreaming()
         }
-    }
-}
-
-/// UIViewRepresentable that hosts an AVSampleBufferDisplayLayer.
-private struct VideoDisplayView: UIViewRepresentable {
-    let displayLayer: AVSampleBufferDisplayLayer
-
-    func makeUIView(context: Context) -> VideoLayerHostView {
-        let view = VideoLayerHostView()
-        view.setDisplayLayer(displayLayer)
-        return view
-    }
-
-    func updateUIView(_ uiView: VideoLayerHostView, context: Context) {}
-}
-
-/// UIView subclass that hosts an AVSampleBufferDisplayLayer.
-private class VideoLayerHostView: UIView {
-    private var displayLayer: AVSampleBufferDisplayLayer?
-
-    func setDisplayLayer(_ layer: AVSampleBufferDisplayLayer) {
-        displayLayer?.removeFromSuperlayer()
-        displayLayer = layer
-        self.layer.addSublayer(layer)
-        setNeedsLayout()
-    }
-
-    override func layoutSubviews() {
-        super.layoutSubviews()
-        displayLayer?.frame = bounds
     }
 }

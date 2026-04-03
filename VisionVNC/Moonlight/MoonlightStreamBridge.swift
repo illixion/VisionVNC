@@ -48,19 +48,26 @@ let audioConfig71: Int32 = 0x63F08CA
 private nonisolated func bridgeVideoSetup(_ videoFormat: Int32, _ width: Int32, _ height: Int32,
                                _ redrawRate: Int32, _ context: UnsafeMutableRawPointer?,
                                _ drFlags: Int32) -> Int32 {
-    guard let renderer = activeVideoRenderer else { return -1 }
+    print("[MoonlightBridge] Video setup: \(width)x\(height)@\(redrawRate) format=0x\(String(videoFormat, radix: 16))")
+    guard let renderer = activeVideoRenderer else {
+        print("[MoonlightBridge] ERROR: No video renderer!")
+        return -1
+    }
     return renderer.setup(videoFormat: videoFormat, width: width, height: height, fps: redrawRate)
 }
 
 private nonisolated func bridgeVideoStart() {
+    print("[MoonlightBridge] Video start")
     activeVideoRenderer?.start()
 }
 
 private nonisolated func bridgeVideoStop() {
+    print("[MoonlightBridge] Video stop")
     activeVideoRenderer?.stop()
 }
 
 private nonisolated func bridgeVideoCleanup() {
+    print("[MoonlightBridge] Video cleanup")
     activeVideoRenderer?.cleanup()
 }
 
@@ -100,33 +107,60 @@ private nonisolated func bridgeAudioDecodeAndPlay(_ sampleData: UnsafeMutablePoi
 // MARK: - Connection Listener Callbacks
 
 private nonisolated func bridgeStageStarting(_ stage: Int32) {
+    let stageName = moonlightStageName(stage)
+    print("[MoonlightBridge] Stage starting: \(stageName) (\(stage))")
     let delegate = activeStreamDelegate
     Task { @MainActor in delegate?.moonlightStreamStageStarting(stage) }
 }
 
 private nonisolated func bridgeStageComplete(_ stage: Int32) {
+    let stageName = moonlightStageName(stage)
+    print("[MoonlightBridge] Stage complete: \(stageName) (\(stage))")
     let delegate = activeStreamDelegate
     Task { @MainActor in delegate?.moonlightStreamStageComplete(stage) }
 }
 
 private nonisolated func bridgeStageFailed(_ stage: Int32, _ errorCode: Int32) {
+    let stageName = moonlightStageName(stage)
+    print("[MoonlightBridge] Stage FAILED: \(stageName) (\(stage)), error=\(errorCode)")
     let delegate = activeStreamDelegate
     Task { @MainActor in delegate?.moonlightStreamStageFailed(stage, errorCode: errorCode) }
 }
 
 private nonisolated func bridgeConnectionStarted() {
+    print("[MoonlightBridge] Connection started successfully!")
     let delegate = activeStreamDelegate
     Task { @MainActor in delegate?.moonlightStreamConnectionStarted() }
 }
 
 private nonisolated func bridgeConnectionTerminated(_ errorCode: Int32) {
+    print("[MoonlightBridge] Connection terminated, error=\(errorCode)")
     let delegate = activeStreamDelegate
     Task { @MainActor in delegate?.moonlightStreamConnectionTerminated(errorCode) }
 }
 
 private nonisolated func bridgeConnectionStatusUpdate(_ status: Int32) {
+    print("[MoonlightBridge] Connection status update: \(status)")
     let delegate = activeStreamDelegate
     Task { @MainActor in delegate?.moonlightStreamConnectionStatusUpdate(status) }
+}
+
+/// Map moonlight-common-c stage constants to human-readable names
+private nonisolated func moonlightStageName(_ stage: Int32) -> String {
+    switch stage {
+    case STAGE_PLATFORM_INIT: return "Platform Init"
+    case STAGE_NAME_RESOLUTION: return "Name Resolution"
+    case STAGE_RTSP_HANDSHAKE: return "RTSP Handshake"
+    case STAGE_CONTROL_STREAM_INIT: return "Control Stream Init"
+    case STAGE_VIDEO_STREAM_INIT: return "Video Stream Init"
+    case STAGE_AUDIO_STREAM_INIT: return "Audio Stream Init"
+    case STAGE_INPUT_STREAM_INIT: return "Input Stream Init"
+    case STAGE_CONTROL_STREAM_START: return "Control Stream Start"
+    case STAGE_VIDEO_STREAM_START: return "Video Stream Start"
+    case STAGE_AUDIO_STREAM_START: return "Audio Stream Start"
+    case STAGE_INPUT_STREAM_START: return "Input Stream Start"
+    default: return "Unknown"
+    }
 }
 
 // Rumble and other controller callbacks — stubs for now
@@ -268,6 +302,7 @@ nonisolated func startMoonlightStream(
     clCallbacks.setAdaptiveTriggers = bridgeSetAdaptiveTriggers
 
     // Start connection (blocks until connected or failed)
+    print("[MoonlightBridge] Calling LiStartConnection...")
     let result = LiStartConnection(
         &serverInfo,
         &streamConfig,
@@ -279,14 +314,17 @@ nonisolated func startMoonlightStream(
         nil,  // audioContext
         0     // arFlags
     )
+    print("[MoonlightBridge] LiStartConnection returned: \(result)")
 
     return result
 }
 
 /// Stops the active Moonlight streaming session.
 nonisolated func stopMoonlightStream() {
+    print("[MoonlightBridge] Stopping stream...")
     LiStopConnection()
     activeVideoRenderer = nil
     activeAudioRenderer = nil
     activeStreamDelegate = nil
+    print("[MoonlightBridge] Stream stopped")
 }
