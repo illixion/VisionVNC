@@ -11,6 +11,19 @@ private class DisplayLinkProxy: NSObject {
     }
 }
 
+/// Live streaming statistics displayed in the stats overlay.
+struct StreamStats {
+    var videoCodec: String = ""
+    var resolution: String = ""
+    var configuredFPS: Int = 0
+    var actualFPS: Double = 0
+    var networkRttMs: UInt32 = 0
+    var rttVarianceMs: UInt32 = 0
+    var decodeTimeMs: Double = 0
+    var totalFrames: UInt64 = 0
+    var droppedFrames: UInt64 = 0
+}
+
 /// Orchestrates the Moonlight connection lifecycle:
 /// server info → pairing → app list → stream launch.
 @Observable
@@ -55,8 +68,15 @@ class MoonlightConnectionManager: MoonlightStreamDelegate {
     var videoRenderer: MoonlightVideoRenderer?
     /// Latest decoded video frame for SwiftUI display.
     var streamFrameImage: CGImage?
+    /// Live streaming statistics.
+    var streamStats = StreamStats()
+
     private var audioRenderer: MoonlightAudioRenderer?
     private var isStreamActive = false
+
+    // FPS tracking
+    private var fpsFrameCount: UInt64 = 0
+    private var fpsLastSampleTime: CFTimeInterval = 0
 
     /// Display link proxy and timer for throttled frame updates.
     private var displayLinkProxy: DisplayLinkProxy?
@@ -266,10 +286,25 @@ class MoonlightConnectionManager: MoonlightStreamDelegate {
                 let video = MoonlightVideoRenderer()
                 let audio = MoonlightAudioRenderer()
 
+                // Determine codec name for stats display
+                let codecName: String
+                if videoFormats & VIDEO_FORMAT_H265 != 0 {
+                    codecName = "HEVC"
+                } else if videoFormats & Int32(VIDEO_FORMAT_AV1_MAIN8) != 0 {
+                    codecName = "AV1"
+                } else {
+                    codecName = "H.264"
+                }
+
                 await MainActor.run {
                     self.videoRenderer = video
                     self.audioRenderer = audio
                     self.isStreamActive = true
+                    self.streamStats = StreamStats(
+                        videoCodec: codecName,
+                        resolution: "\(connection.moonlightResolutionWidth)x\(connection.moonlightResolutionHeight)",
+                        configuredFPS: connection.moonlightFPS
+                    )
                 }
 
                 // Build stream config
@@ -332,6 +367,9 @@ class MoonlightConnectionManager: MoonlightStreamDelegate {
         audioRenderer = nil
         isStreamActive = false
         streamFrameImage = nil
+        // Reset FPS tracking so the next session doesn't underflow
+        fpsFrameCount = 0
+        fpsLastSampleTime = 0
     }
 
     private func startDisplayLink() {
@@ -368,6 +406,42 @@ class MoonlightConnectionManager: MoonlightStreamDelegate {
         }
         if let frame = frame, frame !== streamFrameImage {
             streamFrameImage = frame
+        }
+
+        // Update stats periodically
+        updateStats(renderer: renderer)
+    }
+
+    private func updateStats(renderer: MoonlightVideoRenderer) {
+        let now = CACurrentMediaTime()
+
+        // Compute actual FPS every second
+        let currentFrameCount = renderer.frameCount
+        if fpsLastSampleTime == 0 {
+            fpsLastSampleTime = now
+            fpsFrameCount = currentFrameCount
+        } else {
+            let elapsed = now - fpsLastSampleTime
+            if elapsed >= 1.0 {
+                // Use Int64 to avoid unsigned underflow if frame counter was reset
+                let frames = Int64(currentFrameCount) - Int64(fpsFrameCount)
+                streamStats.actualFPS = frames > 0 ? Double(frames) / elapsed : 0
+                fpsLastSampleTime = now
+                fpsFrameCount = currentFrameCount
+            }
+        }
+
+        // Update decode time and frame counts
+        streamStats.decodeTimeMs = renderer.lastDecodeTimeMs
+        streamStats.totalFrames = currentFrameCount
+        streamStats.droppedFrames = renderer.droppedFrames
+
+        // Update network RTT
+        var rtt: UInt32 = 0
+        var rttVariance: UInt32 = 0
+        if LiGetEstimatedRttInfo(&rtt, &rttVariance) {
+            streamStats.networkRttMs = rtt
+            streamStats.rttVarianceMs = rttVariance
         }
     }
 

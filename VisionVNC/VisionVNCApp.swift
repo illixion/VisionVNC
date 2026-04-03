@@ -34,5 +34,12 @@ struct VisionVNCApp: App {
         }
         .defaultSize(width: 500, height: 400)
         .windowResizability(.contentSize)
+
+        WindowGroup("Moonlight Keyboard", id: "moonlight-keyboard") {
+            MoonlightKeyboardView()
+                .environment(moonlightManager)
+        }
+        .defaultSize(width: 500, height: 450)
+        .windowResizability(.contentSize)
     }
 }

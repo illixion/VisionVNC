@@ -14,6 +14,11 @@ class MoonlightVideoRenderer: @unchecked Sendable {
     private nonisolated(unsafe) var videoFormat: Int32 = 0
     nonisolated(unsafe) var frameCount: UInt64 = 0
 
+    // Stats tracking
+    nonisolated(unsafe) var totalDecodeTimeMs: Double = 0
+    nonisolated(unsafe) var lastDecodeTimeMs: Double = 0
+    nonisolated(unsafe) var droppedFrames: UInt64 = 0
+
     // Cached parameter sets for creating format descriptions
     private nonisolated(unsafe) var currentSPS: Data?
     private nonisolated(unsafe) var currentPPS: Data?
@@ -167,6 +172,7 @@ class MoonlightVideoRenderer: @unchecked Sendable {
         // Decode using closure-based output handler (avoids C function pointer issues on visionOS)
         let renderer = self
         var infoFlags = VTDecodeInfoFlags()
+        let decodeStart = CACurrentMediaTime()
         let status = VTDecompressionSessionDecodeFrame(
             session,
             sampleBuffer: sampleBuffer,
@@ -195,6 +201,10 @@ class MoonlightVideoRenderer: @unchecked Sendable {
             }
         }
 
+        let decodeElapsed = (CACurrentMediaTime() - decodeStart) * 1000.0
+        lastDecodeTimeMs = decodeElapsed
+        totalDecodeTimeMs += decodeElapsed
+
         if status != noErr {
             if frameCount < 5 || frameCount % 300 == 0 {
                 print("[MoonlightVideo] DecodeFrame error: OSStatus \(status), frame \(frameCount)")
@@ -203,6 +213,7 @@ class MoonlightVideoRenderer: @unchecked Sendable {
                 recreateDecompressionSession()
                 return DR_NEED_IDR
             }
+            droppedFrames += 1
         }
 
         frameCount += 1
