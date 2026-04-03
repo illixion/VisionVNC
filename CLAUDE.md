@@ -4,6 +4,8 @@
 
 VisionVNC is a VNC (Virtual Network Computing) viewer app for **visionOS** built in Swift. It uses **RoyalVNCKit** (MIT license, pure Swift) as a local SPM dependency for the VNC/RFB protocol implementation.
 
+A **Moonlight game streaming** integration is planned — see `MOONLIGHT_PLAN.md` for the full implementation plan. The approach is to port the moonlight-common-c protocol library into this app (not to compile the Moonlight iOS app for visionOS). Reference repos live in `repos/` (gitignored): `moonlight-ios/`, `moonlight-qt/`, `Sunshine/`.
+
 ## Build Configuration
 
 - **Platform:** visionOS 26.2+
