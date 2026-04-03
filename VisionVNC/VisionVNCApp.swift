@@ -21,6 +21,13 @@ struct VisionVNCApp: App {
         .defaultSize(width: 1280, height: 800)
         .windowResizability(.contentMinSize)
 
+        WindowGroup("Moonlight Stream", id: "moonlight-stream") {
+            MoonlightStreamView()
+                .environment(moonlightManager)
+        }
+        .defaultSize(width: 1920, height: 1080)
+        .windowResizability(.contentMinSize)
+
         WindowGroup("Keyboard", id: "keyboard") {
             KeyboardInputView()
                 .environment(connectionManager)

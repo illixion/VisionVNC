@@ -3,6 +3,7 @@ import SwiftUI
 /// Displays pairing status and PIN for Moonlight server pairing.
 struct MoonlightPairingView: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.openWindow) private var openWindow
     @Environment(MoonlightConnectionManager.self) private var manager
 
     let connection: SavedConnection
@@ -22,6 +23,12 @@ struct MoonlightPairingView: View {
 
                 case .ready:
                     appListView
+
+                case .launching:
+                    launchingView
+
+                case .streaming:
+                    streamingView
 
                 case .error(let message):
                     errorView(message: message)
@@ -107,7 +114,9 @@ struct MoonlightPairingView: View {
 
                 List(manager.apps) { app in
                     Button {
-                        // TODO: Sprint 3 — launch streaming session
+                        manager.launchApp(app)
+                        openWindow(id: "moonlight-stream")
+                        dismiss()
                     } label: {
                         HStack {
                             Image(systemName: app.isAppCollectorGame ? "folder" : "gamecontroller")
@@ -133,6 +142,28 @@ struct MoonlightPairingView: View {
                 .listStyle(.plain)
                 .frame(maxHeight: 400)
             }
+        }
+    }
+
+    private var launchingView: some View {
+        VStack(spacing: 16) {
+            ProgressView()
+                .controlSize(.large)
+            Text(manager.statusMessage)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private var streamingView: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "play.circle.fill")
+                .font(.system(size: 48))
+                .foregroundStyle(.green)
+            Text("Streaming")
+                .font(.headline)
+            Text("The stream is active in the Moonlight Stream window.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
         }
     }
 
