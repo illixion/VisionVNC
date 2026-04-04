@@ -14,6 +14,7 @@ struct ThirdPartyNoticesView: View {
                     license: mitLicenseText
                 )
 
+                #if MOONLIGHT_ENABLED
                 licenseSection(
                     name: "moonlight-common-c",
                     copyright: "Copyright (C) 2007 Free Software Foundation, Inc.",
@@ -31,6 +32,7 @@ struct ThirdPartyNoticesView: View {
                     copyright: "Copyright 2001-2023 Xiph.Org, Skype Limited, Octasic, Jean-Marc Valin, Timothy B. Terriberry, CSIRO, Gregory Maxwell, Mark Borgerding, Erik de Castro Lopo, Mozilla, Amazon",
                     license: bsd3LicenseText
                 )
+                #endif
 
                 licenseSection(
                     name: "CryptoSwift",
@@ -90,6 +92,7 @@ struct ThirdPartyNoticesView: View {
         """
     }
 
+    #if MOONLIGHT_ENABLED
     private var gpl3LicenseText: String {
         """
         GNU General Public License v3.0
@@ -140,6 +143,7 @@ struct ThirdPartyNoticesView: View {
         POSSIBILITY OF SUCH DAMAGE.
         """
     }
+    #endif
 
     private var cryptoSwiftLicenseText: String {
         """

@@ -5,14 +5,18 @@ struct ConnectionListView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.openWindow) private var openWindow
     @Environment(VNCConnectionManager.self) private var connectionManager
+    #if MOONLIGHT_ENABLED
     @Environment(MoonlightConnectionManager.self) private var moonlightManager
+    #endif
 
     @Query(sort: \SavedConnection.lastConnected, order: .reverse)
     private var savedConnections: [SavedConnection]
 
     @State private var showingNewConnection = false
     @State private var connectionToEdit: SavedConnection?
+    #if MOONLIGHT_ENABLED
     @State private var moonlightConnection: SavedConnection?
+    #endif
 
     var body: some View {
         NavigationStack {
@@ -21,7 +25,7 @@ struct ConnectionListView: View {
                     ContentUnavailableView(
                         "No Connections",
                         systemImage: "display",
-                        description: Text("Add a VNC or Moonlight connection to get started.")
+                        description: Text(emptyStateDescription)
                     )
                 } else {
                     List {
@@ -95,11 +99,21 @@ struct ConnectionListView: View {
                         }
                 }
             }
+            #if MOONLIGHT_ENABLED
             .sheet(item: $moonlightConnection) { connection in
                 MoonlightPairingView(connection: connection)
                     .environment(moonlightManager)
             }
+            #endif
         }
+    }
+
+    private var emptyStateDescription: String {
+        #if MOONLIGHT_ENABLED
+        "Add a VNC or Moonlight connection to get started."
+        #else
+        "Add a VNC connection to get started."
+        #endif
     }
 
     private func connectionRow(_ connection: SavedConnection) -> some View {
@@ -125,11 +139,13 @@ struct ConnectionListView: View {
                         .foregroundStyle(.secondary)
                 }
 
+                #if MOONLIGHT_ENABLED
                 if connection.connectionType == .moonlight {
                     Text("\(connection.moonlightResolutionLabel) · \(connection.moonlightFPS) FPS")
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
                 }
+                #endif
 
                 if let date = connection.lastConnected {
                     Text("Last connected: \(date, style: .relative) ago")
@@ -160,8 +176,10 @@ struct ConnectionListView: View {
         switch connection.connectionType {
         case .vnc:
             connectVNC(connection)
+        #if MOONLIGHT_ENABLED
         case .moonlight:
             connectMoonlight(connection)
+        #endif
         }
     }
 
@@ -190,8 +208,10 @@ struct ConnectionListView: View {
         openWindow(id: "remote-desktop")
     }
 
+    #if MOONLIGHT_ENABLED
     private func connectMoonlight(_ connection: SavedConnection) {
         moonlightManager.connect(to: connection)
         moonlightConnection = connection
     }
+    #endif
 }

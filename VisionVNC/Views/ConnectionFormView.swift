@@ -21,6 +21,7 @@ struct ConnectionFormView: View {
     @State private var username: String = ""
     @State private var password: String = ""
 
+    #if MOONLIGHT_ENABLED
     // Moonlight — Video
     @State private var moonlightResolution: MoonlightResolution = .r1080p
     @State private var moonlightFPS: Int = 60
@@ -43,6 +44,7 @@ struct ConnectionFormView: View {
 
     // Moonlight — Debug
     @State private var moonlightShowStatsOverlay: Bool = false
+    #endif
 
     private var hasCredentials: Bool {
         !password.isEmpty
@@ -60,8 +62,10 @@ struct ConnectionFormView: View {
             switch connectionType {
             case .vnc:
                 vncSections
+            #if MOONLIGHT_ENABLED
             case .moonlight:
                 moonlightSections
+            #endif
             }
 
             labelSection
@@ -152,6 +156,7 @@ struct ConnectionFormView: View {
         }
     }
 
+    #if MOONLIGHT_ENABLED
     // MARK: - Moonlight Sections
 
     @ViewBuilder
@@ -248,6 +253,7 @@ struct ConnectionFormView: View {
     // MARK: - Helpers
 
     private var bitrateLabel: String {
+
         let mbps = moonlightBitrate / 1000
         if mbps >= 1 {
             return String(format: "%.1f Mbps", mbps)
@@ -260,6 +266,7 @@ struct ConnectionFormView: View {
         let (w, h) = moonlightResolution.dimensions
         moonlightBitrate = Double(SavedConnection.suggestedBitrate(width: w, height: h, fps: moonlightFPS))
     }
+    #endif
 
     // MARK: - Load / Save
 
@@ -277,6 +284,7 @@ struct ConnectionFormView: View {
         username = saved.savedUsername
         password = saved.savedPassword
 
+        #if MOONLIGHT_ENABLED
         // Moonlight fields
         moonlightResolution = MoonlightResolution.from(
             width: saved.moonlightResolutionWidth,
@@ -294,6 +302,7 @@ struct ConnectionFormView: View {
         moonlightSwapABXY = saved.moonlightSwapABXY
         moonlightOptimizeGameSettings = saved.moonlightOptimizeGameSettings
         moonlightShowStatsOverlay = saved.moonlightShowStatsOverlay
+        #endif
     }
 
     private func saveConnection() {
@@ -327,6 +336,7 @@ struct ConnectionFormView: View {
             connection.savedUsername = autoLogin ? username : ""
             connection.savedPassword = autoLogin ? password : ""
 
+        #if MOONLIGHT_ENABLED
         case .moonlight:
             let (w, h) = moonlightResolution.dimensions
             connection.moonlightResolutionWidth = w
@@ -343,10 +353,12 @@ struct ConnectionFormView: View {
             connection.moonlightSwapABXY = moonlightSwapABXY
             connection.moonlightOptimizeGameSettings = moonlightOptimizeGameSettings
             connection.moonlightShowStatsOverlay = moonlightShowStatsOverlay
+        #endif
         }
     }
 }
 
+#if MOONLIGHT_ENABLED
 // MARK: - Resolution Helper
 
 enum MoonlightResolution: String, CaseIterable {
@@ -383,3 +395,4 @@ enum MoonlightResolution: String, CaseIterable {
         }
     }
 }
+#endif

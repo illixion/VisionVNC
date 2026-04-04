@@ -1,3 +1,4 @@
+#if MOONLIGHT_ENABLED
 import Foundation
 import AVFoundation
 import Opus
@@ -149,3 +150,4 @@ class MoonlightAudioRenderer: @unchecked Sendable {
         playerNode.scheduleBuffer(audioBuffer)
     }
 }
+#endif

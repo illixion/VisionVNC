@@ -1,3 +1,4 @@
+#if MOONLIGHT_ENABLED
 import SwiftUI
 @preconcurrency import MoonlightCommonC
 
@@ -205,3 +206,4 @@ struct MoonlightStreamView: View {
         .glassBackgroundEffect()
     }
 }
+#endif

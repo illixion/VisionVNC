@@ -1,3 +1,4 @@
+#if MOONLIGHT_ENABLED
 import Foundation
 
 // MARK: - Errors
@@ -109,3 +110,4 @@ extension Data {
         self = data
     }
 }
+#endif

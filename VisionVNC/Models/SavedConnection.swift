@@ -6,26 +6,34 @@ import RoyalVNCKit
 
 enum ConnectionType: String, CaseIterable, Codable {
     case vnc
+    #if MOONLIGHT_ENABLED
     case moonlight
+    #endif
 
     var label: String {
         switch self {
         case .vnc: "VNC"
+        #if MOONLIGHT_ENABLED
         case .moonlight: "Moonlight"
+        #endif
         }
     }
 
     var systemImage: String {
         switch self {
         case .vnc: "display"
+        #if MOONLIGHT_ENABLED
         case .moonlight: "gamecontroller"
+        #endif
         }
     }
 
     var defaultPort: Int {
         switch self {
         case .vnc: 5900
+        #if MOONLIGHT_ENABLED
         case .moonlight: 47989
+        #endif
         }
     }
 }
@@ -62,6 +70,7 @@ enum ConnectionQuality: Int, CaseIterable, Codable {
     }
 }
 
+#if MOONLIGHT_ENABLED
 // MARK: - Moonlight Enums
 
 enum VideoCodecPreference: String, CaseIterable, Codable {
@@ -116,6 +125,7 @@ enum TouchMode: String, CaseIterable, Codable {
         }
     }
 }
+#endif
 
 // MARK: - Saved Connection Model
 
@@ -150,6 +160,7 @@ final class SavedConnection {
         set { qualityRawValue = newValue.rawValue }
     }
 
+    #if MOONLIGHT_ENABLED
     // MARK: Moonlight-specific
 
     var moonlightUUID: String?
@@ -207,6 +218,7 @@ final class SavedConnection {
         default: return "\(w)×\(h)"
         }
     }
+    #endif
 
     // MARK: Init
 
@@ -227,6 +239,7 @@ final class SavedConnection {
         label.isEmpty ? "\(hostname):\(port)" : label
     }
 
+    #if MOONLIGHT_ENABLED
     // MARK: Bitrate Helpers
 
     /// Suggested bitrate (kbps) based on resolution and FPS
@@ -250,4 +263,5 @@ final class SavedConnection {
             fps: moonlightFPS
         )
     }
+    #endif
 }

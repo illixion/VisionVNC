@@ -1,3 +1,4 @@
+#if MOONLIGHT_ENABLED
 import Foundation
 import Security
 
@@ -230,3 +231,4 @@ actor NvPairingManager {
         return .success(serverCertDER: serverCertDER)
     }
 }
+#endif

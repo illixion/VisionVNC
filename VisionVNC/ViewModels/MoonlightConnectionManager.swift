@@ -1,3 +1,4 @@
+#if MOONLIGHT_ENABLED
 import Foundation
 import SwiftUI
 import QuartzCore
@@ -618,3 +619,4 @@ class MoonlightConnectionManager: MoonlightStreamDelegate {
         return false
     }
 }
+#endif

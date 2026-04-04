@@ -1,3 +1,4 @@
+#if MOONLIGHT_ENABLED
 import UIKit
 @preconcurrency import MoonlightCommonC
 
@@ -204,3 +205,4 @@ enum MoonlightKeyCodes {
         }
     }
 }
+#endif

@@ -1,3 +1,4 @@
+#if MOONLIGHT_ENABLED
 import Foundation
 @preconcurrency import MoonlightCommonC
 
@@ -332,3 +333,4 @@ nonisolated func stopMoonlightStream() {
     activeGamepadManager = nil
     print("[MoonlightBridge] Stream stopped")
 }
+#endif

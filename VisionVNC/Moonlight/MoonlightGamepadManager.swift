@@ -1,3 +1,4 @@
+#if MOONLIGHT_ENABLED
 import Foundation
 import GameController
 import CoreHaptics
@@ -295,3 +296,4 @@ class MoonlightGamepadManager: @unchecked Sendable {
         return result
     }
 }
+#endif

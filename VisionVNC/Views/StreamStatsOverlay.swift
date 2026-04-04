@@ -1,3 +1,4 @@
+#if MOONLIGHT_ENABLED
 import SwiftUI
 
 /// Semi-transparent HUD showing live streaming statistics.
@@ -27,3 +28,4 @@ struct StreamStatsOverlay: View {
         .allowsHitTesting(false)
     }
 }
+#endif

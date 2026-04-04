@@ -78,7 +78,8 @@ jobs:
             -archivePath $RUNNER_TEMP/VisionVNC.xcarchive \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGN_IDENTITY=""
+            CODE_SIGN_IDENTITY="" \
+            SWIFT_ACTIVE_COMPILATION_CONDITIONS='$(inherited) MOONLIGHT_ENABLED'
 
       - name: Create unsigned IPA
         run: |

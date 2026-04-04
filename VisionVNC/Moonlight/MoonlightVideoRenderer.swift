@@ -1,3 +1,4 @@
+#if MOONLIGHT_ENABLED
 import Foundation
 import AVFoundation
 import VideoToolbox
@@ -400,3 +401,4 @@ class MoonlightVideoRenderer: @unchecked Sendable {
         return 0
     }
 }
+#endif

@@ -1,3 +1,4 @@
+#if MOONLIGHT_ENABLED
 import Foundation
 import Network
 @preconcurrency import Security
@@ -551,3 +552,4 @@ private class AppListXMLParser: NSObject, XMLParserDelegate {
         currentElement = nil
     }
 }
+#endif

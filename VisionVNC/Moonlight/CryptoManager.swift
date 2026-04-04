@@ -1,3 +1,4 @@
+#if MOONLIGHT_ENABLED
 import Foundation
 import Security
 import CommonCrypto
@@ -433,3 +434,4 @@ private enum ASN1 {
         return wrap(tag: 0x17, Data(formatter.string(from: date).utf8))
     }
 }
+#endif

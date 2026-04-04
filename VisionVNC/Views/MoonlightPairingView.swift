@@ -1,3 +1,4 @@
+#if MOONLIGHT_ENABLED
 import SwiftUI
 
 /// Displays pairing status and PIN for Moonlight server pairing.
@@ -227,3 +228,4 @@ struct MoonlightPairingView: View {
         }
     }
 }
+#endif

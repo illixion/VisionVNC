@@ -1,3 +1,4 @@
+#if MOONLIGHT_ENABLED
 import SwiftUI
 import UIKit
 @preconcurrency import MoonlightCommonC
@@ -101,3 +102,4 @@ final class MoonlightKeyCaptureView: UIView {
         pressesEnded(presses, with: event)
     }
 }
+#endif

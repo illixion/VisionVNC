@@ -1,3 +1,4 @@
+#if MOONLIGHT_ENABLED
 import SwiftUI
 @preconcurrency import MoonlightCommonC
 
@@ -203,3 +204,4 @@ struct MoonlightKeyboardView: View {
         }
     }
 }
+#endif
