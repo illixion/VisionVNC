@@ -51,6 +51,10 @@ class MoonlightAudioRenderer: @unchecked Sendable {
             return -1
         }
 
+        // Skip AVAudioEngine setup when muted — avoids activating the audio session
+        // which would pause other media (music, podcasts, etc.)
+        guard !muted else { return 0 }
+
         // Set up AVAudioEngine
         let engine = AVAudioEngine()
         let player = AVAudioPlayerNode()
