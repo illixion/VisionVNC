@@ -58,18 +58,21 @@ actor NvHTTPClient {
 
     func getServerInfo() async throws -> ServerInfo {
         // Use HTTPS if we have a server cert, otherwise HTTP
-        let xml: XMLResponse
+        let data: Data
         if serverCertDER != nil, let session = httpsSession {
             do {
-                xml = try await request("serverinfo", session: session, useHTTPS: true)
+                data = try await rawRequest("serverinfo", session: session, useHTTPS: true)
             } catch {
                 // Fall back to HTTP on cert errors
-                xml = try await request("serverinfo", session: httpSession, useHTTPS: false)
+                data = try await rawRequest("serverinfo", session: httpSession, useHTTPS: false)
             }
         } else {
-            xml = try await request("serverinfo", session: httpSession, useHTTPS: false)
+            data = try await rawRequest("serverinfo", session: httpSession, useHTTPS: false)
         }
 
+        // Parse with display mode-aware parser
+        let result = ServerInfoXMLParser().parse(data: data)
+        let xml = result.xml
         try xml.verifyStatus()
 
         var info = ServerInfo()
@@ -85,6 +88,7 @@ actor NvHTTPClient {
         info.gpuModel = xml.elements["gputype"] ?? ""
         info.serverCodecModeSupport = Int(xml.elements["ServerCodecModeSupport"] ?? "1") ?? 1
         info.maxLumaPixelsHEVC = Int(xml.elements["MaxLumaPixelsHEVC"] ?? "0") ?? 0
+        info.displayModes = result.displayModes
 
         if let portStr = xml.elements["HttpsPort"], let port = UInt16(portStr), port > 0 {
             info.httpsPort = port
@@ -354,6 +358,80 @@ private class SimpleXMLParser: NSObject, XMLParserDelegate {
         if !currentText.isEmpty {
             elements[elementName] = currentText.trimmingCharacters(in: .whitespacesAndNewlines)
         }
+        currentElement = nil
+    }
+}
+
+/// Parses the /serverinfo XML response, including flat key-value elements and nested <DisplayMode> entries.
+private class ServerInfoXMLParser: NSObject, XMLParserDelegate {
+    private nonisolated(unsafe) var elements: [String: String] = [:]
+    private nonisolated(unsafe) var rootAttributes: [String: String] = [:]
+    private nonisolated(unsafe) var displayModes: [DisplayMode] = []
+    private nonisolated(unsafe) var currentElement: String?
+    private nonisolated(unsafe) var currentText: String = ""
+    private nonisolated(unsafe) var insideDisplayMode = false
+    private nonisolated(unsafe) var currentWidth: Int = 0
+    private nonisolated(unsafe) var currentHeight: Int = 0
+    private nonisolated(unsafe) var currentRefreshRate: Int = 0
+
+    struct Result {
+        let xml: XMLResponse
+        let displayModes: [DisplayMode]
+    }
+
+    nonisolated func parse(data: Data) -> Result {
+        let parser = XMLParser(data: data)
+        parser.delegate = self
+        parser.parse()
+        return Result(
+            xml: XMLResponse(elements: elements, rootAttributes: rootAttributes),
+            displayModes: displayModes
+        )
+    }
+
+    func parser(_ parser: XMLParser, didStartElement elementName: String,
+                namespaceURI: String?, qualifiedName: String?,
+                attributes: [String: String] = [:]) {
+        if elementName == "root" {
+            rootAttributes = attributes
+        } else if elementName == "DisplayMode" {
+            insideDisplayMode = true
+            currentWidth = 0
+            currentHeight = 0
+            currentRefreshRate = 0
+        }
+        currentElement = elementName
+        currentText = ""
+    }
+
+    func parser(_ parser: XMLParser, foundCharacters string: String) {
+        currentText += string
+    }
+
+    func parser(_ parser: XMLParser, didEndElement elementName: String,
+                namespaceURI: String?, qualifiedName: String?) {
+        let trimmed = currentText.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if insideDisplayMode {
+            switch elementName {
+            case "Width": currentWidth = Int(trimmed) ?? 0
+            case "Height": currentHeight = Int(trimmed) ?? 0
+            case "RefreshRate": currentRefreshRate = Int(trimmed) ?? 0
+            case "DisplayMode":
+                if currentWidth > 0 && currentHeight > 0 && currentRefreshRate > 0 {
+                    displayModes.append(DisplayMode(
+                        width: currentWidth,
+                        height: currentHeight,
+                        refreshRate: currentRefreshRate
+                    ))
+                }
+                insideDisplayMode = false
+            default: break
+            }
+        } else if !trimmed.isEmpty {
+            elements[elementName] = trimmed
+        }
+
         currentElement = nil
     }
 }

@@ -68,6 +68,8 @@ class MoonlightConnectionManager: MoonlightStreamDelegate {
     /// Stream resolution for coordinate mapping in absolute mode.
     var streamWidth: Int = 1920
     var streamHeight: Int = 1080
+    /// Selected display index for multi-display servers.
+    var selectedDisplayIndex: Int = 0
 
     /// Video renderer — exposed so MoonlightStreamView can check streaming state.
     var videoRenderer: MoonlightVideoRenderer?
@@ -77,6 +79,7 @@ class MoonlightConnectionManager: MoonlightStreamDelegate {
     var streamStats = StreamStats()
 
     private var audioRenderer: MoonlightAudioRenderer?
+    private var gamepadManager: MoonlightGamepadManager?
     private var isStreamActive = false
 
     // FPS tracking
@@ -221,6 +224,15 @@ class MoonlightConnectionManager: MoonlightStreamDelegate {
               let client = httpClient,
               let info = serverInfo else { return }
 
+        // Override resolution/fps from selected display mode if available
+        let displayOverride: DisplayMode?
+        if selectedDisplayIndex > 0,
+           selectedDisplayIndex < info.displayModes.count {
+            displayOverride = info.displayModes[selectedDisplayIndex]
+        } else {
+            displayOverride = nil
+        }
+
         connectionState = .launching
         statusMessage = "Launching \(app.name)..."
 
@@ -240,14 +252,20 @@ class MoonlightConnectionManager: MoonlightStreamDelegate {
 
                 // Determine audio configuration
                 // Values: ((channelMask) << 16) | (channelCount << 8) | 0xCA
+                let noAudio = connection.moonlightAudioConfig == .none
                 let audioConfig: Int32
                 switch connection.moonlightAudioConfig {
-                case .stereo: audioConfig = 0x302CA       // stereo
                 case .surround51: audioConfig = 0x3F06CA  // 5.1
                 case .surround71: audioConfig = 0x63F08CA // 7.1
+                default: audioConfig = 0x302CA            // stereo (also used for .none — audio stream still negotiated)
                 }
 
                 let surroundInfo = surroundAudioInfo(from: audioConfig)
+
+                // Use display mode override if selected, otherwise connection settings
+                let effectiveWidth = displayOverride?.width ?? connection.moonlightResolutionWidth
+                let effectiveHeight = displayOverride?.height ?? connection.moonlightResolutionHeight
+                let effectiveFPS = displayOverride?.refreshRate ?? connection.moonlightFPS
 
                 // Launch or resume the app via HTTP
                 let sessionUrl: String
@@ -262,9 +280,9 @@ class MoonlightConnectionManager: MoonlightStreamDelegate {
                     try await client.quitApp()
                     sessionUrl = try await client.launchApp(
                         appId: app.id,
-                        width: connection.moonlightResolutionWidth,
-                        height: connection.moonlightResolutionHeight,
-                        fps: connection.moonlightFPS,
+                        width: effectiveWidth,
+                        height: effectiveHeight,
+                        fps: effectiveFPS,
                         bitrate: connection.moonlightBitrate,
                         riKey: riKey, riKeyId: riKeyId,
                         localAudioPlayMode: connection.moonlightPlayAudioOnPC,
@@ -275,9 +293,9 @@ class MoonlightConnectionManager: MoonlightStreamDelegate {
                 } else {
                     sessionUrl = try await client.launchApp(
                         appId: app.id,
-                        width: connection.moonlightResolutionWidth,
-                        height: connection.moonlightResolutionHeight,
-                        fps: connection.moonlightFPS,
+                        width: effectiveWidth,
+                        height: effectiveHeight,
+                        fps: effectiveFPS,
                         bitrate: connection.moonlightBitrate,
                         riKey: riKey, riKeyId: riKeyId,
                         localAudioPlayMode: connection.moonlightPlayAudioOnPC,
@@ -290,6 +308,7 @@ class MoonlightConnectionManager: MoonlightStreamDelegate {
                 // Create renderers
                 let video = MoonlightVideoRenderer()
                 let audio = MoonlightAudioRenderer()
+                audio.muted = noAudio
 
                 // Determine codec name for stats display
                 let codecName: String
@@ -306,20 +325,20 @@ class MoonlightConnectionManager: MoonlightStreamDelegate {
                     self.audioRenderer = audio
                     self.isStreamActive = true
                     self.touchMode = connection.moonlightTouchMode
-                    self.streamWidth = connection.moonlightResolutionWidth
-                    self.streamHeight = connection.moonlightResolutionHeight
+                    self.streamWidth = effectiveWidth
+                    self.streamHeight = effectiveHeight
                     self.streamStats = StreamStats(
                         videoCodec: codecName,
-                        resolution: "\(connection.moonlightResolutionWidth)x\(connection.moonlightResolutionHeight)",
-                        configuredFPS: connection.moonlightFPS
+                        resolution: "\(effectiveWidth)x\(effectiveHeight)",
+                        configuredFPS: effectiveFPS
                     )
                 }
 
                 // Build stream config
                 let streamConfig = MoonlightStreamConfig(
-                    width: Int32(connection.moonlightResolutionWidth),
-                    height: Int32(connection.moonlightResolutionHeight),
-                    fps: Int32(connection.moonlightFPS),
+                    width: Int32(effectiveWidth),
+                    height: Int32(effectiveHeight),
+                    fps: Int32(effectiveFPS),
                     bitrate: Int32(connection.moonlightBitrate),
                     audioConfiguration: audioConfig,
                     supportedVideoFormats: videoFormats,
@@ -371,6 +390,9 @@ class MoonlightConnectionManager: MoonlightStreamDelegate {
 
     private func cleanupStream() {
         stopDisplayLink()
+        gamepadManager?.stopListening()
+        gamepadManager = nil
+        activeGamepadManager = nil
         videoRenderer = nil
         audioRenderer = nil
         isStreamActive = false
@@ -378,6 +400,14 @@ class MoonlightConnectionManager: MoonlightStreamDelegate {
         // Reset FPS tracking so the next session doesn't underflow
         fpsFrameCount = 0
         fpsLastSampleTime = 0
+    }
+
+    private func startGamepadManager() {
+        let swapABXY = activeConnection?.moonlightSwapABXY ?? false
+        let manager = MoonlightGamepadManager(swapABXY: swapABXY)
+        gamepadManager = manager
+        activeGamepadManager = manager
+        manager.startListening()
     }
 
     private func startDisplayLink() {
@@ -478,6 +508,7 @@ class MoonlightConnectionManager: MoonlightStreamDelegate {
             self.connectionState = .streaming
             self.statusMessage = "Streaming"
             self.startDisplayLink()
+            self.startGamepadManager()
         }
     }
 

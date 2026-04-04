@@ -84,12 +84,14 @@ enum AudioConfiguration: String, CaseIterable, Codable {
     case stereo     // 2ch
     case surround51 // 6ch
     case surround71 // 8ch
+    case none       // no audio
 
     var label: String {
         switch self {
         case .stereo: "Stereo"
         case .surround51: "5.1 Surround"
         case .surround71: "7.1 Surround"
+        case .none: "No Audio"
         }
     }
 
@@ -98,6 +100,7 @@ enum AudioConfiguration: String, CaseIterable, Codable {
         case .stereo: 2
         case .surround51: 6
         case .surround71: 8
+        case .none: 0
         }
     }
 }

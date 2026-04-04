@@ -101,7 +101,8 @@ struct MoonlightPairingView: View {
     }
 
     private var appListView: some View {
-        VStack(spacing: 16) {
+        @Bindable var manager = manager
+        return VStack(spacing: 16) {
             if manager.apps.isEmpty {
                 ContentUnavailableView(
                     "No Apps Found",
@@ -111,6 +112,18 @@ struct MoonlightPairingView: View {
             } else {
                 Text("Available Apps")
                     .font(.headline)
+
+                // Display picker when server reports multiple displays
+                if let modes = manager.serverInfo?.displayModes, modes.count > 1 {
+                    Picker("Display", selection: $manager.selectedDisplayIndex) {
+                        Text("Connection Default").tag(0)
+                        ForEach(Array(modes.enumerated()), id: \.offset) { index, mode in
+                            Text("\(mode.width)x\(mode.height) @ \(mode.refreshRate) Hz")
+                                .tag(index)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                }
 
                 // Show "Quit Session" button if an app is currently running
                 if let info = manager.serverInfo, info.currentGameId != 0 {

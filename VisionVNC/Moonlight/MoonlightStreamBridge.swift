@@ -8,6 +8,7 @@ import Foundation
 nonisolated(unsafe) var activeVideoRenderer: MoonlightVideoRenderer?
 nonisolated(unsafe) var activeAudioRenderer: MoonlightAudioRenderer?
 nonisolated(unsafe) var activeStreamDelegate: MoonlightStreamDelegate?
+nonisolated(unsafe) var activeGamepadManager: MoonlightGamepadManager?
 
 // MARK: - Stream Delegate Protocol
 
@@ -163,8 +164,10 @@ private nonisolated func moonlightStageName(_ stage: Int32) -> String {
     }
 }
 
-// Rumble and other controller callbacks — stubs for now
-private nonisolated func bridgeRumble(_ controllerNumber: UInt16, _ lowFreqMotor: UInt16, _ highFreqMotor: UInt16) {}
+// Rumble and other controller callbacks
+private nonisolated func bridgeRumble(_ controllerNumber: UInt16, _ lowFreqMotor: UInt16, _ highFreqMotor: UInt16) {
+    activeGamepadManager?.handleRumble(controllerNumber: controllerNumber, lowFreqMotor: lowFreqMotor, highFreqMotor: highFreqMotor)
+}
 private nonisolated func bridgeSetHdrMode(_ hdrEnabled: Bool) {}
 private nonisolated func bridgeRumbleTriggers(_ controllerNumber: UInt16, _ leftTrigger: UInt16, _ rightTrigger: UInt16) {}
 private nonisolated func bridgeSetMotionEventState(_ controllerNumber: UInt16, _ motionType: UInt8, _ reportRateHz: UInt16) {}
@@ -326,5 +329,6 @@ nonisolated func stopMoonlightStream() {
     activeVideoRenderer = nil
     activeAudioRenderer = nil
     activeStreamDelegate = nil
+    activeGamepadManager = nil
     print("[MoonlightBridge] Stream stopped")
 }

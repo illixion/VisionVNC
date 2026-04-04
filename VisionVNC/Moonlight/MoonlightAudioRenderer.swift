@@ -16,6 +16,9 @@ class MoonlightAudioRenderer: @unchecked Sendable {
     private nonisolated(unsafe) var playerNode: AVAudioPlayerNode?
     private nonisolated(unsafe) var audioFormat: AVAudioFormat?
 
+    /// When true, audio is decoded but not played (no audio mode).
+    nonisolated(unsafe) var muted: Bool = false
+
     nonisolated init() {}
 
     nonisolated func setup(audioConfig: Int32, opusConfig: UnsafeMutablePointer<OPUS_MULTISTREAM_CONFIGURATION>) -> Int32 {
@@ -73,6 +76,7 @@ class MoonlightAudioRenderer: @unchecked Sendable {
     }
 
     nonisolated func start() {
+        guard !muted else { return }
         do {
             try audioEngine?.start()
             playerNode?.play()
@@ -106,6 +110,7 @@ class MoonlightAudioRenderer: @unchecked Sendable {
 
     /// Decode and play an Opus packet. Called from a background thread.
     nonisolated func decodeAndPlaySample(_ data: UnsafeMutablePointer<CChar>, length: Int32) {
+        guard !muted else { return }
         guard let decoder = decoder,
               let playerNode = playerNode,
               let format = audioFormat else { return }
