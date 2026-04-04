@@ -46,8 +46,9 @@ jobs:
           git checkout $MOONLIGHT_COMMON_C_REF
           # Add SPM Package.swift wrapper
           cp ../../ci/deps/moonlight-common-c/Package.swift .
-          # Apply FEC recovery crash fix for newer Sunshine versions
+          # Apply FEC recovery crash fixes for newer Sunshine versions
           git apply ../../ci/patches/moonlight-common-c-fec-fix.patch
+          git apply ../../ci/patches/moonlight-common-c-audio-fec-fix.patch
 
       - name: Clone and patch Opus
         run: |
