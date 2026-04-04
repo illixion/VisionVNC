@@ -1,4 +1,5 @@
 import Foundation
+import Network
 @preconcurrency import Security
 
 /// HTTP/HTTPS client for GameStream server communication.
@@ -9,9 +10,6 @@ actor NvHTTPClient {
     private(set) var httpsPort: UInt16
 
     private let cryptoManager: CryptoManager
-    private var httpSession: URLSession
-    private var httpsSession: URLSession?
-    private var tlsDelegate: TLSSessionDelegate?
     private var serverCertDER: Data?
 
     /// Fixed unique ID shared across all Moonlight clients
@@ -23,31 +21,11 @@ actor NvHTTPClient {
         self.httpPort = httpPort
         self.httpsPort = httpsPort
         self.cryptoManager = cryptoManager
-
-        // Plain HTTP session (no TLS)
-        let httpConfig = URLSessionConfiguration.ephemeral
-        httpConfig.timeoutIntervalForRequest = 5
-        httpConfig.httpShouldSetCookies = false
-        self.httpSession = URLSession(configuration: httpConfig)
     }
 
-    /// Configure HTTPS session with client cert and pinned server cert
+    /// Store the server certificate for TLS verification.
     func setServerCert(_ certDER: Data) async throws {
         self.serverCertDER = certDER
-        let identity = try await cryptoManager.getClientSecIdentity()
-        let clientCert = try await cryptoManager.getClientSecCertificate()
-
-        let delegate = TLSSessionDelegate(
-            clientIdentity: identity,
-            clientCert: clientCert,
-            pinnedServerCertDER: certDER
-        )
-        self.tlsDelegate = delegate
-
-        let config = URLSessionConfiguration.ephemeral
-        config.timeoutIntervalForRequest = 5
-        config.httpShouldSetCookies = false
-        self.httpsSession = URLSession(configuration: config, delegate: delegate, delegateQueue: nil)
     }
 
     func updateHttpsPort(_ port: UInt16) {
@@ -57,17 +35,17 @@ actor NvHTTPClient {
     // MARK: - Server Info
 
     func getServerInfo() async throws -> ServerInfo {
-        // Use HTTPS if we have a server cert, otherwise HTTP
+        // Use NWConnection for all requests — bypasses ATS entirely.
+        // Try TLS (HTTPS) first if paired, otherwise plain HTTP.
         let data: Data
-        if serverCertDER != nil, let session = httpsSession {
+        if serverCertDER != nil {
             do {
-                data = try await rawRequest("serverinfo", session: session, useHTTPS: true)
+                data = try await nwRawRequest("serverinfo", port: httpsPort, useTLS: true)
             } catch {
-                // Fall back to HTTP on cert errors
-                data = try await rawRequest("serverinfo", session: httpSession, useHTTPS: false)
+                data = try await nwRawRequest("serverinfo", port: httpPort)
             }
         } else {
-            data = try await rawRequest("serverinfo", session: httpSession, useHTTPS: false)
+            data = try await nwRawRequest("serverinfo", port: httpPort)
         }
 
         // Parse with display mode-aware parser
@@ -107,9 +85,9 @@ actor NvHTTPClient {
     // MARK: - App List
 
     func getAppList() async throws -> [MoonlightApp] {
-        guard let session = httpsSession else { throw MoonlightError.notPaired }
+        guard serverCertDER != nil else { throw MoonlightError.notPaired }
 
-        let data = try await rawRequest("applist", session: session, useHTTPS: true)
+        let data = try await nwRawRequest("applist", port: httpsPort, useTLS: true)
 
         // Parse app list XML with specialized parser
         let parser = AppListXMLParser()
@@ -122,7 +100,7 @@ actor NvHTTPClient {
                    bitrate: Int, riKey: Data, riKeyId: Int32,
                    localAudioPlayMode: Bool, surroundAudioInfo: Int,
                    supportedVideoFormats: Int, optimizeGameSettings: Bool) async throws -> String {
-        guard let session = httpsSession else { throw MoonlightError.notPaired }
+        guard serverCertDER != nil else { throw MoonlightError.notPaired }
 
         var args: [(String, String)] = [
             ("appid", String(appId)),
@@ -146,7 +124,7 @@ actor NvHTTPClient {
             args.append(("clientHdrCapDisplayData", "0x0x0x0x0x0x0x0x0x0x0"))
         }
 
-        let xml = try await request("launch", args: args, session: session, useHTTPS: true, timeout: 120)
+        let xml = try await nwRequest("launch", args: args, port: httpsPort, useTLS: true, timeout: 120)
         try xml.verifyStatus()
 
         guard let sessionUrl = xml.elements["sessionUrl0"] else {
@@ -156,7 +134,7 @@ actor NvHTTPClient {
     }
 
     func resumeApp(riKey: Data, riKeyId: Int32, surroundAudioInfo: Int) async throws -> String {
-        guard let session = httpsSession else { throw MoonlightError.notPaired }
+        guard serverCertDER != nil else { throw MoonlightError.notPaired }
 
         let args: [(String, String)] = [
             ("rikey", riKey.hexString),
@@ -164,7 +142,7 @@ actor NvHTTPClient {
             ("surroundAudioInfo", String(surroundAudioInfo)),
         ]
 
-        let xml = try await request("resume", args: args, session: session, useHTTPS: true, timeout: 30)
+        let xml = try await nwRequest("resume", args: args, port: httpsPort, useTLS: true, timeout: 30)
         try xml.verifyStatus()
 
         guard let sessionUrl = xml.elements["sessionUrl0"] else {
@@ -174,9 +152,9 @@ actor NvHTTPClient {
     }
 
     func quitApp() async throws {
-        guard let session = httpsSession else { throw MoonlightError.notPaired }
+        guard serverCertDER != nil else { throw MoonlightError.notPaired }
 
-        let xml = try await request("cancel", session: session, useHTTPS: true, timeout: 30)
+        let xml = try await nwRequest("cancel", port: httpsPort, useTLS: true, timeout: 30)
         try xml.verifyStatus()
     }
 
@@ -189,27 +167,34 @@ actor NvHTTPClient {
         var allArgs = [("devicename", Self.deviceName), ("updateState", "1")]
         allArgs.append(contentsOf: args)
 
-        // timeout 0 means "wait indefinitely" (server blocks until user enters PIN)
         let effectiveTimeout: TimeInterval = timeout == 0 ? 300 : (timeout ?? 5)
-        let session = useHTTPS ? (httpsSession ?? httpSession) : httpSession
-        return try await request("pair", args: allArgs, session: session, useHTTPS: useHTTPS, timeout: effectiveTimeout)
+        if useHTTPS {
+            // Final pair challenge uses TLS via NWConnection (bypasses ATS)
+            return try await nwRequest("pair", args: allArgs, port: httpsPort, useTLS: true, timeout: effectiveTimeout)
+        } else {
+            // Pre-pairing steps: plain HTTP via NWConnection
+            return try await nwRequest("pair", args: allArgs, port: httpPort, timeout: effectiveTimeout)
+        }
     }
 
     func unpair() async throws {
-        _ = try await request("unpair", session: httpSession, useHTTPS: false)
+        let xml = try await nwRequest("unpair", port: httpPort)
+        try xml.verifyStatus()
     }
 
     // MARK: - HTTP Internals
 
-    private func request(_ command: String, args: [(String, String)] = [], session: URLSession,
-                         useHTTPS: Bool, timeout: TimeInterval = 5) async throws -> XMLResponse {
-        let data = try await rawRequest(command, args: args, session: session, useHTTPS: useHTTPS, timeout: timeout)
-        let xml = SimpleXMLParser().parse(data: data)
-        return xml
+    /// NWConnection-based request → parsed XML. Used for all server communication.
+    private func nwRequest(_ command: String, args: [(String, String)] = [],
+                           port: UInt16, useTLS: Bool = false, timeout: TimeInterval = 5) async throws -> XMLResponse {
+        let data = try await nwRawRequest(command, args: args, port: port, useTLS: useTLS, timeout: timeout)
+        return SimpleXMLParser().parse(data: data)
     }
 
-    private func rawRequest(_ command: String, args: [(String, String)] = [], session: URLSession,
-                            useHTTPS: Bool, timeout: TimeInterval = 5) async throws -> Data {
+    // MARK: - ATS-Free HTTP via NWConnection
+
+    /// Build a URL string for the given command (used by both URLSession and NWConnection paths).
+    private func buildURL(command: String, args: [(String, String)], useHTTPS: Bool) -> URL? {
         let scheme = useHTTPS ? "https" : "http"
         let port = useHTTPS ? httpsPort : httpPort
 
@@ -219,7 +204,6 @@ actor NvHTTPClient {
         components.port = Int(port)
         components.path = "/\(command)"
 
-        // Standard query parameters
         var queryItems = [
             URLQueryItem(name: "uniqueid", value: Self.uniqueId),
             URLQueryItem(name: "uuid", value: UUID().uuidString.replacingOccurrences(of: "-", with: "")),
@@ -228,71 +212,129 @@ actor NvHTTPClient {
             queryItems.append(URLQueryItem(name: key, value: value))
         }
         components.queryItems = queryItems
+        return components.url
+    }
 
-        guard let url = components.url else {
+    /// Perform a raw HTTP GET using NWConnection (Network.framework), bypassing URLSession and ATS entirely.
+    /// - Parameters:
+    ///   - command: The API endpoint (e.g. "serverinfo", "pair")
+    ///   - args: Additional query parameters
+    ///   - port: Target port
+    ///   - useTLS: If true, connects with TLS (accepts any server cert, presents client cert if available)
+    ///   - timeout: Request timeout in seconds
+    private func nwRawRequest(_ command: String, args: [(String, String)] = [],
+                              port: UInt16, useTLS: Bool = false, timeout: TimeInterval = 5) async throws -> Data {
+        guard let url = buildURL(command: command, args: args, useHTTPS: false) else {
             throw MoonlightError.networkError(URLError(.badURL))
         }
 
-        var urlRequest = URLRequest(url: url)
-        urlRequest.timeoutInterval = timeout
+        // Build HTTP/1.1 GET request
+        let pathAndQuery = url.query.map { "\(url.path)?\($0)" } ?? url.path
+        let httpRequest = "GET \(pathAndQuery) HTTP/1.1\r\nHost: \(hostname):\(port)\r\nConnection: close\r\n\r\n"
 
-        let (data, response) = try await session.data(for: urlRequest)
-
-        if let httpResponse = response as? HTTPURLResponse {
-            guard httpResponse.statusCode != 401 else {
-                throw MoonlightError.notPaired
-            }
+        // Configure NWParameters for TCP or TLS
+        let parameters: NWParameters
+        if useTLS {
+            parameters = await self.nwTLSParameters()
+        } else {
+            parameters = .tcp
         }
 
-        return data
-    }
-}
-
-// MARK: - TLS Session Delegate
-
-/// Handles client certificate authentication and server certificate pinning.
-private final class TLSSessionDelegate: NSObject, URLSessionDelegate, Sendable {
-    let clientIdentity: SecIdentity
-    let clientCert: SecCertificate
-    let pinnedServerCertDER: Data
-
-    init(clientIdentity: SecIdentity, clientCert: SecCertificate, pinnedServerCertDER: Data) {
-        self.clientIdentity = clientIdentity
-        self.clientCert = clientCert
-        self.pinnedServerCertDER = pinnedServerCertDER
-    }
-
-    func urlSession(_ session: URLSession, didReceive challenge: URLAuthenticationChallenge,
-                    completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
-        let method = challenge.protectionSpace.authenticationMethod
-
-        if method == NSURLAuthenticationMethodClientCertificate {
-            let credential = URLCredential(
-                identity: clientIdentity,
-                certificates: [clientCert],
-                persistence: .forSession
+        return try await withCheckedThrowingContinuation { continuation in
+            let connection = NWConnection(
+                host: NWEndpoint.Host(hostname),
+                port: NWEndpoint.Port(rawValue: port)!,
+                using: parameters
             )
-            completionHandler(.useCredential, credential)
-        } else if method == NSURLAuthenticationMethodServerTrust {
-            guard let serverTrust = challenge.protectionSpace.serverTrust else {
-                completionHandler(.cancelAuthenticationChallenge, nil)
-                return
+
+            var resumed = false
+            let resume: (Result<Data, Error>) -> Void = { result in
+                guard !resumed else { return }
+                resumed = true
+                connection.cancel()
+                continuation.resume(with: result)
             }
 
-            // Check if server cert matches our pinned cert
-            if let chain = SecTrustCopyCertificateChain(serverTrust) as? [SecCertificate],
-               let serverCert = chain.first {
-                let serverCertData = SecCertificateCopyData(serverCert) as Data
-                if serverCertData == pinnedServerCertDER {
-                    completionHandler(.useCredential, URLCredential(trust: serverTrust))
-                    return
+            // Timeout
+            let timeoutItem = DispatchWorkItem { resume(.failure(URLError(.timedOut))) }
+            DispatchQueue.global().asyncAfter(deadline: .now() + timeout, execute: timeoutItem)
+
+            connection.stateUpdateHandler = { state in
+                switch state {
+                case .ready:
+                    // Send HTTP request
+                    let requestData = httpRequest.data(using: .utf8)!
+                    connection.send(content: requestData, completion: .contentProcessed { error in
+                        if let error {
+                            timeoutItem.cancel()
+                            resume(.failure(error))
+                            return
+                        }
+
+                        // Receive entire response
+                        self.nwReceiveAll(connection: connection) { result in
+                            timeoutItem.cancel()
+                            switch result {
+                            case .success(let responseData):
+                                // Strip HTTP headers — find \r\n\r\n
+                                if let headerEnd = responseData.range(of: Data("\r\n\r\n".utf8)) {
+                                    resume(.success(responseData.suffix(from: headerEnd.upperBound)))
+                                } else {
+                                    resume(.success(responseData))
+                                }
+                            case .failure(let error):
+                                resume(.failure(error))
+                            }
+                        }
+                    })
+                case .failed(let error):
+                    timeoutItem.cancel()
+                    resume(.failure(error))
+                case .cancelled:
+                    timeoutItem.cancel()
+                default:
+                    break
                 }
             }
 
-            // Accept self-signed certs from GameStream servers
-            completionHandler(.useCredential, URLCredential(trust: serverTrust))
-        } else {
-            completionHandler(.performDefaultHandling, nil)
+            connection.start(queue: .global())
+        }
+    }
+
+    /// Build NWParameters for TLS that accepts any server certificate and presents the client identity.
+    private func nwTLSParameters() async -> NWParameters {
+        let tlsOptions = NWProtocolTLS.Options()
+        let secOptions = tlsOptions.securityProtocolOptions
+
+        // Accept any server certificate (bypass ATS trust evaluation for self-signed Sunshine certs)
+        sec_protocol_options_set_verify_block(secOptions, { _, _, completionHandler in
+            completionHandler(true)
+        }, .global())
+
+        // Present client certificate if we have an identity
+        if let identity = try? await cryptoManager.getClientSecIdentity() {
+            if let secIdentity = sec_identity_create(identity) {
+                sec_protocol_options_set_local_identity(secOptions, secIdentity)
+            }
+        }
+
+        return NWParameters(tls: tlsOptions)
+    }
+
+    /// Accumulate all data from an NWConnection until EOF.
+    private nonisolated func nwReceiveAll(connection: NWConnection, accumulated: Data = Data(),
+                                          completion: @escaping (Result<Data, Error>) -> Void) {
+        connection.receive(minimumIncompleteLength: 1, maximumLength: 65536) { content, _, isComplete, error in
+            var data = accumulated
+            if let content { data.append(content) }
+
+            if let error {
+                completion(.failure(error))
+            } else if isComplete {
+                completion(.success(data))
+            } else {
+                self.nwReceiveAll(connection: connection, accumulated: data, completion: completion)
+            }
         }
     }
 }
