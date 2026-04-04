@@ -1,0 +1,17 @@
+diff --git a/src/RtpVideoQueue.c b/src/RtpVideoQueue.c
+index 873ac21..5f2cf58 100644
+--- a/src/RtpVideoQueue.c
++++ b/src/RtpVideoQueue.c
+@@ -350,6 +350,12 @@ cleanup_packets:
+         if (marks[i]) {
+             // Only submit frame data, not FEC packets
+             if (ret == 0 && i < queue->bufferDataPackets) {
++                // Guard against empty FEC block list (can happen with newer Sunshine versions)
++                if (queue->pendingFecBlockList.head == NULL) {
++                    free(packets[i]);
++                    packets[i] = NULL;
++                    continue;
++                }
+                 PRTPV_QUEUE_ENTRY queueEntry = (PRTPV_QUEUE_ENTRY)&packets[i][receiveSize];
+                 PRTP_PACKET rtpPacket = (PRTP_PACKET) packets[i];
+                 rtpPacket->sequenceNumber = U16(i + queue->bufferLowestSequenceNumber);
