@@ -202,6 +202,7 @@ struct ConnectionListView: View {
             username: username,
             password: password,
             colorDepth: connection.quality.vncColorDepth,
+            touchMode: connection.vncTouchMode,
             title: connection.displayName
         )
 

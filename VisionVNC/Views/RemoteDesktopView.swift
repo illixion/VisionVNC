@@ -8,6 +8,7 @@ struct RemoteDesktopView: View {
 
     @State private var viewSize: CGSize = .zero
     @State private var isDragging = false
+    @State private var previousDragTranslation: CGSize = .zero
 
     var body: some View {
         NavigationStack {
@@ -25,14 +26,22 @@ struct RemoteDesktopView: View {
                                 .resizable()
                                 .aspectRatio(contentMode: .fit)
                                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+                            // Virtual cursor indicator for touchpad mode
+                            if connectionManager.touchMode == .relative,
+                               connectionManager.framebufferSize.width > 0 {
+                                cursorOverlay
+                            }
                         } else {
                             statusView
                         }
                     }
                     .frame(width: geometry.size.width, height: geometry.size.height)
                     .contentShape(Rectangle())
+                    .onTapGesture(count: 2) { handleDoubleTap() }
                     .gesture(tapGesture)
                     .gesture(dragGesture)
+                    .gesture(scrollGesture)
                     .onAppear {
                         viewSize = geometry.size
                     }
@@ -96,6 +105,17 @@ struct RemoteDesktopView: View {
 
     private var toolbar: some View {
         HStack(spacing: 20) {
+            Button(action: {
+                connectionManager.touchMode = connectionManager.touchMode == .absolute
+                    ? .relative : .absolute
+            }) {
+                Label(
+                    connectionManager.touchMode == .absolute ? "Direct" : "Touchpad",
+                    systemImage: connectionManager.touchMode == .absolute
+                        ? "hand.tap" : "rectangle.and.hand.point.up.left"
+                )
+            }
+
             Button(action: { openWindow(id: "keyboard") }) {
                 Label("Keyboard", systemImage: "keyboard")
             }
@@ -121,35 +141,84 @@ struct RemoteDesktopView: View {
 
     // MARK: - Gestures
 
-    /// Tap = left click
+    /// Tap = left click (absolute: at tap location, relative: at virtual cursor)
     private var tapGesture: some Gesture {
         SpatialTapGesture()
             .onEnded { value in
-                guard let point = translator?.viewToFramebuffer(value.location) else { return }
-                connectionManager.sendMouseDown(button: .left, x: point.x, y: point.y)
-                connectionManager.sendMouseUp(button: .left, x: point.x, y: point.y)
+                if connectionManager.touchMode == .absolute {
+                    guard let point = translator?.viewToFramebuffer(value.location) else { return }
+                    connectionManager.sendMouseDown(button: .left, x: point.x, y: point.y)
+                    connectionManager.sendMouseUp(button: .left, x: point.x, y: point.y)
+                } else {
+                    connectionManager.clickAtVirtualCursor(button: .left)
+                }
             }
     }
 
-    /// Drag = mouse move while holding left button
+    /// Drag: absolute = click-and-drag, relative = move cursor (no button held)
     private var dragGesture: some Gesture {
         DragGesture(minimumDistance: 4)
             .onChanged { value in
-                guard let point = translator?.viewToFramebuffer(value.location) else { return }
-                if !isDragging {
-                    isDragging = true
-                    connectionManager.sendMouseDown(button: .left, x: point.x, y: point.y)
+                if connectionManager.touchMode == .absolute {
+                    guard let point = translator?.viewToFramebuffer(value.location) else { return }
+                    if !isDragging {
+                        isDragging = true
+                        connectionManager.sendMouseDown(button: .left, x: point.x, y: point.y)
+                    } else {
+                        connectionManager.sendMouseMove(x: point.x, y: point.y)
+                    }
                 } else {
-                    connectionManager.sendMouseMove(x: point.x, y: point.y)
+                    // Relative: compute incremental deltas
+                    let dx = value.translation.width - previousDragTranslation.width
+                    let dy = value.translation.height - previousDragTranslation.height
+                    previousDragTranslation = value.translation
+
+                    if let delta = translator?.viewDeltaToFramebufferDelta(dx: dx, dy: dy) {
+                        connectionManager.moveVirtualCursor(dx: delta.dx, dy: delta.dy)
+                    }
                 }
             }
             .onEnded { value in
-                guard let point = translator?.viewToFramebuffer(value.location) else {
-                    isDragging = false
-                    return
+                if connectionManager.touchMode == .absolute {
+                    if let point = translator?.viewToFramebuffer(value.location) {
+                        connectionManager.sendMouseUp(button: .left, x: point.x, y: point.y)
+                    }
                 }
-                connectionManager.sendMouseUp(button: .left, x: point.x, y: point.y)
                 isDragging = false
+                previousDragTranslation = .zero
+            }
+    }
+
+    /// Double-tap = right click
+    private func handleDoubleTap() {
+        if connectionManager.touchMode == .absolute {
+            // Right-click at center of framebuffer as approximation
+            let centerX = UInt16(connectionManager.framebufferSize.width / 2)
+            let centerY = UInt16(connectionManager.framebufferSize.height / 2)
+            connectionManager.sendMouseDown(button: .right, x: centerX, y: centerY)
+            connectionManager.sendMouseUp(button: .right, x: centerX, y: centerY)
+        } else {
+            connectionManager.clickAtVirtualCursor(button: .right)
+        }
+    }
+
+    /// Pinch = scroll wheel
+    private var scrollGesture: some Gesture {
+        MagnifyGesture()
+            .onChanged { value in
+                let delta = value.magnification - 1.0
+                guard abs(delta) > 0.01 else { return }
+
+                let wheel: VNCMouseWheel = delta > 0 ? .up : .down
+                let steps = UInt32(max(1, abs(delta) * 10))
+
+                if connectionManager.touchMode == .absolute {
+                    let centerX = UInt16(connectionManager.framebufferSize.width / 2)
+                    let centerY = UInt16(connectionManager.framebufferSize.height / 2)
+                    connectionManager.sendScroll(wheel: wheel, x: centerX, y: centerY, steps: steps)
+                } else {
+                    connectionManager.scrollAtVirtualCursor(wheel: wheel, steps: steps)
+                }
             }
     }
 
@@ -161,6 +230,20 @@ struct RemoteDesktopView: View {
             framebufferSize: connectionManager.framebufferSize,
             viewSize: viewSize
         )
+    }
+
+    private var cursorOverlay: some View {
+        let point = translator?.framebufferToView(
+            x: connectionManager.virtualCursorX,
+            y: connectionManager.virtualCursorY
+        ) ?? .zero
+
+        return Circle()
+            .fill(.white.opacity(0.7))
+            .overlay(Circle().stroke(.black.opacity(0.3), lineWidth: 1))
+            .frame(width: 12, height: 12)
+            .position(point)
+            .allowsHitTesting(false)
     }
 
     private func sendCtrlAltDel() {

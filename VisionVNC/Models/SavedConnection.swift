@@ -113,19 +113,21 @@ enum AudioConfiguration: String, CaseIterable, Codable {
         }
     }
 }
+#endif
+
+// MARK: - Touch Mode
 
 enum TouchMode: String, CaseIterable, Codable {
-    case relative   // cursor-based, deltas — default for games
-    case absolute   // direct screen coordinate mapping — for desktop use
+    case relative   // cursor-based, deltas — trackpad style
+    case absolute   // direct screen coordinate mapping — tap where you want
 
     var label: String {
         switch self {
-        case .relative: "Relative (Cursor)"
-        case .absolute: "Absolute (Direct)"
+        case .relative: "Touchpad (Relative)"
+        case .absolute: "Direct Touch (Absolute)"
         }
     }
 }
-#endif
 
 // MARK: - Saved Connection Model
 
@@ -154,10 +156,16 @@ final class SavedConnection {
     var autoLogin: Bool = false
     var savedUsername: String = ""
     var savedPassword: String = ""
+    var vncTouchModeRawValue: String = TouchMode.absolute.rawValue
 
     var quality: ConnectionQuality {
         get { ConnectionQuality(rawValue: qualityRawValue) ?? .high }
         set { qualityRawValue = newValue.rawValue }
+    }
+
+    var vncTouchMode: TouchMode {
+        get { TouchMode(rawValue: vncTouchModeRawValue) ?? .absolute }
+        set { vncTouchModeRawValue = newValue.rawValue }
     }
 
     #if MOONLIGHT_ENABLED
@@ -166,11 +174,35 @@ final class SavedConnection {
     var moonlightUUID: String?
     var moonlightServerCert: Data?
 
-    // Stream quality
-    var moonlightBitrate: Int = 20000  // kbps
-    var moonlightFPS: Int = 60
-    var moonlightResolutionWidth: Int = 1920
-    var moonlightResolutionHeight: Int = 1080
+    // Stream quality (Optional Int? to survive NULL from lightweight migration)
+    @Attribute(originalName: "moonlightBitrate")
+    var moonlightBitrateStorage: Int?
+    @Attribute(originalName: "moonlightFPS")
+    var moonlightFPSStorage: Int?
+    @Attribute(originalName: "moonlightResolutionWidth")
+    var moonlightResolutionWidthStorage: Int?
+    @Attribute(originalName: "moonlightResolutionHeight")
+    var moonlightResolutionHeightStorage: Int?
+
+    var moonlightBitrate: Int {
+        get { moonlightBitrateStorage ?? 20000 }
+        set { moonlightBitrateStorage = newValue }
+    }
+
+    var moonlightFPS: Int {
+        get { moonlightFPSStorage ?? 60 }
+        set { moonlightFPSStorage = newValue }
+    }
+
+    var moonlightResolutionWidth: Int {
+        get { moonlightResolutionWidthStorage ?? 1920 }
+        set { moonlightResolutionWidthStorage = newValue }
+    }
+
+    var moonlightResolutionHeight: Int {
+        get { moonlightResolutionHeightStorage ?? 1080 }
+        set { moonlightResolutionHeightStorage = newValue }
+    }
     var moonlightVideoCodecRawValue: String = VideoCodecPreference.auto.rawValue
     var moonlightEnableHDR: Bool = false
     var moonlightUseFramePacing: Bool = false

@@ -59,4 +59,30 @@ struct GestureTranslator {
             y: UInt16(clamping: Int(fbY))
         )
     }
+
+    /// Convert framebuffer coordinates back to view coordinates (inverse of viewToFramebuffer).
+    func framebufferToView(x: UInt16, y: UInt16) -> CGPoint {
+        let displayed = displayedImageSize
+        let offset = imageOffset
+
+        let viewX = (CGFloat(x) / framebufferSize.width) * displayed.width + offset.x
+        let viewY = (CGFloat(y) / framebufferSize.height) * displayed.height + offset.y
+
+        return CGPoint(x: viewX, y: viewY)
+    }
+
+    /// Convert a view-space delta to framebuffer-space delta for relative/touchpad mode.
+    /// Applies a sensitivity multiplier on top of the geometric scale.
+    func viewDeltaToFramebufferDelta(dx: CGFloat, dy: CGFloat, sensitivity: CGFloat = 1.5) -> (dx: CGFloat, dy: CGFloat) {
+        let displayed = displayedImageSize
+        guard displayed.width > 0, displayed.height > 0 else { return (0, 0) }
+
+        let scaleX = framebufferSize.width / displayed.width
+        let scaleY = framebufferSize.height / displayed.height
+
+        return (
+            dx: dx * scaleX * sensitivity,
+            dy: dy * scaleY * sensitivity
+        )
+    }
 }

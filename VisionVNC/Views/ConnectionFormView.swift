@@ -20,6 +20,7 @@ struct ConnectionFormView: View {
     @State private var autoLogin: Bool = false
     @State private var username: String = ""
     @State private var password: String = ""
+    @State private var vncTouchMode: TouchMode = .absolute
 
     #if MOONLIGHT_ENABLED
     // Moonlight — Video
@@ -154,6 +155,20 @@ struct ConnectionFormView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
+
+        Section("Input") {
+            Picker("Touch Mode", selection: $vncTouchMode) {
+                ForEach(TouchMode.allCases, id: \.self) { mode in
+                    Text(mode.label).tag(mode)
+                }
+            }
+
+            Text(vncTouchMode == .relative
+                ? "Drag to move the cursor. Tap to click at the cursor position. Double-tap for right-click."
+                : "Tap and drag directly on the remote screen. Double-tap for right-click.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
     }
 
     #if MOONLIGHT_ENABLED
@@ -283,6 +298,7 @@ struct ConnectionFormView: View {
         autoLogin = saved.autoLogin
         username = saved.savedUsername
         password = saved.savedPassword
+        vncTouchMode = saved.vncTouchMode
 
         #if MOONLIGHT_ENABLED
         // Moonlight fields
@@ -335,6 +351,7 @@ struct ConnectionFormView: View {
             connection.autoLogin = autoLogin
             connection.savedUsername = autoLogin ? username : ""
             connection.savedPassword = autoLogin ? password : ""
+            connection.vncTouchMode = vncTouchMode
 
         #if MOONLIGHT_ENABLED
         case .moonlight:

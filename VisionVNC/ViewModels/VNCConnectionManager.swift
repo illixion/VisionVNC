@@ -47,6 +47,11 @@ final class VNCConnectionManager: NSObject, VNCConnectionDelegate {
     var isCredentialPromptPresented: Bool = false
     var credentialAuthType: VNCAuthenticationType = .vnc
 
+    // Touch mode & virtual cursor
+    var touchMode: TouchMode = .absolute
+    var virtualCursorX: UInt16 = 0
+    var virtualCursorY: UInt16 = 0
+
     // MARK: - Private State
 
     private var connection: VNCConnection?
@@ -58,11 +63,15 @@ final class VNCConnectionManager: NSObject, VNCConnectionDelegate {
     // Throttle framebuffer rendering via CADisplayLink
     private var pendingImageUpdate: Bool = false
     private var displayLink: CADisplayLink?
+    private var virtualCursorInitialized = false
 
     // MARK: - Connection Lifecycle
 
-    func connect(hostname: String, port: UInt16, username: String? = nil, password: String? = nil, colorDepth: VNCConnection.Settings.ColorDepth = .depth24Bit, title: String? = nil) {
+    func connect(hostname: String, port: UInt16, username: String? = nil, password: String? = nil, colorDepth: VNCConnection.Settings.ColorDepth = .depth24Bit, touchMode: TouchMode = .absolute, title: String? = nil) {
         disconnect()
+
+        self.touchMode = touchMode
+        self.virtualCursorInitialized = false
 
         connectionTitle = title ?? "\(hostname):\(port)"
         storedUsername = username
@@ -254,5 +263,41 @@ final class VNCConnectionManager: NSObject, VNCConnectionDelegate {
 
     func sendKeyUp(_ key: VNCKeyCode) {
         connection?.keyUp(key)
+    }
+
+    // MARK: - Virtual Cursor (Relative/Touchpad Mode)
+
+    /// Lazily initializes the virtual cursor to the center of the framebuffer.
+    private func initializeVirtualCursorIfNeeded() {
+        guard !virtualCursorInitialized, framebufferSize.width > 0 else { return }
+        virtualCursorX = UInt16(framebufferSize.width / 2)
+        virtualCursorY = UInt16(framebufferSize.height / 2)
+        virtualCursorInitialized = true
+    }
+
+    /// Move the virtual cursor by framebuffer-space deltas, clamped to bounds.
+    func moveVirtualCursor(dx: CGFloat, dy: CGFloat) {
+        initializeVirtualCursorIfNeeded()
+
+        let newX = CGFloat(virtualCursorX) + dx
+        let newY = CGFloat(virtualCursorY) + dy
+
+        virtualCursorX = UInt16(clamping: Int(max(0, min(newX, framebufferSize.width - 1))))
+        virtualCursorY = UInt16(clamping: Int(max(0, min(newY, framebufferSize.height - 1))))
+
+        sendMouseMove(x: virtualCursorX, y: virtualCursorY)
+    }
+
+    /// Send a click at the current virtual cursor position.
+    func clickAtVirtualCursor(button: VNCMouseButton) {
+        initializeVirtualCursorIfNeeded()
+        sendMouseDown(button: button, x: virtualCursorX, y: virtualCursorY)
+        sendMouseUp(button: button, x: virtualCursorX, y: virtualCursorY)
+    }
+
+    /// Send scroll at the current virtual cursor position.
+    func scrollAtVirtualCursor(wheel: VNCMouseWheel, steps: UInt32 = 3) {
+        initializeVirtualCursorIfNeeded()
+        sendScroll(wheel: wheel, x: virtualCursorX, y: virtualCursorY, steps: steps)
     }
 }
