@@ -1,0 +1,266 @@
+diff --git a/src/PlatformCrypto.c b/src/PlatformCrypto.c
+index 817d9bb..a7f0a34 100644
+--- a/src/PlatformCrypto.c
++++ b/src/PlatformCrypto.c
+@@ -13,6 +13,28 @@ bool RandomStateInitialized = false;
+ #define USE_MBEDTLS_CRYPTO_EXT
+ #endif
+ 
++#elif defined(USE_COMMONCRYPTO)
++#include <CommonCrypto/CommonCryptor.h>
++#include <Security/SecRandom.h>
++
++// Forward-declare GCM oneshot functions (present in libcommonCrypto on all Apple
++// platforms since iOS 11 / macOS 10.13, but not in the public SDK headers).
++extern CCCryptorStatus CCCryptorGCMOneshotEncrypt(CCAlgorithm alg,
++    const void *key, size_t keyLength,
++    const void *iv, size_t ivLength,
++    const void *aData, size_t aDataLength,
++    const void *dataIn, size_t dataInLength,
++    void *cipherOut,
++    void *tagOut, size_t tagLength) __attribute__((weak_import));
++
++extern CCCryptorStatus CCCryptorGCMOneshotDecrypt(CCAlgorithm alg,
++    const void *key, size_t keyLength,
++    const void *iv, size_t ivLength,
++    const void *aData, size_t aDataLength,
++    const void *cipherIn, size_t cipherInLength,
++    void *dataOut,
++    const void *tag, size_t tagLength) __attribute__((weak_import));
++
+ #else
+ #include <openssl/evp.h>
+ #include <openssl/rand.h>
+@@ -136,6 +158,84 @@ bool PltEncryptMessage(PPLT_CRYPTO_CONTEXT ctx, int algorithm, int flags,
+ 
+     *outputDataLength = outLength;
+     return true;
++#elif defined(USE_COMMONCRYPTO)
++    LC_ASSERT(keyLength == 16);
++
++    if (algorithm == ALGORITHM_AES_GCM) {
++        LC_ASSERT(tag != NULL);
++        LC_ASSERT(tagLength > 0);
++
++        // Store key for reuse
++        if (!ctx->initialized) {
++            memcpy(ctx->key, key, keyLength);
++            ctx->keyLength = keyLength;
++            ctx->initialized = true;
++        }
++
++        // Use oneshot GCM encryption
++        CCCryptorStatus status = CCCryptorGCMOneshotEncrypt(
++            kCCAlgorithmAES,
++            ctx->key, (size_t)ctx->keyLength,
++            iv, (size_t)ivLength,
++            NULL, 0,
++            inputData, (size_t)inputDataLength,
++            outputData,
++            tag, (size_t)tagLength);
++        if (status != kCCSuccess) {
++            return false;
++        }
++
++        *outputDataLength = inputDataLength;
++        return true;
++    }
++    else if (algorithm == ALGORITHM_AES_CBC) {
++        LC_ASSERT(tag == NULL);
++        LC_ASSERT(tagLength == 0);
++
++        if (!ctx->initialized) {
++            // Create CBC encryptor without padding (caller handles PKCS7)
++            CCCryptorStatus status = CCCryptorCreateWithMode(
++                kCCEncrypt, kCCModeCBC, kCCAlgorithmAES,
++                ccNoPadding, iv, key, (size_t)keyLength,
++                NULL, 0, 0, 0, &ctx->cbcCryptor);
++            if (status != kCCSuccess) {
++                return false;
++            }
++            memcpy(ctx->key, key, keyLength);
++            ctx->keyLength = keyLength;
++            ctx->initialized = true;
++        }
++        else if (flags & CIPHER_FLAG_RESET_IV) {
++            CCCryptorReset(ctx->cbcCryptor, iv);
++        }
++
++        if (flags & CIPHER_FLAG_PAD_TO_BLOCK_SIZE) {
++            inputDataLength = addPkcs7PaddingInPlace(inputData, inputDataLength);
++        }
++
++        size_t moved = 0;
++        CCCryptorStatus status = CCCryptorUpdate(ctx->cbcCryptor,
++            inputData, (size_t)inputDataLength,
++            outputData, (size_t)inputDataLength, &moved);
++        if (status != kCCSuccess) {
++            return false;
++        }
++        *outputDataLength = (int)moved;
++
++        if (flags & CIPHER_FLAG_FINISH) {
++            size_t finalMoved = 0;
++            status = CCCryptorFinal(ctx->cbcCryptor,
++                &outputData[*outputDataLength], 16, &finalMoved);
++            if (status != kCCSuccess) {
++                return false;
++            }
++            *outputDataLength += (int)finalMoved;
++        }
++
++        return true;
++    }
++
++    return false;
+ #else
+     LC_ASSERT(keyLength == 16);
+ 
+@@ -327,6 +427,92 @@ bool PltDecryptMessage(PPLT_CRYPTO_CONTEXT ctx, int algorithm, int flags,
+ 
+     *outputDataLength = outLength;
+     return true;
++#elif defined(USE_COMMONCRYPTO)
++    LC_ASSERT(keyLength == 16);
++
++    if (algorithm == ALGORITHM_AES_GCM) {
++        LC_ASSERT(tag != NULL);
++        LC_ASSERT(tagLength > 0);
++
++        // Store key for reuse
++        if (!ctx->initialized) {
++            memcpy(ctx->key, key, keyLength);
++            ctx->keyLength = keyLength;
++            ctx->initialized = true;
++        }
++
++        // Use oneshot GCM decryption (also verifies authentication tag)
++        CCCryptorStatus status = CCCryptorGCMOneshotDecrypt(
++            kCCAlgorithmAES,
++            ctx->key, (size_t)ctx->keyLength,
++            iv, (size_t)ivLength,
++            NULL, 0,
++            inputData, (size_t)inputDataLength,
++            outputData,
++            tag, (size_t)tagLength);
++        if (status != kCCSuccess) {
++            return false;
++        }
++
++        *outputDataLength = inputDataLength;
++        return true;
++    }
++    else if (algorithm == ALGORITHM_AES_CBC) {
++        LC_ASSERT(tag == NULL);
++        LC_ASSERT(tagLength == 0);
++
++        if (!ctx->initialized) {
++            // Create CBC decryptor without padding (matches OpenSSL behavior when
++            // caller uses CIPHER_FLAG_FINISH to strip PKCS7 manually)
++            CCCryptorStatus status = CCCryptorCreateWithMode(
++                kCCDecrypt, kCCModeCBC, kCCAlgorithmAES,
++                ccNoPadding, iv, key, (size_t)keyLength,
++                NULL, 0, 0, 0, &ctx->cbcCryptor);
++            if (status != kCCSuccess) {
++                return false;
++            }
++            memcpy(ctx->key, key, keyLength);
++            ctx->keyLength = keyLength;
++            ctx->initialized = true;
++        }
++        else if (flags & CIPHER_FLAG_RESET_IV) {
++            CCCryptorReset(ctx->cbcCryptor, iv);
++        }
++
++        size_t moved = 0;
++        CCCryptorStatus status = CCCryptorUpdate(ctx->cbcCryptor,
++            inputData, (size_t)inputDataLength,
++            outputData, (size_t)inputDataLength, &moved);
++        if (status != kCCSuccess) {
++            return false;
++        }
++        *outputDataLength = (int)moved;
++
++        if (flags & CIPHER_FLAG_FINISH) {
++            size_t finalMoved = 0;
++            status = CCCryptorFinal(ctx->cbcCryptor,
++                &outputData[*outputDataLength], 16, &finalMoved);
++            // With ccNoPadding, Final just flushes remaining data
++            if (status != kCCSuccess) {
++                return false;
++            }
++            *outputDataLength += (int)finalMoved;
++
++            // Manually strip PKCS7 padding to match OpenSSL's default behavior.
++            // The encrypt side uses addPkcs7PaddingInPlace, and OpenSSL's
++            // EVP_DecryptFinal_ex strips this padding automatically.
++            if (*outputDataLength > 0) {
++                unsigned char padByte = outputData[*outputDataLength - 1];
++                if (padByte > 0 && padByte <= 16) {
++                    *outputDataLength -= padByte;
++                }
++            }
++        }
++
++        return true;
++    }
++
++    return false;
+ #else
+     LC_ASSERT(keyLength == 16);
+ 
+@@ -427,6 +613,9 @@ PPLT_CRYPTO_CONTEXT PltCreateCryptoContext(void) {
+ 
+ #ifdef USE_MBEDTLS
+     mbedtls_cipher_init(&ctx->ctx);
++#elif defined(USE_COMMONCRYPTO)
++    ctx->cbcCryptor = NULL;
++    ctx->keyLength = 0;
+ #else
+     ctx->ctx = EVP_CIPHER_CTX_new();
+     if (!ctx->ctx) {
+@@ -441,6 +630,10 @@ PPLT_CRYPTO_CONTEXT PltCreateCryptoContext(void) {
+ void PltDestroyCryptoContext(PPLT_CRYPTO_CONTEXT ctx) {
+ #ifdef USE_MBEDTLS
+     mbedtls_cipher_free(&ctx->ctx);
++#elif defined(USE_COMMONCRYPTO)
++    if (ctx->cbcCryptor) {
++        CCCryptorRelease(ctx->cbcCryptor);
++    }
+ #else
+     EVP_CIPHER_CTX_free(ctx->ctx);
+ #endif
+@@ -464,6 +657,8 @@ void PltGenerateRandomData(unsigned char* data, int length) {
+     }
+ 
+     mbedtls_ctr_drbg_random(&CtrDrbgContext, data, length);
++#elif defined(USE_COMMONCRYPTO)
++    (void)SecRandomCopyBytes(kSecRandomDefault, (size_t)length, data);
+ #else
+     RAND_bytes(data, length);
+ #endif
+diff --git a/src/PlatformCrypto.h b/src/PlatformCrypto.h
+index a825e7e..c92d70f 100644
+--- a/src/PlatformCrypto.h
++++ b/src/PlatformCrypto.h
+@@ -4,6 +4,8 @@
+ 
+ #ifdef USE_MBEDTLS
+ #include <mbedtls/cipher.h>
++#elif defined(USE_COMMONCRYPTO)
++#include <CommonCrypto/CommonCryptor.h>
+ #else
+ // Hide the real OpenSSL definition from other code
+ typedef struct evp_cipher_ctx_st EVP_CIPHER_CTX;
+@@ -13,6 +15,11 @@ typedef struct _PLT_CRYPTO_CONTEXT {
+ #ifdef USE_MBEDTLS
+     mbedtls_cipher_context_t ctx;
+     bool initialized;
++#elif defined(USE_COMMONCRYPTO)
++    CCCryptorRef cbcCryptor;
++    unsigned char key[32];
++    int keyLength;
++    bool initialized;
+ #else
+     EVP_CIPHER_CTX* ctx;
+     bool initialized;

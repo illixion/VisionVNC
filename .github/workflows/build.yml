@@ -49,6 +49,8 @@ jobs:
           # Apply FEC recovery crash fixes for newer Sunshine versions
           git apply ../../ci/patches/moonlight-common-c-fec-fix.patch
           git apply ../../ci/patches/moonlight-common-c-audio-fec-fix.patch
+          # Add CommonCrypto backend for AES-GCM/CBC (replaces OpenSSL on Apple platforms)
+          git apply ../../ci/patches/moonlight-common-c-commoncrypto.patch
 
       - name: Clone and patch Opus
         run: |

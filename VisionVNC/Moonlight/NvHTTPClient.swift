@@ -114,6 +114,7 @@ actor NvHTTPClient {
             ("surroundAudioInfo", String(surroundAudioInfo)),
             ("remoteControllersBitmap", "0"),
             ("gcmap", "0"),
+            ("corever", "1"),
         ]
 
         // Add HDR params if 10-bit formats are in the supported list
@@ -141,6 +142,7 @@ actor NvHTTPClient {
             ("rikey", riKey.hexString),
             ("rikeyid", String(riKeyId)),
             ("surroundAudioInfo", String(surroundAudioInfo)),
+            ("corever", "1"),
         ]
 
         let xml = try await nwRequest("resume", args: args, port: httpsPort, useTLS: true, timeout: 30)
@@ -312,11 +314,16 @@ actor NvHTTPClient {
             completionHandler(true)
         }, .global())
 
-        // Present client certificate if we have an identity
-        if let identity = try? await cryptoManager.getClientSecIdentity() {
+        // Present client certificate for TLS mutual auth (required by Sunshine)
+        do {
+            let identity = try await cryptoManager.getClientSecIdentity()
             if let secIdentity = sec_identity_create(identity) {
                 sec_protocol_options_set_local_identity(secOptions, secIdentity)
+            } else {
+                print("[NvHTTPClient] WARNING: sec_identity_create returned nil — TLS client auth will fail")
             }
+        } catch {
+            print("[NvHTTPClient] ERROR: Failed to get client identity for TLS: \(error)")
         }
 
         return NWParameters(tls: tlsOptions)

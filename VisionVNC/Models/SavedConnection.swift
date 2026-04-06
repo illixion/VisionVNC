@@ -168,13 +168,12 @@ final class SavedConnection {
         set { vncTouchModeRawValue = newValue.rawValue }
     }
 
-    #if MOONLIGHT_ENABLED
-    // MARK: Moonlight-specific
+    // MARK: Moonlight stored properties
+    // IMPORTANT: All @Model stored properties MUST be outside #if blocks.
+    // The @Model macro doesn't properly register properties inside #if,
+    // causing "unknown key" crashes even on fresh install.
+    // All use Optional so NULL is valid (lightweight migration safe).
 
-    var moonlightUUID: String?
-    var moonlightServerCert: Data?
-
-    // Stream quality (Optional Int? to survive NULL from lightweight migration)
     @Attribute(originalName: "moonlightBitrate")
     var moonlightBitrateStorage: Int?
     @Attribute(originalName: "moonlightFPS")
@@ -183,7 +182,42 @@ final class SavedConnection {
     var moonlightResolutionWidthStorage: Int?
     @Attribute(originalName: "moonlightResolutionHeight")
     var moonlightResolutionHeightStorage: Int?
+    @Attribute(originalName: "moonlightVideoCodecRawValue")
+    var moonlightVideoCodecRawValueStorage: String?
+    @Attribute(originalName: "moonlightEnableHDR")
+    var moonlightEnableHDRStorage: Bool?
+    @Attribute(originalName: "moonlightUseFramePacing")
+    var moonlightUseFramePacingStorage: Bool?
+    @Attribute(originalName: "moonlightAudioConfigRawValue")
+    var moonlightAudioConfigRawValueStorage: String?
+    @Attribute(originalName: "moonlightPlayAudioOnPC")
+    var moonlightPlayAudioOnPCStorage: Bool?
+    @Attribute(originalName: "moonlightTouchModeRawValue")
+    var moonlightTouchModeRawValueStorage: String?
+    @Attribute(originalName: "moonlightMultiController")
+    var moonlightMultiControllerStorage: Bool?
+    @Attribute(originalName: "moonlightSwapABXY")
+    var moonlightSwapABXYStorage: Bool?
+    @Attribute(originalName: "moonlightOptimizeGameSettings")
+    var moonlightOptimizeGameSettingsStorage: Bool?
+    @Attribute(originalName: "moonlightShowStatsOverlay")
+    var moonlightShowStatsOverlayStorage: Bool?
 
+    #if MOONLIGHT_ENABLED
+    // MARK: Moonlight computed properties (not persisted — safe inside #if)
+
+    // Server identity (stored in UserDefaults, not SwiftData)
+    var moonlightServerCert: Data? {
+        get { UserDefaults.standard.data(forKey: "ml_cert_\(id.uuidString)") }
+        set { UserDefaults.standard.set(newValue, forKey: "ml_cert_\(id.uuidString)") }
+    }
+
+    var moonlightUUID: String? {
+        get { UserDefaults.standard.string(forKey: "ml_uuid_\(id.uuidString)") }
+        set { UserDefaults.standard.set(newValue, forKey: "ml_uuid_\(id.uuidString)") }
+    }
+
+    // Nil-coalescing wrappers with defaults
     var moonlightBitrate: Int {
         get { moonlightBitrateStorage ?? 20000 }
         set { moonlightBitrateStorage = newValue }
@@ -203,26 +237,39 @@ final class SavedConnection {
         get { moonlightResolutionHeightStorage ?? 1080 }
         set { moonlightResolutionHeightStorage = newValue }
     }
-    var moonlightVideoCodecRawValue: String = VideoCodecPreference.auto.rawValue
-    var moonlightEnableHDR: Bool = false
-    var moonlightUseFramePacing: Bool = false
 
-    // Audio
-    var moonlightAudioConfigRawValue: String = AudioConfiguration.stereo.rawValue
-    var moonlightPlayAudioOnPC: Bool = false
-
-    // Input
-    var moonlightTouchModeRawValue: String = TouchMode.relative.rawValue
-    var moonlightMultiController: Bool = true
-    var moonlightSwapABXY: Bool = false
-
-    // Server
-    var moonlightOptimizeGameSettings: Bool = true
-
-    // Debug
-    var moonlightShowStatsOverlay: Bool = false
-
-    // MARK: Moonlight computed properties
+    var moonlightVideoCodecRawValue: String {
+        get { moonlightVideoCodecRawValueStorage ?? VideoCodecPreference.auto.rawValue }
+        set { moonlightVideoCodecRawValueStorage = newValue }
+    }
+    var moonlightEnableHDR: Bool {
+        get { moonlightEnableHDRStorage ?? false }
+        set { moonlightEnableHDRStorage = newValue }
+    }
+    var moonlightUseFramePacing: Bool {
+        get { moonlightUseFramePacingStorage ?? false }
+        set { moonlightUseFramePacingStorage = newValue }
+    }
+    var moonlightPlayAudioOnPC: Bool {
+        get { moonlightPlayAudioOnPCStorage ?? false }
+        set { moonlightPlayAudioOnPCStorage = newValue }
+    }
+    var moonlightMultiController: Bool {
+        get { moonlightMultiControllerStorage ?? true }
+        set { moonlightMultiControllerStorage = newValue }
+    }
+    var moonlightSwapABXY: Bool {
+        get { moonlightSwapABXYStorage ?? false }
+        set { moonlightSwapABXYStorage = newValue }
+    }
+    var moonlightOptimizeGameSettings: Bool {
+        get { moonlightOptimizeGameSettingsStorage ?? true }
+        set { moonlightOptimizeGameSettingsStorage = newValue }
+    }
+    var moonlightShowStatsOverlay: Bool {
+        get { moonlightShowStatsOverlayStorage ?? false }
+        set { moonlightShowStatsOverlayStorage = newValue }
+    }
 
     var moonlightVideoCodec: VideoCodecPreference {
         get { VideoCodecPreference(rawValue: moonlightVideoCodecRawValue) ?? .auto }
@@ -230,13 +277,13 @@ final class SavedConnection {
     }
 
     var moonlightAudioConfig: AudioConfiguration {
-        get { AudioConfiguration(rawValue: moonlightAudioConfigRawValue) ?? .stereo }
-        set { moonlightAudioConfigRawValue = newValue.rawValue }
+        get { AudioConfiguration(rawValue: moonlightAudioConfigRawValueStorage ?? AudioConfiguration.stereo.rawValue) ?? .stereo }
+        set { moonlightAudioConfigRawValueStorage = newValue.rawValue }
     }
 
     var moonlightTouchMode: TouchMode {
-        get { TouchMode(rawValue: moonlightTouchModeRawValue) ?? .relative }
-        set { moonlightTouchModeRawValue = newValue.rawValue }
+        get { TouchMode(rawValue: moonlightTouchModeRawValueStorage ?? TouchMode.relative.rawValue) ?? .relative }
+        set { moonlightTouchModeRawValueStorage = newValue.rawValue }
     }
 
     var moonlightResolutionLabel: String {
