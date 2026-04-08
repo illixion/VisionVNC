@@ -15,7 +15,8 @@ VisionVNC combines a full-featured **VNC viewer** with a **Moonlight game stream
 
 ### Moonlight Game Streaming
 - Stream games and desktop from a [Sunshine](https://github.com/LizardByte/Sunshine) or NVIDIA GameStream host
-- Hardware-accelerated H.264 and HEVC decoding via VideoToolbox
+- Hardware-accelerated H.264, HEVC, and AV1 decoding via AVSampleBufferDisplayLayer
+- HDR10 support with automatic tone mapping (HEVC Main 10 / AV1 Main 10 with PQ transfer function)
 - Opus audio with stereo, 5.1, and 7.1 surround sound support
 - Configurable resolution (720p to 4K), frame rate (30/60/120 FPS), and bitrate (0.5-150 Mbps)
 - Bluetooth gamepad support (DualSense, Xbox, and more) with up to 4 controllers
@@ -112,7 +113,7 @@ VisionVNCApp
 │   ├── NvHTTPClient              — GameStream HTTP/HTTPS API (NWConnection)
 │   ├── NvPairingManager          — PIN-based challenge-response pairing
 │   ├── CryptoManager             — X.509/PKCS#12/AES via CommonCrypto
-│   ├── MoonlightVideoRenderer    — H.264/HEVC via VTDecompressionSession
+│   ├── MoonlightVideoRenderer    — H.264/HEVC/AV1 via AVSampleBufferDisplayLayer + HDR
 │   ├── MoonlightAudioRenderer    — Opus multistream via AVAudioEngine
 │   ├── MoonlightGamepadManager   — GameController framework bridge
 │   ├── MoonlightStreamBridge     — C callback marshalling to Swift
@@ -129,7 +130,7 @@ VisionVNCApp
 
 This app integrates the **moonlight-common-c** protocol library — the same C core used by [Moonlight Qt](https://github.com/moonlight-stream/moonlight-qt), [Moonlight iOS](https://github.com/moonlight-stream/moonlight-ios), and [Moonlight Android](https://github.com/moonlight-stream/moonlight-android). Rather than porting one of the full Moonlight client apps to visionOS (which would require rewriting their entire UI layer), VisionVNC embeds only the protocol library and provides native visionOS implementations of:
 
-- **Video decoding** — `VTDecompressionSession` (VideoToolbox) for hardware H.264/HEVC, outputting `CGImage` frames rendered in SwiftUI
+- **Video decoding** — `AVSampleBufferDisplayLayer` for hardware H.264/HEVC/AV1 decoding with native HDR10 support. Compressed video frames are enqueued directly to the display layer as `CMSampleBuffer`s — the layer handles decoding, HDR tone mapping, and rendering. AV1 bitstream parsing uses a custom OBU parser for sequence header extraction.
 - **Audio decoding** — `opus_multistream_decode()` feeding `AVAudioEngine` with `AVAudioPlayerNode`
 - **Crypto** — CommonCrypto and Security.framework replace OpenSSL for all pairing, TLS, and stream encryption operations
 - **Networking** — `NWConnection` (Network.framework) replaces URLSession for HTTP, enabling custom TLS cert verification and client certificate mutual authentication with Sunshine's self-signed certs

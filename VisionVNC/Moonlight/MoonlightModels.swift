@@ -77,16 +77,15 @@ struct MoonlightApp: Sendable, Identifiable {
     var isAppCollectorGame: Bool = false
 }
 
-// MARK: - Codec Mode Support Bitmask
+// MARK: - Codec Mode Support Bitmask (matches SCM_* in Limelight.h)
 
 enum ServerCodecMode {
-    static let h264: Int = 0x01
-    static let hevc: Int = 0x100
-    static let av1:  Int = 0x200
+    static let h264:       Int = 0x00000001  // SCM_H264
+    static let hevc:       Int = 0x00000100  // SCM_HEVC
+    static let hevcMain10: Int = 0x00000200  // SCM_HEVC_MAIN10
 
-    // With HDR
-    static let hevcMain10: Int = 0x200
-    static let av1Main10:  Int = 0x400
+    static let av1Main8:   Int = 0x00010000  // SCM_AV1_MAIN8
+    static let av1Main10:  Int = 0x00020000  // SCM_AV1_MAIN10
 }
 
 // MARK: - Hex Data Extension

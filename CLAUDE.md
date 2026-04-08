@@ -5,7 +5,7 @@
 VisionVNC is a remote desktop and game streaming app for **visionOS** built in Swift. It supports two protocols:
 
 1. **VNC** — Traditional remote desktop via [RoyalVNCKit](https://github.com/royalapplications/royalvnc) (MIT, pure Swift, local SPM dependency)
-2. **Moonlight** — Low-latency game streaming via [moonlight-common-c](https://github.com/moonlight-stream/moonlight-common-c) (GPLv3, C protocol library) with hardware-accelerated H.264/HEVC decoding and Opus audio
+2. **Moonlight** — Low-latency game streaming via [moonlight-common-c](https://github.com/moonlight-stream/moonlight-common-c) (GPLv3, C protocol library) with hardware-accelerated H.264/HEVC/AV1 decoding, HDR10 support, and Opus audio
 
 Moonlight is an **optional build-time feature** controlled by the `MOONLIGHT_ENABLED` Swift compilation condition. When disabled, the app is a pure VNC viewer with zero Moonlight code compiled in.
 
@@ -58,7 +58,7 @@ Five `WindowGroup` scenes in `VisionVNCApp` (three VNC + two Moonlight, conditio
 | `NvHTTPClient` | GameStream HTTP/HTTPS client using `NWConnection` (Network.framework). Talks to Sunshine's XML API for server info, app list, launch/resume/quit. Bypasses ATS via custom TLS with client cert mutual auth. |
 | `NvPairingManager` | Challenge-response pairing handshake. Derives AES key from PIN+salt, exchanges encrypted challenges, verifies RSA signatures. Supports SHA-256 (server gen >= 7) and SHA-1 (legacy). |
 | `CryptoManager` | RSA 2048 key pair generation (Keychain-backed), self-signed X.509 cert builder (ASN.1 DER), PKCS#12 packaging for TLS client identity, AES-128-ECB for pairing. All via CommonCrypto/Security.framework — no OpenSSL. |
-| `MoonlightVideoRenderer` | Hardware H.264/HEVC decoding via `VTDecompressionSession`. Processes Annex B NAL units from moonlight-common-c, extracts SPS/PPS/VPS parameter sets, creates `CMVideoFormatDescription`, outputs `CGImage` frames. |
+| `MoonlightVideoRenderer` | H.264/HEVC/AV1 video via `AVSampleBufferDisplayLayer`. Processes Annex B NAL units (H.264/HEVC) or OBUs (AV1) from moonlight-common-c, extracts parameter sets, creates `CMVideoFormatDescription` with HDR metadata extensions (MDCV/CLL), and enqueues `CMSampleBuffer`s to the display layer which handles hardware decoding and HDR rendering. |
 | `MoonlightAudioRenderer` | Opus multistream decoding → `AVAudioEngine` + `AVAudioPlayerNode`. Supports stereo, 5.1, and 7.1 channel configs. Can be muted (decoder still runs for protocol, but AVAudioEngine skipped). |
 | `MoonlightStreamBridge` | C callback marshalling layer. Global `nonisolated(unsafe)` references to active renderers/delegate, with C-compatible callback functions that forward to Swift. |
 | `MoonlightGamepadManager` | `GameController` framework bridge for up to 4 Bluetooth gamepads (DualSense, Xbox, etc.). Maps analog sticks, triggers, DPAD, and buttons with optional A/B X/Y swap. |
@@ -84,7 +84,7 @@ Any state can transition to: error(String)                                      
 
 **VNC:** Because `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`, all VNCConnectionDelegate methods must be `nonisolated` with `Task { @MainActor in }` dispatching. RoyalVNCKit is imported with `@preconcurrency import RoyalVNCKit`.
 
-**Moonlight:** moonlight-common-c fires C callbacks on background threads. The bridge uses global `nonisolated(unsafe)` pointers to renderers (only one stream active at a time). Hot paths (video decode, audio decode) stay on the callback thread for performance. State updates marshal to MainActor via `Task { @MainActor in }`. Renderers are `@unchecked Sendable` — they contain unsafe C pointers (VTDecompressionSession, Opus decoder) accessed from the callback thread.
+**Moonlight:** moonlight-common-c fires C callbacks on background threads. The bridge uses global `nonisolated(unsafe)` pointers to renderers (only one stream active at a time). Hot paths (video sample buffer creation, audio decode) stay on the callback thread for performance. State updates marshal to MainActor via `Task { @MainActor in }`. Renderers are `@unchecked Sendable` — they contain unsafe pointers (AVSampleBufferDisplayLayer, Opus decoder) accessed from the callback thread.
 
 ### Video Pipeline (Moonlight)
 
@@ -92,13 +92,12 @@ Any state can transition to: error(String)                                      
 moonlight-common-c (C, background thread)
   → drSubmitDecodeUnit(DECODE_UNIT*)
     → MoonlightVideoRenderer.submitDecodeUnit()
-      → Extract Annex B NAL units from buffer linked list
-      → Detect SPS/PPS/VPS parameter sets, cache and rebuild CMVideoFormatDescription on change
-      → Convert to AVCC format (4-byte length prefix)
-      → VTDecompressionSessionDecodeFrame()
-        → Output callback: VTCreateCGImageFromCVPixelBuffer() → latestFrame (atomic swap)
-          → CADisplayLink (main thread) reads latestFrame → MoonlightConnectionManager.streamFrameImage
-            → MoonlightStreamView renders CGImage
+      → H.264/HEVC: Extract Annex B NAL units, detect SPS/PPS/VPS, convert to AVCC (4-byte length prefix)
+      → AV1: Concatenate OBU data, parse sequence header on IDR for format description
+      → Create/update CMVideoFormatDescription (with HDR MDCV/CLL extensions if active)
+      → Create CMSampleBuffer with PTS from rtpTimestamp (90kHz timescale)
+      → AVSampleBufferDisplayLayer.enqueue() — layer handles hardware decode + display + HDR tone mapping
+        → VideoDisplayView (UIViewRepresentable) hosts the layer in MoonlightStreamView
 ```
 
 ### Audio Pipeline (Moonlight)
@@ -186,7 +185,7 @@ VisionVNC/
 │   └── StreamStatsOverlay.swift        — Live stats HUD (codec, FPS, RTT, decode time, drops)
 ├── Moonlight/
 │   ├── MoonlightStreamBridge.swift     — C callback → Swift marshalling, global renderer refs
-│   ├── MoonlightVideoRenderer.swift    — VTDecompressionSession H.264/HEVC decoder
+│   ├── MoonlightVideoRenderer.swift    — AVSampleBufferDisplayLayer H.264/HEVC/AV1 + HDR
 │   ├── MoonlightAudioRenderer.swift    — Opus multistream → AVAudioEngine
 │   ├── MoonlightGamepadManager.swift   — GameController framework → LiSendMultiControllerEvent
 │   ├── MoonlightKeyCodes.swift         — UIKeyboardHIDUsage → Windows VK code mapping
@@ -231,12 +230,13 @@ ci/
 
 - **Session:** `LiStartConnection()` / `LiStopConnection()` — takes `SERVER_INFORMATION`, `STREAM_CONFIGURATION`, and callback structs
 - **Callbacks:** `CONNECTION_LISTENER_CALLBACKS` (stage/connection events), `DECODER_RENDERER_CALLBACKS` (video), `AUDIO_RENDERER_CALLBACKS` (audio)
-- **Video callback:** `drSubmitDecodeUnit(DECODE_UNIT*)` — linked list of `LENTRY` buffers containing Annex B H.264/HEVC NAL units
+- **Video callback:** `drSubmitDecodeUnit(DECODE_UNIT*)` — linked list of `LENTRY` buffers containing Annex B H.264/HEVC NAL units or AV1 OBUs
 - **Audio callback:** `arDecodeAndPlaySample(sampleData, sampleLength)` — Opus-encoded audio packets
 - **Mouse:** `LiSendMouseMoveEvent(deltaX, deltaY)`, `LiSendMousePositionEvent(x, y, refWidth, refHeight)`, `LiSendMouseButtonEvent(action, button)`, `LiSendScrollEvent(direction)`
 - **Keyboard:** `LiSendKeyboardEvent(keyAction, keyCode, modifiers)` — uses Windows VK codes, actions `KEY_ACTION_DOWN` (0x0801) / `KEY_ACTION_UP` (0x0802)
 - **Gamepad:** `LiSendMultiControllerEvent(controllerNumber, activeGamepadMask, buttonFlags, leftTrigger, rightTrigger, leftStickX, leftStickY, rightStickX, rightStickY)`
 - **Stats:** `LiGetEstimatedRttInfo()` for network RTT; frame counts and decode timing tracked in `MoonlightVideoRenderer`
+- **HDR:** `LiGetHdrMetadata(PSS_HDR_METADATA)` — retrieves mastering display and content light level info; `LiRequestIdrFrame()` — requests key frame after HDR mode change
 - **Stage names:** STAGE_RTSP_HANDSHAKE, STAGE_CONTROL_STREAM, STAGE_VIDEO_STREAM, STAGE_AUDIO_STREAM, STAGE_INPUT_STREAM — surfaced via `LiGetStageName()`
 
 ## Known Constraints & Gotchas
@@ -251,9 +251,9 @@ ci/
 - **NvHTTPClient uses NWConnection, not URLSession** — required for self-signed cert acceptance and mutual TLS. HTTP/1.1 is manually constructed. Responses are XML parsed with Foundation's `XMLParser`.
 - **Server cert and UUID are stored in UserDefaults**, keyed per server — SwiftData doesn't handle raw `Data` blobs well for binary cert data.
 - **Opus multistream decoder** requires channel count, stream count, coupled stream count, and channel mapping from the `OPUS_MULTISTREAM_CONFIGURATION` provided by moonlight-common-c. The decoder is always created even in muted mode (C API requirement), but AVAudioEngine is skipped.
-- **Video renderer outputs CGImage** (not direct Metal/AVSampleBufferDisplayLayer) for simpler integration with SwiftUI. This adds ~1ms overhead per frame but avoids UIViewRepresentable complexity for the display layer.
-- **AV1 is not supported** — would require FFmpeg for bitstream parsing (sequence header extraction). H.264 and HEVC work natively via VideoToolbox.
-- **HDR is not supported** — would require HEVC Main 10 profile + EDR rendering. The codec preference enum includes `.av1` but it's effectively a no-op.
+- **Video renderer uses AVSampleBufferDisplayLayer** via `UIViewRepresentable` (`VideoLayerView`). The layer handles hardware decoding and display internally, including native HDR/EDR tone mapping. The custom UIView subclass overrides `layoutSubviews()` to keep the layer frame in sync — setting the frame in `makeUIView` alone doesn't work because `bounds` is zero at that point.
+- **AV1 uses a custom OBU parser** (`BitstreamReader` + `parseAV1SequenceHeader`) to extract sequence headers for `CMVideoFormatDescription` creation. The parser implements AV1 spec Section 5.5 at bit granularity. AV1 config records (`av1C`) are built per ISO 14496-12.
+- **HDR metadata uses raw memory access** to read `SS_HDR_METADATA` because Swift cannot directly access the anonymous struct array `displayPrimaries[3]` from the C header. The `packHdrMetadata` method reads fields at known offsets via `UnsafeRawPointer.bindMemory`. MDCV is packed in GBR order (not RGB) per the MDCV spec. Format description extension keys must use the proper CoreMedia constants (`kCMFormatDescriptionExtension_MasteringDisplayColorVolume`, `kCMFormatDescriptionExtension_ContentLightLevelInfo`) — lowercase string literals are silently ignored.
 - **Audio FEC patches are required** — without the CI patches, moonlight-common-c crashes on FEC recovery with newer Sunshine versions. Always apply patches from `ci/patches/` when setting up the dependency.
 - **Pairing supports two hash variants** — SHA-256 for server generation >= 7 (modern Sunshine), SHA-1 for older servers. The `NvPairingManager` auto-detects based on `/serverinfo` response.
 

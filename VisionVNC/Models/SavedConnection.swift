@@ -77,7 +77,7 @@ enum VideoCodecPreference: String, CaseIterable, Codable {
     case auto       // let server/client negotiate best option
     case h264
     case hevc
-    case av1        // future — requires FFmpeg for bitstream parsing
+    case av1        // native AV1 OBU parsing via VideoToolbox
 
     var label: String {
         switch self {

@@ -9,7 +9,7 @@ struct StreamStatsOverlay: View {
         VStack(alignment: .leading, spacing: 4) {
             let stats = manager.streamStats
 
-            Text("\(stats.videoCodec) \(stats.resolution) @ \(stats.configuredFPS) FPS")
+            Text("\(stats.videoCodec) \(stats.resolution) @ \(stats.configuredFPS) FPS\(manager.isHDRActive ? " HDR" : "")")
                 .font(.caption.monospaced())
             Text("FPS: \(stats.actualFPS, specifier: "%.1f")")
                 .font(.caption.monospaced())

@@ -118,7 +118,9 @@ actor NvHTTPClient {
         ]
 
         // Add HDR params if 10-bit formats are in the supported list
-        if supportedVideoFormats & (ServerCodecMode.hevcMain10 | ServerCodecMode.av1Main10) != 0 {
+        // VIDEO_FORMAT_MASK_10BIT = 0xAA00 (all 10-bit VIDEO_FORMAT_* flags)
+        let videoFormat10BitMask = 0xAA00
+        if supportedVideoFormats & videoFormat10BitMask != 0 {
             args.append(("hdrMode", "1"))
             args.append(("clientHdrCapVersion", "0"))
             args.append(("clientHdrCapSupportedFlagsInUint32", "0"))

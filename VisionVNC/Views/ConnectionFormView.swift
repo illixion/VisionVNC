@@ -220,6 +220,11 @@ struct ConnectionFormView: View {
             }
 
             Toggle("HDR", isOn: $moonlightEnableHDR)
+            if moonlightEnableHDR && moonlightVideoCodec == .h264 {
+                Text("HDR requires HEVC or AV1. H.264 will auto-upgrade to HEVC Main 10 if supported.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
 
             Picker("Frame Delivery", selection: $moonlightUseFramePacing) {
                 Text("Lowest Latency").tag(false)

@@ -1,6 +1,7 @@
 #if MOONLIGHT_ENABLED
 import Foundation
 import SwiftUI
+import AVFoundation
 import QuartzCore
 @preconcurrency import MoonlightCommonC
 
@@ -74,10 +75,12 @@ class MoonlightConnectionManager: MoonlightStreamDelegate {
 
     /// Video renderer — exposed so MoonlightStreamView can check streaming state.
     var videoRenderer: MoonlightVideoRenderer?
-    /// Latest decoded video frame for SwiftUI display.
-    var streamFrameImage: CGImage?
+    /// Display layer for hardware-accelerated video decode and display.
+    var displayLayer: AVSampleBufferDisplayLayer?
     /// Live streaming statistics.
     var streamStats = StreamStats()
+    /// Whether HDR is active for the current stream (set by server callback).
+    var isHDRActive: Bool = false
 
     private var audioRenderer: MoonlightAudioRenderer?
     private var gamepadManager: MoonlightGamepadManager?
@@ -245,10 +248,12 @@ class MoonlightConnectionManager: MoonlightStreamDelegate {
                 let riKey = self.generateRandomBytes(16)
                 let riKeyId = Int32(bitPattern: UInt32.random(in: 0...UInt32.max))
 
-                // Determine video format based on server support and connection settings
+                // Determine video format based on server support, connection settings, and HDR
+                let enableHDR = connection.moonlightEnableHDR
                 let videoFormats = self.resolveVideoFormats(
                     serverCodecModeSupport: Int32(info.serverCodecModeSupport),
-                    preference: connection.moonlightVideoCodec
+                    preference: connection.moonlightVideoCodec,
+                    enableHDR: enableHDR
                 )
 
                 // Determine audio configuration
@@ -306,17 +311,26 @@ class MoonlightConnectionManager: MoonlightStreamDelegate {
                     )
                 }
 
-                // Create renderers
+                // Create display layer on main thread and renderers
+                let layer = await MainActor.run {
+                    let l = AVSampleBufferDisplayLayer()
+                    l.videoGravity = .resizeAspect
+                    return l
+                }
+
                 let video = MoonlightVideoRenderer()
+                video.displayLayer = layer
                 let audio = MoonlightAudioRenderer()
                 audio.muted = noAudio
 
                 // Determine codec name for stats display
+                let videoFormat10BitMask: Int32 = 0xAA00 // VIDEO_FORMAT_MASK_10BIT
+                let is10Bit = videoFormats & videoFormat10BitMask != 0
                 let codecName: String
-                if videoFormats & VIDEO_FORMAT_H265 != 0 {
-                    codecName = "HEVC"
-                } else if videoFormats & Int32(VIDEO_FORMAT_AV1_MAIN8) != 0 {
-                    codecName = "AV1"
+                if videoFormats & Int32(VIDEO_FORMAT_AV1_MAIN8) != 0 || videoFormats & Int32(VIDEO_FORMAT_AV1_MAIN10) != 0 {
+                    codecName = is10Bit ? "AV1 10-bit" : "AV1"
+                } else if videoFormats & VIDEO_FORMAT_H265 != 0 || videoFormats & Int32(VIDEO_FORMAT_H265_MAIN10) != 0 {
+                    codecName = is10Bit ? "HEVC Main 10" : "HEVC"
                 } else {
                     codecName = "H.264"
                 }
@@ -324,6 +338,7 @@ class MoonlightConnectionManager: MoonlightStreamDelegate {
                 await MainActor.run {
                     self.videoRenderer = video
                     self.audioRenderer = audio
+                    self.displayLayer = layer
                     self.isStreamActive = true
                     self.touchMode = connection.moonlightTouchMode
                     self.streamWidth = effectiveWidth
@@ -335,6 +350,10 @@ class MoonlightConnectionManager: MoonlightStreamDelegate {
                     )
                 }
 
+                // Determine color space for HDR
+                let colorSpace = is10Bit ? COLORSPACE_REC_2020 : COLORSPACE_REC_709
+                let colorRange = COLOR_RANGE_LIMITED
+
                 // Build stream config
                 let streamConfig = MoonlightStreamConfig(
                     width: Int32(effectiveWidth),
@@ -343,6 +362,8 @@ class MoonlightConnectionManager: MoonlightStreamDelegate {
                     bitrate: Int32(connection.moonlightBitrate),
                     audioConfiguration: audioConfig,
                     supportedVideoFormats: videoFormats,
+                    colorSpace: colorSpace,
+                    colorRange: colorRange,
                     serverAddress: connection.hostname,
                     serverAppVersion: info.appVersion,
                     serverGfeVersion: info.gfeVersion,
@@ -394,10 +415,13 @@ class MoonlightConnectionManager: MoonlightStreamDelegate {
         gamepadManager?.stopListening()
         gamepadManager = nil
         activeGamepadManager = nil
+        displayLayer?.flush()
+        displayLayer = nil
+        videoRenderer?.displayLayer = nil
         videoRenderer = nil
         audioRenderer = nil
         isStreamActive = false
-        streamFrameImage = nil
+        isHDRActive = false
         // Reset FPS tracking so the next session doesn't underflow
         fpsFrameCount = 0
         fpsLastSampleTime = 0
@@ -438,16 +462,8 @@ class MoonlightConnectionManager: MoonlightStreamDelegate {
             }
             return
         }
-        let frame = renderer.latestFrame
-        if displayLinkLogCount < 5 {
-            print("[MoonlightStream] Display link tick: latestFrame=\(frame != nil ? "yes" : "nil")")
-            displayLinkLogCount += 1
-        }
-        if let frame = frame, frame !== streamFrameImage {
-            streamFrameImage = frame
-        }
 
-        // Update stats periodically
+        // Update stats periodically (display layer handles rendering directly)
         updateStats(renderer: renderer)
     }
 
@@ -530,6 +546,10 @@ class MoonlightConnectionManager: MoonlightStreamDelegate {
         // Could update UI with connection quality indicators
     }
 
+    nonisolated func moonlightStreamSetHdrMode(_ enabled: Bool) {
+        Task { @MainActor in self.isHDRActive = enabled }
+    }
+
     // MARK: - Helpers
 
     private nonisolated func generateRandomBytes(_ count: Int) -> Data {
@@ -538,27 +558,51 @@ class MoonlightConnectionManager: MoonlightStreamDelegate {
         return Data(bytes)
     }
 
-    /// Determine supported video formats based on server capabilities and user preference.
-    private nonisolated func resolveVideoFormats(serverCodecModeSupport: Int32, preference: VideoCodecPreference) -> Int32 {
+    /// Determine supported video formats based on server capabilities, user preference, and HDR.
+    private nonisolated func resolveVideoFormats(serverCodecModeSupport: Int32, preference: VideoCodecPreference, enableHDR: Bool) -> Int32 {
         switch preference {
         case .h264:
+            if enableHDR {
+                // H.264 doesn't support HDR — auto-upgrade to HEVC Main 10 if available
+                if serverCodecModeSupport & Int32(SCM_HEVC_MAIN10) != 0 {
+                    return VIDEO_FORMAT_H265 | Int32(VIDEO_FORMAT_H265_MAIN10)
+                }
+            }
             return VIDEO_FORMAT_H264
         case .hevc:
             if serverCodecModeSupport & Int32(SCM_HEVC) != 0 {
-                return VIDEO_FORMAT_H265
+                var formats = VIDEO_FORMAT_H265
+                if enableHDR && serverCodecModeSupport & Int32(SCM_HEVC_MAIN10) != 0 {
+                    formats |= Int32(VIDEO_FORMAT_H265_MAIN10)
+                }
+                return formats
             }
             return VIDEO_FORMAT_H264
         case .av1:
             if serverCodecModeSupport & Int32(SCM_AV1_MAIN8) != 0 {
-                return Int32(VIDEO_FORMAT_AV1_MAIN8)
+                var formats = Int32(VIDEO_FORMAT_AV1_MAIN8)
+                if enableHDR && serverCodecModeSupport & Int32(SCM_AV1_MAIN10) != 0 {
+                    formats |= Int32(VIDEO_FORMAT_AV1_MAIN10)
+                }
+                return formats
             }
             return VIDEO_FORMAT_H264
         case .auto:
-            // Prefer HEVC if available, fall back to H.264
-            if serverCodecModeSupport & Int32(SCM_HEVC) != 0 {
-                return VIDEO_FORMAT_H264 | VIDEO_FORMAT_H265
+            var formats = VIDEO_FORMAT_H264
+            // Prefer AV1 > HEVC > H.264
+            if serverCodecModeSupport & Int32(SCM_AV1_MAIN8) != 0 {
+                formats |= Int32(VIDEO_FORMAT_AV1_MAIN8)
+                if enableHDR && serverCodecModeSupport & Int32(SCM_AV1_MAIN10) != 0 {
+                    formats |= Int32(VIDEO_FORMAT_AV1_MAIN10)
+                }
             }
-            return VIDEO_FORMAT_H264
+            if serverCodecModeSupport & Int32(SCM_HEVC) != 0 {
+                formats |= VIDEO_FORMAT_H265
+                if enableHDR && serverCodecModeSupport & Int32(SCM_HEVC_MAIN10) != 0 {
+                    formats |= Int32(VIDEO_FORMAT_H265_MAIN10)
+                }
+            }
+            return formats
         }
     }
 

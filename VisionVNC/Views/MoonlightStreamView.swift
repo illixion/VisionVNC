@@ -1,6 +1,48 @@
 #if MOONLIGHT_ENABLED
 import SwiftUI
+import AVFoundation
+import UIKit
 @preconcurrency import MoonlightCommonC
+
+// MARK: - Video Display View
+
+/// UIView subclass that hosts an AVSampleBufferDisplayLayer, keeping the layer
+/// frame in sync via layoutSubviews (not reliant on SwiftUI update cycles).
+private class VideoLayerView: UIView {
+    let displayLayer: AVSampleBufferDisplayLayer
+
+    init(displayLayer: AVSampleBufferDisplayLayer) {
+        self.displayLayer = displayLayer
+        super.init(frame: .zero)
+        backgroundColor = .black
+        displayLayer.videoGravity = .resizeAspect
+        layer.addSublayer(displayLayer)
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        displayLayer.frame = bounds
+        CATransaction.commit()
+    }
+}
+
+/// UIViewRepresentable that hosts an AVSampleBufferDisplayLayer for hardware-accelerated
+/// video decode and display with native HDR support.
+private struct VideoDisplayView: UIViewRepresentable {
+    let displayLayer: AVSampleBufferDisplayLayer
+
+    func makeUIView(context: Context) -> VideoLayerView {
+        VideoLayerView(displayLayer: displayLayer)
+    }
+
+    func updateUIView(_ uiView: VideoLayerView, context: Context) {}
+}
+
+// MARK: - Stream View
 
 /// SwiftUI view that displays the Moonlight video stream and handles input.
 struct MoonlightStreamView: View {
@@ -20,11 +62,9 @@ struct MoonlightStreamView: View {
         ZStack {
             Color.black.ignoresSafeArea()
 
-            if let frame = manager.streamFrameImage {
+            if let layer = manager.displayLayer {
                 GeometryReader { geometry in
-                    Image(decorative: frame, scale: 1.0)
-                        .resizable()
-                        .aspectRatio(contentMode: .fit)
+                    VideoDisplayView(displayLayer: layer)
                         .frame(width: geometry.size.width, height: geometry.size.height)
                         .gesture(mouseDragGesture(in: geometry.size))
                         .gesture(scrollGesture)

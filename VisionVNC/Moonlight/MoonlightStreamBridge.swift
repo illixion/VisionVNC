@@ -21,6 +21,7 @@ protocol MoonlightStreamDelegate: AnyObject, Sendable {
     func moonlightStreamConnectionStarted()
     func moonlightStreamConnectionTerminated(_ errorCode: Int32)
     func moonlightStreamConnectionStatusUpdate(_ status: Int32)
+    func moonlightStreamSetHdrMode(_ enabled: Bool)
 }
 
 // MARK: - Audio Configuration Helpers
@@ -169,7 +170,13 @@ private nonisolated func moonlightStageName(_ stage: Int32) -> String {
 private nonisolated func bridgeRumble(_ controllerNumber: UInt16, _ lowFreqMotor: UInt16, _ highFreqMotor: UInt16) {
     activeGamepadManager?.handleRumble(controllerNumber: controllerNumber, lowFreqMotor: lowFreqMotor, highFreqMotor: highFreqMotor)
 }
-private nonisolated func bridgeSetHdrMode(_ hdrEnabled: Bool) {}
+private nonisolated func bridgeSetHdrMode(_ hdrEnabled: Bool) {
+    print("[MoonlightBridge] HDR mode: \(hdrEnabled)")
+    // Forward HDR mode to renderer so it can update metadata and request IDR
+    activeVideoRenderer?.setHdrMode(hdrEnabled)
+    let delegate = activeStreamDelegate
+    Task { @MainActor in delegate?.moonlightStreamSetHdrMode(hdrEnabled) }
+}
 private nonisolated func bridgeRumbleTriggers(_ controllerNumber: UInt16, _ leftTrigger: UInt16, _ rightTrigger: UInt16) {}
 private nonisolated func bridgeSetMotionEventState(_ controllerNumber: UInt16, _ motionType: UInt8, _ reportRateHz: UInt16) {}
 private nonisolated func bridgeSetControllerLED(_ controllerNumber: UInt16, _ r: UInt8, _ g: UInt8, _ b: UInt8) {}
@@ -189,6 +196,8 @@ struct MoonlightStreamConfig {
     var packetSize: Int32 = 1024
     var audioConfiguration: Int32
     var supportedVideoFormats: Int32
+    var colorSpace: Int32 = COLORSPACE_REC_709
+    var colorRange: Int32 = COLOR_RANGE_LIMITED
     var serverAddress: String
     var serverAppVersion: String
     var serverGfeVersion: String
@@ -223,8 +232,8 @@ nonisolated func startMoonlightStream(
     streamConfig.streamingRemotely = STREAM_CFG_AUTO
     streamConfig.audioConfiguration = config.audioConfiguration
     streamConfig.supportedVideoFormats = config.supportedVideoFormats
-    streamConfig.colorSpace = COLORSPACE_REC_709
-    streamConfig.colorRange = COLOR_RANGE_LIMITED
+    streamConfig.colorSpace = config.colorSpace
+    streamConfig.colorRange = config.colorRange
     streamConfig.encryptionFlags = config.encryptionFlags
 
     // Copy AES key and IV into the fixed-size C arrays
@@ -278,7 +287,7 @@ nonisolated func startMoonlightStream(
     drCallbacks.stop = bridgeVideoStop
     drCallbacks.cleanup = bridgeVideoCleanup
     drCallbacks.submitDecodeUnit = bridgeVideoSubmitDecodeUnit
-    drCallbacks.capabilities = 0
+    drCallbacks.capabilities = Int32(CAPABILITY_REFERENCE_FRAME_INVALIDATION_AV1)
 
     var arCallbacks = AUDIO_RENDERER_CALLBACKS()
     LiInitializeAudioCallbacks(&arCallbacks)
