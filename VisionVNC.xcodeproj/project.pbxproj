@@ -77,6 +77,29 @@
 		};
 /* End PBXGroup section */
 
+/* Begin PBXShellScriptBuildPhase section */
+		1DC83C5A2F9536A000BF0482 /* Copy Third-Party Notices */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(SRCROOT)/THIRD_PARTY_NOTICES.md",
+			);
+			name = "Copy Third-Party Notices";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(BUILT_PRODUCTS_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/THIRD_PARTY_NOTICES.md",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "cp \"${SRCROOT}/THIRD_PARTY_NOTICES.md\" \"${BUILT_PRODUCTS_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/\"\n";
+		};
+/* End PBXShellScriptBuildPhase section */
+
 /* Begin PBXNativeTarget section */
 		1DC83C262F74524200BF0482 /* VisionVNC */ = {
 			isa = PBXNativeTarget;
@@ -85,6 +108,7 @@
 				1DC83C232F74524200BF0482 /* Sources */,
 				1DC83C242F74524200BF0482 /* Frameworks */,
 				1DC83C252F74524200BF0482 /* Resources */,
+				1DC83C5A2F9536A000BF0482 /* Copy Third-Party Notices */,
 			);
 			buildRules = (
 			);
