@@ -70,7 +70,7 @@ final class VNCConnectionManager: NSObject, VNCConnectionDelegate {
 
     // MARK: - Connection Lifecycle
 
-    func connect(hostname: String, port: UInt16, username: String? = nil, password: String? = nil, colorDepth: VNCConnection.Settings.ColorDepth = .depth24Bit, touchMode: TouchMode = .absolute, trackpadOnly: Bool = false, title: String? = nil) {
+    func connect(hostname: String, port: UInt16, username: String? = nil, password: String? = nil, colorDepth: VNCConnection.Settings.ColorDepth = .depth24Bit, jpegQualityLevel: Int = 6, compressionLevel: Int = 6, touchMode: TouchMode = .absolute, trackpadOnly: Bool = false, title: String? = nil) {
         disconnect()
 
         self.touchMode = touchMode
@@ -91,7 +91,9 @@ final class VNCConnectionManager: NSObject, VNCConnectionDelegate {
             inputMode: .forwardKeyboardShortcutsIfNotInUseLocally,
             isClipboardRedirectionEnabled: true,
             colorDepth: colorDepth,
-            frameEncodings: .default
+            frameEncodings: .default,
+            jpegQualityLevel: jpegQualityLevel,
+            compressionLevel: compressionLevel
         )
 
         let conn = VNCConnection(settings: settings)

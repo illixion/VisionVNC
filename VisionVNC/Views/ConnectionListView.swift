@@ -202,6 +202,8 @@ struct ConnectionListView: View {
             username: username,
             password: password,
             colorDepth: connection.quality.vncColorDepth,
+            jpegQualityLevel: connection.quality.jpegQualityLevel,
+            compressionLevel: connection.quality.compressionLevel,
             touchMode: connection.vncTouchMode,
             trackpadOnly: connection.quality == .trackpadOnly,
             title: connection.displayName

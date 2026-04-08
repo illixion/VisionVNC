@@ -40,19 +40,21 @@ enum ConnectionType: String, CaseIterable, Codable {
 
 // MARK: - VNC Quality
 
-/// Quality presets mapping to VNC color depth.
+/// Quality presets mapping to VNC color depth, JPEG quality, and compression level.
 /// Note: 8-bit depth uses palettized color map mode which most modern
 /// VNC servers (including macOS Screen Sharing) don't support, so the
 /// lowest usable depth is 16-bit.
 enum ConnectionQuality: Int, CaseIterable, Codable {
     case trackpadOnly = 0  // No video, transparent overlay for input only
-    case low = 16          // 65K colors
-    case high = 24         // 16.7M colors (full color)
+    case low = 1           // 16-bit, aggressive JPEG compression
+    case medium = 16       // 16-bit, balanced (was "low" before low tier existed)
+    case high = 24         // 24-bit, full color
 
     var label: String {
         switch self {
         case .trackpadOnly: "Trackpad Only"
         case .low: "Low"
+        case .medium: "Medium"
         case .high: "High"
         }
     }
@@ -60,16 +62,34 @@ enum ConnectionQuality: Int, CaseIterable, Codable {
     var detail: String {
         switch self {
         case .trackpadOnly: "Transparent input overlay. Position over Mac Virtual Display for mouse and keyboard control."
-        case .low: "16-bit, 65K colors — lower bandwidth"
-        case .high: "24-bit, full color"
+        case .low: "16-bit, aggressive JPEG compression — lowest bandwidth"
+        case .medium: "16-bit, balanced compression"
+        case .high: "24-bit, full color — best quality"
         }
     }
 
     var vncColorDepth: VNCConnection.Settings.ColorDepth {
         switch self {
-        case .trackpadOnly: .depth16Bit  // Minimize bandwidth — video not displayed
-        case .low: .depth16Bit
+        case .trackpadOnly, .low, .medium: .depth16Bit
         case .high: .depth24Bit
+        }
+    }
+
+    /// JPEG quality level for Tight encoding (0 = lowest, 9 = highest)
+    var jpegQualityLevel: Int {
+        switch self {
+        case .trackpadOnly, .low: 2
+        case .medium: 6
+        case .high: 8
+        }
+    }
+
+    /// Compression level (1 = lowest/fastest, 10 = highest/slowest)
+    var compressionLevel: Int {
+        switch self {
+        case .trackpadOnly, .low: 9
+        case .medium: 6
+        case .high: 3
         }
     }
 }
