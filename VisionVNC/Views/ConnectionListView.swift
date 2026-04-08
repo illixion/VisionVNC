@@ -203,6 +203,7 @@ struct ConnectionListView: View {
             password: password,
             colorDepth: connection.quality.vncColorDepth,
             touchMode: connection.vncTouchMode,
+            trackpadOnly: connection.quality == .trackpadOnly,
             title: connection.displayName
         )
 

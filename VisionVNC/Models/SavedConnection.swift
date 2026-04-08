@@ -45,11 +45,13 @@ enum ConnectionType: String, CaseIterable, Codable {
 /// VNC servers (including macOS Screen Sharing) don't support, so the
 /// lowest usable depth is 16-bit.
 enum ConnectionQuality: Int, CaseIterable, Codable {
-    case low = 16      // 65K colors
-    case high = 24     // 16.7M colors (full color)
+    case trackpadOnly = 0  // No video, transparent overlay for input only
+    case low = 16          // 65K colors
+    case high = 24         // 16.7M colors (full color)
 
     var label: String {
         switch self {
+        case .trackpadOnly: "Trackpad Only"
         case .low: "Low"
         case .high: "High"
         }
@@ -57,6 +59,7 @@ enum ConnectionQuality: Int, CaseIterable, Codable {
 
     var detail: String {
         switch self {
+        case .trackpadOnly: "Transparent input overlay. Position over Mac Virtual Display for mouse and keyboard control."
         case .low: "16-bit, 65K colors — lower bandwidth"
         case .high: "24-bit, full color"
         }
@@ -64,6 +67,7 @@ enum ConnectionQuality: Int, CaseIterable, Codable {
 
     var vncColorDepth: VNCConnection.Settings.ColorDepth {
         switch self {
+        case .trackpadOnly: .depth16Bit  // Minimize bandwidth — video not displayed
         case .low: .depth16Bit
         case .high: .depth24Bit
         }

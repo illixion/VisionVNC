@@ -4,12 +4,25 @@ import CoreGraphics
 struct GestureTranslator {
     let framebufferSize: CGSize
     let viewSize: CGSize
+    /// When true, the entire view is the input surface (no aspect-ratio letterboxing).
+    let trackpadOnly: Bool
 
-    /// The actual displayed image size within the view (aspect-ratio fit)
+    init(framebufferSize: CGSize, viewSize: CGSize, trackpadOnly: Bool = false) {
+        self.framebufferSize = framebufferSize
+        self.viewSize = viewSize
+        self.trackpadOnly = trackpadOnly
+    }
+
+    /// The actual displayed image size within the view (aspect-ratio fit),
+    /// or the full view size in trackpad-only mode.
     var displayedImageSize: CGSize {
         guard framebufferSize.width > 0, framebufferSize.height > 0,
               viewSize.width > 0, viewSize.height > 0 else {
             return .zero
+        }
+
+        if trackpadOnly {
+            return viewSize
         }
 
         let imageAspect = framebufferSize.width / framebufferSize.height
@@ -28,8 +41,12 @@ struct GestureTranslator {
         }
     }
 
-    /// Offset of the displayed image from the top-left of the view
+    /// Offset of the displayed image from the top-left of the view.
+    /// Always zero in trackpad-only mode.
     var imageOffset: CGPoint {
+        if trackpadOnly {
+            return .zero
+        }
         let displayed = displayedImageSize
         return CGPoint(
             x: (viewSize.width - displayed.width) / 2,

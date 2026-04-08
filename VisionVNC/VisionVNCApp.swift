@@ -24,6 +24,7 @@ struct VisionVNCApp: App {
         }
         .defaultSize(width: 1280, height: 800)
         .windowResizability(.contentMinSize)
+        .windowStyle(.plain)
 
         #if MOONLIGHT_ENABLED
         WindowGroup("Moonlight Stream", id: "moonlight-stream") {

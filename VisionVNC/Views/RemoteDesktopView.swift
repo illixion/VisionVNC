@@ -11,49 +11,24 @@ struct RemoteDesktopView: View {
     @State private var previousDragTranslation: CGSize = .zero
 
     var body: some View {
-        NavigationStack {
-            ZStack {
-                // Invisible hardware keyboard capture
-                HardwareKeyboardView(connectionManager: connectionManager)
-                    .frame(width: 0, height: 0)
-                    .opacity(0)
-
-                // Framebuffer display
-                GeometryReader { geometry in
-                    ZStack {
-                        if let cgImage = connectionManager.framebufferImage {
-                            Image(uiImage: UIImage(cgImage: cgImage))
-                                .resizable()
-                                .aspectRatio(contentMode: .fit)
-                                .frame(maxWidth: .infinity, maxHeight: .infinity)
-
-                            // Virtual cursor indicator for touchpad mode
-                            if connectionManager.touchMode == .relative,
-                               connectionManager.framebufferSize.width > 0 {
-                                cursorOverlay
-                            }
-                        } else {
-                            statusView
+        Group {
+            if connectionManager.isTrackpadOnly {
+                // Trackpad-only: no NavigationStack — its glass background blocks transparency
+                coreContent
+                    .overlay(alignment: .bottom) {
+                        toolbar
+                            .padding(.bottom, 16)
+                    }
+            } else {
+                NavigationStack {
+                    coreContent
+                        .navigationTitle(connectionManager.connectionTitle)
+                        .overlay(alignment: .bottom) {
+                            toolbar
+                                .padding(.bottom, 16)
                         }
-                    }
-                    .frame(width: geometry.size.width, height: geometry.size.height)
-                    .contentShape(Rectangle())
-                    .onTapGesture(count: 2) { handleDoubleTap() }
-                    .gesture(tapGesture)
-                    .gesture(dragGesture)
-                    .gesture(scrollGesture)
-                    .onAppear {
-                        viewSize = geometry.size
-                    }
-                    .onChange(of: geometry.size) { _, newSize in
-                        viewSize = newSize
-                    }
                 }
-            }
-            .navigationTitle(connectionManager.connectionTitle)
-            .overlay(alignment: .bottom) {
-                toolbar
-                    .padding(.bottom, 16)
+                .glassBackgroundEffect()
             }
         }
         .sheet(isPresented: Bindable(connectionManager).isCredentialPromptPresented) {
@@ -74,6 +49,56 @@ struct RemoteDesktopView: View {
                     try? await Task.sleep(for: .seconds(1))
                     dismissWindow(id: "keyboard")
                     dismissWindow(id: "remote-desktop")
+                }
+            }
+        }
+    }
+
+    // MARK: - Core Content
+
+    @ViewBuilder
+    private var coreContent: some View {
+        ZStack {
+            // Invisible hardware keyboard capture
+            HardwareKeyboardView(connectionManager: connectionManager)
+                .frame(width: 0, height: 0)
+                .opacity(0)
+
+            GeometryReader { geometry in
+                ZStack {
+                    if connectionManager.isTrackpadOnly {
+                        if connectionManager.connectionState == .connected {
+                            Color.white.opacity(0.001) // Near-invisible but captures taps
+                            cornerBrackets
+                        } else {
+                            statusView
+                        }
+                    } else if let cgImage = connectionManager.framebufferImage {
+                        Image(uiImage: UIImage(cgImage: cgImage))
+                            .resizable()
+                            .aspectRatio(contentMode: .fit)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+                        // Virtual cursor indicator for touchpad mode
+                        if connectionManager.touchMode == .relative,
+                           connectionManager.framebufferSize.width > 0 {
+                            cursorOverlay
+                        }
+                    } else {
+                        statusView
+                    }
+                }
+                .frame(width: geometry.size.width, height: geometry.size.height)
+                .contentShape(Rectangle())
+                .onTapGesture(count: 2) { handleDoubleTap() }
+                .gesture(tapGesture)
+                .gesture(dragGesture)
+                .gesture(scrollGesture)
+                .onAppear {
+                    viewSize = geometry.size
+                }
+                .onChange(of: geometry.size) { _, newSize in
+                    viewSize = newSize
                 }
             }
         }
@@ -228,7 +253,8 @@ struct RemoteDesktopView: View {
         guard connectionManager.framebufferSize.width > 0 else { return nil }
         return GestureTranslator(
             framebufferSize: connectionManager.framebufferSize,
-            viewSize: viewSize
+            viewSize: viewSize,
+            trackpadOnly: connectionManager.isTrackpadOnly
         )
     }
 
@@ -244,6 +270,39 @@ struct RemoteDesktopView: View {
             .frame(width: 12, height: 12)
             .position(point)
             .allowsHitTesting(false)
+    }
+
+    /// L-shaped corner brackets indicating the trackpad boundary
+    private var cornerBrackets: some View {
+        GeometryReader { geo in
+            let w = geo.size.width
+            let h = geo.size.height
+            let arm: CGFloat = 40
+
+            Path { path in
+                // Top-left
+                path.move(to: CGPoint(x: 0, y: arm))
+                path.addLine(to: CGPoint(x: 0, y: 0))
+                path.addLine(to: CGPoint(x: arm, y: 0))
+
+                // Top-right
+                path.move(to: CGPoint(x: w - arm, y: 0))
+                path.addLine(to: CGPoint(x: w, y: 0))
+                path.addLine(to: CGPoint(x: w, y: arm))
+
+                // Bottom-left
+                path.move(to: CGPoint(x: 0, y: h - arm))
+                path.addLine(to: CGPoint(x: 0, y: h))
+                path.addLine(to: CGPoint(x: arm, y: h))
+
+                // Bottom-right
+                path.move(to: CGPoint(x: w - arm, y: h))
+                path.addLine(to: CGPoint(x: w, y: h))
+                path.addLine(to: CGPoint(x: w, y: h - arm))
+            }
+            .stroke(Color.white.opacity(0.6), style: StrokeStyle(lineWidth: 3, lineCap: .round))
+        }
+        .allowsHitTesting(false)
     }
 
     private func sendCtrlAltDel() {

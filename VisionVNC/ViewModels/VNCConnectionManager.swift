@@ -52,6 +52,9 @@ final class VNCConnectionManager: NSObject, VNCConnectionDelegate {
     var virtualCursorX: UInt16 = 0
     var virtualCursorY: UInt16 = 0
 
+    // Trackpad-only mode (transparent overlay, no video)
+    var isTrackpadOnly: Bool = false
+
     // MARK: - Private State
 
     private var connection: VNCConnection?
@@ -67,10 +70,11 @@ final class VNCConnectionManager: NSObject, VNCConnectionDelegate {
 
     // MARK: - Connection Lifecycle
 
-    func connect(hostname: String, port: UInt16, username: String? = nil, password: String? = nil, colorDepth: VNCConnection.Settings.ColorDepth = .depth24Bit, touchMode: TouchMode = .absolute, title: String? = nil) {
+    func connect(hostname: String, port: UInt16, username: String? = nil, password: String? = nil, colorDepth: VNCConnection.Settings.ColorDepth = .depth24Bit, touchMode: TouchMode = .absolute, trackpadOnly: Bool = false, title: String? = nil) {
         disconnect()
 
         self.touchMode = touchMode
+        self.isTrackpadOnly = trackpadOnly
         self.virtualCursorInitialized = false
 
         connectionTitle = title ?? "\(hostname):\(port)"
@@ -96,7 +100,11 @@ final class VNCConnectionManager: NSObject, VNCConnectionDelegate {
         self.connectionState = .connecting
 
         conn.connect()
-        startDisplayLink()
+
+        // Skip display link in trackpad-only mode — no video rendering needed
+        if !trackpadOnly {
+            startDisplayLink()
+        }
     }
 
     func disconnect() {
@@ -147,6 +155,7 @@ final class VNCConnectionManager: NSObject, VNCConnectionDelegate {
                 self.connection = nil
                 self.framebuffer = nil
                 self.framebufferImage = nil
+                self.isTrackpadOnly = false
             }
         }
     }
@@ -183,25 +192,27 @@ final class VNCConnectionManager: NSObject, VNCConnectionDelegate {
 
     nonisolated func connection(_ connection: VNCConnection,
                                 didCreateFramebuffer framebuffer: VNCFramebuffer) {
-        let image = framebuffer.cgImage
         let size = framebuffer.cgSize
         Task { @MainActor [weak self] in
             guard let self else { return }
             self.framebuffer = framebuffer
             self.framebufferSize = size
-            self.framebufferImage = image
+            if !self.isTrackpadOnly {
+                self.framebufferImage = framebuffer.cgImage
+            }
         }
     }
 
     nonisolated func connection(_ connection: VNCConnection,
                                 didResizeFramebuffer framebuffer: VNCFramebuffer) {
-        let image = framebuffer.cgImage
         let size = framebuffer.cgSize
         Task { @MainActor [weak self] in
             guard let self else { return }
             self.framebuffer = framebuffer
             self.framebufferSize = size
-            self.framebufferImage = image
+            if !self.isTrackpadOnly {
+                self.framebufferImage = framebuffer.cgImage
+            }
         }
     }
 
