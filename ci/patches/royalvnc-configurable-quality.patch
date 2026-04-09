@@ -46,6 +46,58 @@ index c237e0d..62062a6 100644
  		}
  	}
  }
+diff --git a/Sources/RoyalVNCKit/SDK/Connection/State.swift b/Sources/RoyalVNCKit/SDK/Connection/State.swift
+index 08b325a..4a7f3ed 100644
+--- a/Sources/RoyalVNCKit/SDK/Connection/State.swift
++++ b/Sources/RoyalVNCKit/SDK/Connection/State.swift
+@@ -25,6 +25,8 @@ extension VNCConnection {
+ 
+ 		var areContinuousUpdatesSupported = false
+ 		var areContinuousUpdatesEnabled = false
++
++		var updatesArePaused = false
+ 	}
+ }
+ 
+diff --git a/Sources/RoyalVNCKit/SDK/Connection/VNCConnection+API.swift b/Sources/RoyalVNCKit/SDK/Connection/VNCConnection+API.swift
+index c99c5a3..81d8704 100644
+--- a/Sources/RoyalVNCKit/SDK/Connection/VNCConnection+API.swift
++++ b/Sources/RoyalVNCKit/SDK/Connection/VNCConnection+API.swift
+@@ -42,6 +42,20 @@ public extension VNCConnection {
+ 	}
+ }
+ 
++// MARK: - Framebuffer Update Control
++public extension VNCConnection {
++	/// Pauses automatic framebuffer update requests.
++	/// The connection stays alive for input, but no new frames are requested.
++	func pauseFramebufferUpdates() {
++		state.updatesArePaused = true
++	}
++
++	/// Resumes automatic framebuffer update requests after a pause.
++	func resumeFramebufferUpdates() {
++		state.updatesArePaused = false
++	}
++}
++
+ // MARK: - Mouse Input
+ public extension VNCConnection {
+ #if canImport(ObjectiveC)
+diff --git a/Sources/RoyalVNCKit/SDK/Connection/VNCConnection+Send.swift b/Sources/RoyalVNCKit/SDK/Connection/VNCConnection+Send.swift
+index 90fca49..109ac2f 100644
+--- a/Sources/RoyalVNCKit/SDK/Connection/VNCConnection+Send.swift
++++ b/Sources/RoyalVNCKit/SDK/Connection/VNCConnection+Send.swift
+@@ -23,7 +23,8 @@ extension VNCConnection {
+ 
+ 	func sendFramebufferUpdateRequest() async throws {
+ 		guard let framebuffer,
+-              !state.areContinuousUpdatesEnabled else {
++              !state.areContinuousUpdatesEnabled,
++              !state.updatesArePaused else {
+             return
+         }
+         
 diff --git a/Sources/RoyalVNCKit/SDK/Connection/VNCConnection.swift b/Sources/RoyalVNCKit/SDK/Connection/VNCConnection.swift
 index 8e81653..80e3ddd 100644
 --- a/Sources/RoyalVNCKit/SDK/Connection/VNCConnection.swift

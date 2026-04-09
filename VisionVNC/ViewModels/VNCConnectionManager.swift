@@ -202,6 +202,11 @@ final class VNCConnectionManager: NSObject, VNCConnectionDelegate {
             if !self.isTrackpadOnly {
                 self.framebufferImage = framebuffer.cgImage
             }
+
+            // Trackpad-only: stop requesting updates — we only needed the size
+            if self.isTrackpadOnly {
+                connection.pauseFramebufferUpdates()
+            }
         }
     }
 
