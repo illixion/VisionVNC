@@ -25,3 +25,7 @@ build/
 
 # VSCode
 .vscode/
+
+# Local build & sign script (contains device-specific signing config)
+scripts/build-and-sign.sh
+build/

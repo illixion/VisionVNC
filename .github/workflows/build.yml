@@ -1,15 +1,6 @@
 name: Build VisionVNC
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'VisionVNC.xcodeproj/**'
-      - 'VisionVNC/**'
-      - 'ci/**'
-      - '.github/workflows/**'
-  pull_request:
-    branches: [main]
   workflow_dispatch:
 
 # Pinned dependency versions
@@ -29,7 +20,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Select Xcode
-        run: sudo xcode-select -s /Applications/Xcode_26.3.app/Contents/Developer
+        run: sudo xcode-select -s /Applications/Xcode_26.4.app/Contents/Developer
 
       - name: Clone and patch RoyalVNC
         run: |
