@@ -11,7 +11,8 @@ VisionVNC combines a full-featured **VNC viewer** with a **Moonlight game stream
 - Auto-login with saved credentials (VNC password and macOS Screen Sharing username/password auth)
 - Hardware and Bluetooth keyboard support with full key mapping
 - On-screen soft keyboard with modifier keys, function keys, and arrow keys
-- Configurable color quality (16-bit or 24-bit)
+- Configurable quality presets (Low/Medium/High) with JPEG quality, compression level, and color depth tuning
+- Trackpad Only mode — transparent input overlay for use on top of Mac Virtual Display
 
 ### Moonlight Game Streaming
 - Stream games and desktop from a [Sunshine](https://github.com/LizardByte/Sunshine) or NVIDIA GameStream host
@@ -59,6 +60,13 @@ VisionVNC uses [RoyalVNCKit](https://github.com/royalapplications/royalvnc) for 
    ```swift
    // Change .dynamic to .static
    .library(name: "RoyalVNCKit", type: .static, targets: ["RoyalVNCKit"]),
+   ```
+
+4. Apply the configurable quality patch:
+   ```bash
+   cd repos/royalvnc
+   git apply ../../ci/patches/royalvnc-configurable-quality.patch
+   cd ../..
    ```
 
 ### Moonlight Dependencies (Optional)
@@ -140,13 +148,14 @@ The moonlight-common-c library handles RTSP session negotiation, RTP stream demu
 
 ### Patches Applied to moonlight-common-c
 
-The library requires several patches for visionOS compatibility (applied automatically in CI, see `ci/patches/`):
+The dependencies require several patches for visionOS compatibility (applied automatically in CI, see `ci/patches/`):
 
 | Patch | Purpose |
 |-------|---------|
 | `moonlight-common-c-commoncrypto.patch` | Replaces OpenSSL with CommonCrypto/Security.framework for AES-GCM encryption, SHA/HMAC operations, and random number generation. Avoids shipping a large OpenSSL binary on Apple platforms. |
 | `moonlight-common-c-fec-fix.patch` | Fixes a crash in audio FEC (Forward Error Correction) recovery when packets arrive out of order |
 | `moonlight-common-c-audio-fec-fix.patch` | Fixes compatibility with newer Sunshine server versions that changed audio FEC parameters |
+| `royalvnc-configurable-quality.patch` | Adds configurable JPEG quality and compression levels to RoyalVNCKit (hardcoded at level 6), plus `pauseFramebufferUpdates()` API for trackpad-only mode |
 
 Opus is wrapped as a local SPM package with a custom `module.modulemap` that exposes the multistream decoder API (`opus_multistream_decoder_create`, `opus_multistream_decode`) which is not included in Opus's default public headers.
 
@@ -173,4 +182,6 @@ See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for full license texts.
 
 ## License
 
-This project is licensed under the GPLv3 License — see [LICENSE.txt](LICENSE.txt) for details.
+This project is licensed under the **MIT License** — see [LICENSE.txt](LICENSE.txt) for details.
+
+**Moonlight support** is an optional build-time feature controlled by the `MOONLIGHT_ENABLED` compilation condition. When Moonlight is enabled, the resulting binary links against [moonlight-common-c](https://github.com/moonlight-stream/moonlight-common-c) (GPLv3) and [Opus](https://opus-codec.org/) (BSD 3-Clause), and the combined work falls under the **GPLv3**. When Moonlight is disabled (the default for the open-source build), no GPLv3 code is compiled or linked, and the application remains purely MIT-licensed.

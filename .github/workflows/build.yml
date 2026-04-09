@@ -71,7 +71,17 @@ jobs:
             -project VisionVNC.xcodeproj \
             -scheme VisionVNC
 
-      - name: Build archive
+      - name: Build VNC-only (MIT)
+        run: |
+          xcodebuild build \
+            -project VisionVNC.xcodeproj \
+            -scheme VisionVNC \
+            -destination 'generic/platform=visionOS' \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY=""
+
+      - name: Build archive with Moonlight (GPLv3)
         run: |
           xcodebuild archive \
             -project VisionVNC.xcodeproj \
