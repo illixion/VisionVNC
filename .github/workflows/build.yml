@@ -44,8 +44,10 @@ jobs:
           git clone --recursive https://github.com/moonlight-stream/moonlight-common-c.git repos/moonlight-common-c
           cd repos/moonlight-common-c
           git checkout $MOONLIGHT_COMMON_C_REF
-          # Add SPM Package.swift wrapper
+          # Add SPM Package.swift wrapper and public headers directory
           cp ../../ci/deps/moonlight-common-c/Package.swift .
+          mkdir -p include
+          cp src/Limelight.h include/
           # Apply FEC recovery crash fixes for newer Sunshine versions
           git apply ../../ci/patches/moonlight-common-c-fec-fix.patch
           git apply ../../ci/patches/moonlight-common-c-audio-fec-fix.patch
