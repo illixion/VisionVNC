@@ -41,7 +41,7 @@ jobs:
 
       - name: Clone and patch moonlight-common-c
         run: |
-          git clone https://github.com/moonlight-stream/moonlight-common-c.git repos/moonlight-common-c
+          git clone --recursive https://github.com/moonlight-stream/moonlight-common-c.git repos/moonlight-common-c
           cd repos/moonlight-common-c
           git checkout $MOONLIGHT_COMMON_C_REF
           # Add SPM Package.swift wrapper
