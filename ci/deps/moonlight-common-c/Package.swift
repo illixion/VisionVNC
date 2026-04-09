@@ -62,6 +62,7 @@ let package = Package(
             publicHeadersPath: "include",
             cSettings: [
                 .headerSearchPath("src"),
+                .headerSearchPath("enet/include"),
                 .headerSearchPath("nanors"),
                 .headerSearchPath("nanors/deps"),
                 .headerSearchPath("nanors/deps/obl"),
