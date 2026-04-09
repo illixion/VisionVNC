@@ -7,6 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		1D8097B22F7FCBED00C67700 /* MoonlightCommonC in Frameworks */ = {isa = PBXBuildFile; productRef = 1D8097B12F7FCBED00C67700 /* MoonlightCommonC */; };
+		1D8097B52F7FCBFA00C67700 /* Opus in Frameworks */ = {isa = PBXBuildFile; productRef = 1D8097B42F7FCBFA00C67700 /* Opus */; };
 		1DC83C3D2F74587300BF0482 /* RoyalVNCKit in Frameworks */ = {isa = PBXBuildFile; productRef = 1DC83C3C2F74587300BF0482 /* RoyalVNCKit */; };
 /* End PBXBuildFile section */
 
@@ -41,6 +43,8 @@
 			buildActionMask = 2147483647;
 			files = (
 				1DC83C3D2F74587300BF0482 /* RoyalVNCKit in Frameworks */,
+				1D8097B22F7FCBED00C67700 /* MoonlightCommonC in Frameworks */,
+				1D8097B52F7FCBFA00C67700 /* Opus in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -73,6 +77,29 @@
 		};
 /* End PBXGroup section */
 
+/* Begin PBXShellScriptBuildPhase section */
+		1DC83C5A2F9536A000BF0482 /* Copy Third-Party Notices */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(SRCROOT)/THIRD_PARTY_NOTICES.md",
+			);
+			name = "Copy Third-Party Notices";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(BUILT_PRODUCTS_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/THIRD_PARTY_NOTICES.md",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "cp \"${SRCROOT}/THIRD_PARTY_NOTICES.md\" \"${BUILT_PRODUCTS_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/\"\n";
+		};
+/* End PBXShellScriptBuildPhase section */
+
 /* Begin PBXNativeTarget section */
 		1DC83C262F74524200BF0482 /* VisionVNC */ = {
 			isa = PBXNativeTarget;
@@ -81,6 +108,7 @@
 				1DC83C232F74524200BF0482 /* Sources */,
 				1DC83C242F74524200BF0482 /* Frameworks */,
 				1DC83C252F74524200BF0482 /* Resources */,
+				1DC83C5A2F9536A000BF0482 /* Copy Third-Party Notices */,
 			);
 			buildRules = (
 			);
@@ -93,6 +121,8 @@
 			name = VisionVNC;
 			packageProductDependencies = (
 				1DC83C3C2F74587300BF0482 /* RoyalVNCKit */,
+				1D8097B12F7FCBED00C67700 /* MoonlightCommonC */,
+				1D8097B42F7FCBFA00C67700 /* Opus */,
 			);
 			productName = VisionVNC;
 			productReference = 1DC83C272F74524200BF0482 /* VisionVNC.app */;
@@ -124,6 +154,8 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				1DC83C3B2F74587300BF0482 /* XCLocalSwiftPackageReference "repos/royalvnc" */,
+				1D8097B02F7FCBED00C67700 /* XCLocalSwiftPackageReference "repos/moonlight-common-c" */,
+				1D8097B32F7FCBFA00C67700 /* XCLocalSwiftPackageReference "repos/opus" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 1DC83C282F74524200BF0482 /* Products */;
@@ -366,6 +398,14 @@
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */
+		1D8097B02F7FCBED00C67700 /* XCLocalSwiftPackageReference "repos/moonlight-common-c" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = "repos/moonlight-common-c";
+		};
+		1D8097B32F7FCBFA00C67700 /* XCLocalSwiftPackageReference "repos/opus" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = repos/opus;
+		};
 		1DC83C3B2F74587300BF0482 /* XCLocalSwiftPackageReference "repos/royalvnc" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = repos/royalvnc;
@@ -373,6 +413,14 @@
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		1D8097B12F7FCBED00C67700 /* MoonlightCommonC */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = MoonlightCommonC;
+		};
+		1D8097B42F7FCBFA00C67700 /* Opus */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = Opus;
+		};
 		1DC83C3C2F74587300BF0482 /* RoyalVNCKit */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = RoyalVNCKit;

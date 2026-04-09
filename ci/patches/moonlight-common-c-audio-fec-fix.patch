@@ -1,0 +1,24 @@
+diff --git a/src/RtpAudioQueue.c b/src/RtpAudioQueue.c
+index 9828d88..c3254d4 100644
+--- a/src/RtpAudioQueue.c
++++ b/src/RtpAudioQueue.c
+@@ -709,6 +709,19 @@ PRTP_PACKET RtpaGetQueuedPacket(PRTP_AUDIO_QUEUE queue, uint16_t customHeaderLen
+         }
+ 
+         *length = nextBlock->blockSize + sizeof(RTP_PACKET);
++
++        // Guard against corrupt data packet pointer (can happen with newer Sunshine versions)
++        if (nextBlock->nextDataPacketIndex >= RTPA_DATA_SHARDS ||
++            nextBlock->dataPackets[nextBlock->nextDataPacketIndex] == NULL) {
++            free(packet);
++
++            // Skip this broken block entirely
++            if (nextBlock == queue->blockHead) {
++                freeFecBlockHead(queue);
++            }
++            return NULL;
++        }
++
+         memcpy((uint8_t*)packet + customHeaderLength, nextBlock->dataPackets[nextBlock->nextDataPacketIndex], *length);
+         nextBlock->nextDataPacketIndex++;
+ 

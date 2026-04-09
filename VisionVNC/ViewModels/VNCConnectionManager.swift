@@ -47,6 +47,14 @@ final class VNCConnectionManager: NSObject, VNCConnectionDelegate {
     var isCredentialPromptPresented: Bool = false
     var credentialAuthType: VNCAuthenticationType = .vnc
 
+    // Touch mode & virtual cursor
+    var touchMode: TouchMode = .absolute
+    var virtualCursorX: UInt16 = 0
+    var virtualCursorY: UInt16 = 0
+
+    // Trackpad-only mode (transparent overlay, no video)
+    var isTrackpadOnly: Bool = false
+
     // MARK: - Private State
 
     private var connection: VNCConnection?
@@ -58,11 +66,16 @@ final class VNCConnectionManager: NSObject, VNCConnectionDelegate {
     // Throttle framebuffer rendering via CADisplayLink
     private var pendingImageUpdate: Bool = false
     private var displayLink: CADisplayLink?
+    private var virtualCursorInitialized = false
 
     // MARK: - Connection Lifecycle
 
-    func connect(hostname: String, port: UInt16, username: String? = nil, password: String? = nil, colorDepth: VNCConnection.Settings.ColorDepth = .depth24Bit, title: String? = nil) {
+    func connect(hostname: String, port: UInt16, username: String? = nil, password: String? = nil, colorDepth: VNCConnection.Settings.ColorDepth = .depth24Bit, jpegQualityLevel: Int = 6, compressionLevel: Int = 6, touchMode: TouchMode = .absolute, trackpadOnly: Bool = false, title: String? = nil) {
         disconnect()
+
+        self.touchMode = touchMode
+        self.isTrackpadOnly = trackpadOnly
+        self.virtualCursorInitialized = false
 
         connectionTitle = title ?? "\(hostname):\(port)"
         storedUsername = username
@@ -78,7 +91,9 @@ final class VNCConnectionManager: NSObject, VNCConnectionDelegate {
             inputMode: .forwardKeyboardShortcutsIfNotInUseLocally,
             isClipboardRedirectionEnabled: true,
             colorDepth: colorDepth,
-            frameEncodings: .default
+            frameEncodings: .default,
+            jpegQualityLevel: jpegQualityLevel,
+            compressionLevel: compressionLevel
         )
 
         let conn = VNCConnection(settings: settings)
@@ -87,7 +102,11 @@ final class VNCConnectionManager: NSObject, VNCConnectionDelegate {
         self.connectionState = .connecting
 
         conn.connect()
-        startDisplayLink()
+
+        // Skip display link in trackpad-only mode — no video rendering needed
+        if !trackpadOnly {
+            startDisplayLink()
+        }
     }
 
     func disconnect() {
@@ -138,6 +157,7 @@ final class VNCConnectionManager: NSObject, VNCConnectionDelegate {
                 self.connection = nil
                 self.framebuffer = nil
                 self.framebufferImage = nil
+                self.isTrackpadOnly = false
             }
         }
     }
@@ -174,25 +194,32 @@ final class VNCConnectionManager: NSObject, VNCConnectionDelegate {
 
     nonisolated func connection(_ connection: VNCConnection,
                                 didCreateFramebuffer framebuffer: VNCFramebuffer) {
-        let image = framebuffer.cgImage
         let size = framebuffer.cgSize
         Task { @MainActor [weak self] in
             guard let self else { return }
             self.framebuffer = framebuffer
             self.framebufferSize = size
-            self.framebufferImage = image
+            if !self.isTrackpadOnly {
+                self.framebufferImage = framebuffer.cgImage
+            }
+
+            // Trackpad-only: stop requesting updates — we only needed the size
+            if self.isTrackpadOnly {
+                connection.pauseFramebufferUpdates()
+            }
         }
     }
 
     nonisolated func connection(_ connection: VNCConnection,
                                 didResizeFramebuffer framebuffer: VNCFramebuffer) {
-        let image = framebuffer.cgImage
         let size = framebuffer.cgSize
         Task { @MainActor [weak self] in
             guard let self else { return }
             self.framebuffer = framebuffer
             self.framebufferSize = size
-            self.framebufferImage = image
+            if !self.isTrackpadOnly {
+                self.framebufferImage = framebuffer.cgImage
+            }
         }
     }
 
@@ -254,5 +281,41 @@ final class VNCConnectionManager: NSObject, VNCConnectionDelegate {
 
     func sendKeyUp(_ key: VNCKeyCode) {
         connection?.keyUp(key)
+    }
+
+    // MARK: - Virtual Cursor (Relative/Touchpad Mode)
+
+    /// Lazily initializes the virtual cursor to the center of the framebuffer.
+    private func initializeVirtualCursorIfNeeded() {
+        guard !virtualCursorInitialized, framebufferSize.width > 0 else { return }
+        virtualCursorX = UInt16(framebufferSize.width / 2)
+        virtualCursorY = UInt16(framebufferSize.height / 2)
+        virtualCursorInitialized = true
+    }
+
+    /// Move the virtual cursor by framebuffer-space deltas, clamped to bounds.
+    func moveVirtualCursor(dx: CGFloat, dy: CGFloat) {
+        initializeVirtualCursorIfNeeded()
+
+        let newX = CGFloat(virtualCursorX) + dx
+        let newY = CGFloat(virtualCursorY) + dy
+
+        virtualCursorX = UInt16(clamping: Int(max(0, min(newX, framebufferSize.width - 1))))
+        virtualCursorY = UInt16(clamping: Int(max(0, min(newY, framebufferSize.height - 1))))
+
+        sendMouseMove(x: virtualCursorX, y: virtualCursorY)
+    }
+
+    /// Send a click at the current virtual cursor position.
+    func clickAtVirtualCursor(button: VNCMouseButton) {
+        initializeVirtualCursorIfNeeded()
+        sendMouseDown(button: button, x: virtualCursorX, y: virtualCursorY)
+        sendMouseUp(button: button, x: virtualCursorX, y: virtualCursorY)
+    }
+
+    /// Send scroll at the current virtual cursor position.
+    func scrollAtVirtualCursor(wheel: VNCMouseWheel, steps: UInt32 = 3) {
+        initializeVirtualCursorIfNeeded()
+        sendScroll(wheel: wheel, x: virtualCursorX, y: virtualCursorY, steps: steps)
     }
 }

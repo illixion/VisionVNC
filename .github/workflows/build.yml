@@ -6,9 +6,17 @@ on:
     paths:
       - 'VisionVNC.xcodeproj/**'
       - 'VisionVNC/**'
+      - 'ci/**'
+      - '.github/workflows/**'
   pull_request:
     branches: [main]
   workflow_dispatch:
+
+# Pinned dependency versions
+env:
+  ROYALVNC_REF: '337197a'
+  MOONLIGHT_COMMON_C_REF: '7b026e77be62175104640e7e722b758df6d3d0d7'
+  OPUS_REF: '788cc89ce4f2c42025d8c70ec1b4457dc89cd50f'
 
 jobs:
   build-and-release:
@@ -26,7 +34,36 @@ jobs:
       - name: Clone and patch RoyalVNC
         run: |
           git clone https://github.com/royalapplications/royalvnc.git repos/royalvnc
-          sed -i '' 's/type: .dynamic/type: .static/' repos/royalvnc/Package.swift
+          cd repos/royalvnc
+          git checkout $ROYALVNC_REF
+          # Use static linking to avoid dyld embedding issues on visionOS
+          sed -i '' 's/type: .dynamic/type: .static/' Package.swift
+
+      - name: Clone and patch moonlight-common-c
+        run: |
+          git clone https://github.com/moonlight-stream/moonlight-common-c.git repos/moonlight-common-c
+          cd repos/moonlight-common-c
+          git checkout $MOONLIGHT_COMMON_C_REF
+          # Add SPM Package.swift wrapper
+          cp ../../ci/deps/moonlight-common-c/Package.swift .
+          # Apply FEC recovery crash fixes for newer Sunshine versions
+          git apply ../../ci/patches/moonlight-common-c-fec-fix.patch
+          git apply ../../ci/patches/moonlight-common-c-audio-fec-fix.patch
+          # Add CommonCrypto backend for AES-GCM/CBC (replaces OpenSSL on Apple platforms)
+          git apply ../../ci/patches/moonlight-common-c-commoncrypto.patch
+
+      - name: Clone and patch Opus
+        run: |
+          git clone https://github.com/xiph/opus.git repos/opus
+          cd repos/opus
+          git checkout $OPUS_REF
+          # Add SPM Package.swift wrapper and config files
+          cp ../../ci/deps/opus/Package.swift .
+          mkdir -p spm-config
+          cp ../../ci/deps/opus/spm-config/config.h spm-config/
+          cp ../../ci/deps/opus/include/module.modulemap include/
+          # Patch opus.h to include multistream API for SPM umbrella header
+          git apply ../../ci/patches/opus-spm-umbrella.patch
 
       - name: Resolve packages
         run: |
@@ -34,7 +71,17 @@ jobs:
             -project VisionVNC.xcodeproj \
             -scheme VisionVNC
 
-      - name: Build archive
+      - name: Build VNC-only (MIT)
+        run: |
+          xcodebuild build \
+            -project VisionVNC.xcodeproj \
+            -scheme VisionVNC \
+            -destination 'generic/platform=visionOS' \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY=""
+
+      - name: Build archive with Moonlight (GPLv3)
         run: |
           xcodebuild archive \
             -project VisionVNC.xcodeproj \
@@ -43,7 +90,8 @@ jobs:
             -archivePath $RUNNER_TEMP/VisionVNC.xcarchive \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGN_IDENTITY=""
+            CODE_SIGN_IDENTITY="" \
+            SWIFT_ACTIVE_COMPILATION_CONDITIONS='$(inherited) MOONLIGHT_ENABLED'
 
       - name: Create unsigned IPA
         run: |

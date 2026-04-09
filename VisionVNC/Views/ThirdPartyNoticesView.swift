@@ -1,6 +1,12 @@
 import SwiftUI
 
 struct ThirdPartyNoticesView: View {
+    private let sections: [LicenseSection]
+
+    init() {
+        sections = Self.loadSections()
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 32) {
@@ -8,11 +14,9 @@ struct ThirdPartyNoticesView: View {
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
 
-                licenseSection(
-                    name: "RoyalVNCKit",
-                    copyright: "Copyright (c) 2025 Royal Apps",
-                    license: mitLicenseText
-                )
+                ForEach(sections) { section in
+                    licenseSection(name: section.name, copyright: section.copyright, license: section.license)
+                }
             }
             .padding()
         }
@@ -36,27 +40,55 @@ struct ThirdPartyNoticesView: View {
         }
     }
 
-    private var mitLicenseText: String {
-        """
-        MIT License
+    private static func loadSections() -> [LicenseSection] {
+        guard let url = Bundle.main.url(forResource: "THIRD_PARTY_NOTICES", withExtension: "md"),
+              let content = try? String(contentsOf: url) else {
+            return []
+        }
 
-        Permission is hereby granted, free of charge, to any person obtaining a copy \
-        of this software and associated documentation files (the "Software"), to deal \
-        in the Software without restriction, including without limitation the rights \
-        to use, copy, modify, merge, publish, distribute, sublicense, and/or sell \
-        copies of the Software, and to permit persons to whom the Software is \
-        furnished to do so, subject to the following conditions:
+        let parts = content.components(separatedBy: "<!-- MOONLIGHT_SEPARATOR -->")
+        let basePart = parts[0]
 
-        The above copyright notice and this permission notice shall be included in all \
-        copies or substantial portions of the Software.
+        #if MOONLIGHT_ENABLED
+        let fullContent = parts.count > 1 ? basePart + parts[1] : basePart
+        #else
+        let fullContent = basePart
+        #endif
 
-        THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR \
-        IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, \
-        FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE \
-        AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER \
-        LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, \
-        OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE \
-        SOFTWARE.
-        """
+        return parseSections(from: fullContent)
     }
+
+    private static func parseSections(from content: String) -> [LicenseSection] {
+        // Split on "## " headings (markdown H2)
+        let blocks = content.components(separatedBy: "\n## ")
+        var sections: [LicenseSection] = []
+
+        for block in blocks.dropFirst() { // skip preamble before first ##
+            let lines = block.components(separatedBy: "\n")
+            guard let name = lines.first?.trimmingCharacters(in: .whitespaces),
+                  !name.isEmpty else { continue }
+
+            let body = lines.dropFirst()
+                .joined(separator: "\n")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                // Strip horizontal rules used as section separators in the markdown
+                .replacingOccurrences(of: "\n---", with: "")
+
+            // First non-empty line after the heading is the copyright
+            let bodyLines = body.components(separatedBy: "\n").filter { !$0.isEmpty }
+            let copyright = bodyLines.first ?? ""
+            let license = bodyLines.dropFirst().joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+
+            sections.append(LicenseSection(name: name, copyright: copyright, license: license))
+        }
+
+        return sections
+    }
+}
+
+private struct LicenseSection: Identifiable {
+    let id = UUID()
+    let name: String
+    let copyright: String
+    let license: String
 }

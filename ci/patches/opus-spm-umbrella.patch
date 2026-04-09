@@ -1,0 +1,12 @@
+diff --git a/include/opus.h b/include/opus.h
+index 802be9f..17c7c30 100644
+--- a/include/opus.h
++++ b/include/opus.h
+@@ -1172,4 +1172,7 @@ OPUS_EXPORT OPUS_WARN_UNUSED_RESULT opus_int32 opus_multistream_packet_unpad(uns
+ }
+ #endif
+ 
++/* Include multistream API so SPM umbrella header exports all symbols */
++#include "opus_multistream.h"
++
+ #endif /* OPUS_H */
