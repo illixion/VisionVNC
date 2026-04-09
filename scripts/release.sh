@@ -36,25 +36,27 @@ VERSION="0.1.0-${SHORT_SHA}"
 IPA_NAME="VisionVNC-${VERSION}-unsigned.ipa"
 
 BUILD_DIR="$PROJECT_ROOT/build"
-ARCHIVE_PATH="$BUILD_DIR/VisionVNC.xcarchive"
 
 # --- Build ---
-echo "==> Building archive (Release + Moonlight)..."
-xcodebuild archive \
+echo "==> Building (Release + Moonlight)..."
+xcodebuild build \
     -project VisionVNC.xcodeproj \
     -scheme VisionVNC \
+    -configuration Release \
     -destination 'generic/platform=visionOS' \
-    -archivePath "$ARCHIVE_PATH" \
-    CODE_SIGNING_ALLOWED=NO \
+    -derivedDataPath "$BUILD_DIR/DerivedData" \
+    CODE_SIGN_IDENTITY="-" \
     CODE_SIGNING_REQUIRED=NO \
-    CODE_SIGN_IDENTITY="" \
+    CODE_SIGNING_ALLOWED=NO \
+    DEVELOPMENT_TEAM="" \
+    PROVISIONING_PROFILE_SPECIFIER="" \
     SWIFT_ACTIVE_COMPILATION_CONDITIONS='$(inherited) MOONLIGHT_ENABLED'
 
 # --- Package IPA ---
 echo "==> Packaging unsigned IPA..."
-APP_PATH="$ARCHIVE_PATH/Products/Applications/VisionVNC.app"
-if [[ ! -d "$APP_PATH" ]]; then
-    echo "ERROR: No .app found in archive" >&2
+APP_PATH=$(find "$BUILD_DIR/DerivedData" -name 'VisionVNC.app' -type d | head -1)
+if [[ -z "$APP_PATH" ]]; then
+    echo "ERROR: No .app found in DerivedData" >&2
     exit 1
 fi
 
