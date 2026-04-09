@@ -47,7 +47,6 @@ let package = Package(
             dependencies: ["enet"],
             path: ".",
             exclude: [
-                "enet",
                 "nanors",
                 "cmake",
                 ".github",
