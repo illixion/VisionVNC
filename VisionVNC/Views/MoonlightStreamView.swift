@@ -2,6 +2,7 @@
 import SwiftUI
 import AVFoundation
 import UIKit
+import GameController
 @preconcurrency import MoonlightCommonC
 
 // MARK: - Video Display View
@@ -98,6 +99,7 @@ struct MoonlightStreamView: View {
                     .environment(manager)
             }
         }
+        .handlesGameControllerEvents(matching: .gamepad)
         .persistentSystemOverlays(.hidden)
         .onDisappear {
             manager.stopStreaming()

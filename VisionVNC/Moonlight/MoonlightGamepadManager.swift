@@ -68,8 +68,11 @@ class MoonlightGamepadManager: @unchecked Sendable {
             disconnectObserver = nil
         }
 
-        // Send zero-state for all connected controllers then clear
-        for (index, _) in controllers {
+        // Re-enable system gestures and send zero-state for all connected controllers
+        for (index, controller) in controllers {
+            for element in controller.physicalInputProfile.allElements {
+                element.preferredSystemGestureState = .enabled
+            }
             let mask = activeGamepadMask & ~(1 << index)
             activeGamepadMask = mask
             LiSendMultiControllerEvent(
@@ -124,6 +127,11 @@ class MoonlightGamepadManager: @unchecked Sendable {
 
         print("[GamepadManager] Controller \(playerIndex) disconnected: \(controller.vendorName ?? "unknown")")
 
+        // Re-enable system gestures on disconnect
+        for element in controller.physicalInputProfile.allElements {
+            element.preferredSystemGestureState = .enabled
+        }
+
         controllers.removeValue(forKey: playerIndex)
         activeGamepadMask &= ~UInt16(1 << playerIndex)
 
@@ -138,6 +146,13 @@ class MoonlightGamepadManager: @unchecked Sendable {
 
     private func setupInputHandler(for controller: GCController, at playerIndex: Int) {
         guard let gamepad = controller.extendedGamepad else { return }
+
+        // Disable system gestures on all controller elements so visionOS doesn't
+        // intercept button presses for system actions (e.g. converting shoulder
+        // buttons into look-and-pinch events).
+        for element in controller.physicalInputProfile.allElements {
+            element.preferredSystemGestureState = .disabled
+        }
 
         gamepad.valueChangedHandler = { [weak self] gamepad, _ in
             guard let self else { return }

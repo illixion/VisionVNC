@@ -25,6 +25,7 @@ struct VisionVNCApp: App {
         .defaultSize(width: 1280, height: 800)
         .windowResizability(.contentMinSize)
         .windowStyle(.plain)
+        .defaultLaunchBehavior(.suppressed)
 
         #if MOONLIGHT_ENABLED
         WindowGroup("Moonlight Stream", id: "moonlight-stream") {
@@ -33,6 +34,7 @@ struct VisionVNCApp: App {
         }
         .defaultSize(width: 1920, height: 1080)
         .windowResizability(.contentMinSize)
+        .defaultLaunchBehavior(.suppressed)
         #endif
 
         WindowGroup("Keyboard", id: "keyboard") {
@@ -41,6 +43,7 @@ struct VisionVNCApp: App {
         }
         .defaultSize(width: 500, height: 400)
         .windowResizability(.contentSize)
+        .defaultLaunchBehavior(.suppressed)
 
         #if MOONLIGHT_ENABLED
         WindowGroup("Moonlight Keyboard", id: "moonlight-keyboard") {
@@ -49,6 +52,7 @@ struct VisionVNCApp: App {
         }
         .defaultSize(width: 500, height: 450)
         .windowResizability(.contentSize)
+        .defaultLaunchBehavior(.suppressed)
         #endif
     }
 }

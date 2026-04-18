@@ -197,6 +197,7 @@ struct ConnectionFormView: View {
             Picker("Frame Rate", selection: $moonlightFPS) {
                 Text("30 FPS").tag(30)
                 Text("60 FPS").tag(60)
+                Text("90 FPS").tag(90)
                 Text("120 FPS").tag(120)
             }
             .onChange(of: moonlightFPS) { _, _ in
