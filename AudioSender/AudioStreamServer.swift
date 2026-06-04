@@ -1,13 +1,15 @@
 import Foundation
 import Network
 
-/// TCP server that streams interleaved Float32 PCM to connected
-/// VisionVNC clients. Sends the AudioStreamHeader on accept, then
+/// TCP server that streams interleaved Float32 PCM to the connected
+/// VisionVNC client. Sends the AudioStreamHeader on accept, then
 /// length-prefixed frames (see AudioStreamProtocol).
 ///
-/// Multiple clients are supported; a slow client that falls more than
-/// `maxPendingBytes` behind has frames dropped (latency cap) rather than
-/// stalling the others.
+/// Only one client may be connected at a time (security measure):
+/// a new connection displaces any existing one (newest wins), which also
+/// lets the Vision Pro reconnect past a stale half-open socket. A slow
+/// client that falls more than `maxPendingBytes` behind has frames
+/// dropped (latency cap) rather than queueing unbounded.
 final class AudioStreamServer: @unchecked Sendable {
 
     /// ~0.5 s of 48 kHz stereo Float32 — beyond this a client is lagging
@@ -81,6 +83,14 @@ final class AudioStreamServer: @unchecked Sendable {
     // MARK: - Connection lifecycle (all on `queue`)
 
     private nonisolated func accept(_ connection: NWConnection) {
+        // Newest wins: displace any existing client so only one is ever
+        // connected. Cancelling fires their .cancelled handlers, but the
+        // dict is already cleared so remove() is a no-op for them.
+        for old in clients.values {
+            old.connection.cancel()
+        }
+        clients.removeAll()
+
         let client = Client(connection: connection)
         clients[ObjectIdentifier(connection)] = client
 

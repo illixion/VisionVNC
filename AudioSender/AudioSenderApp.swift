@@ -93,9 +93,10 @@ final class AudioStreamerController {
                 UserDefaults.standard.set(newValue, forKey: "muteWhileStreaming")
             }
             // The mute behavior is baked into the tap at creation — restart
-            if isRunning {
-                stop()
-                start()
+            // the tap (only matters while a client is actually connected,
+            // since the tap runs unmuted with no clients).
+            if isRunning, clientCount > 0 {
+                restartTap(muted: newValue)
             }
         }
     }
@@ -103,9 +104,8 @@ final class AudioStreamerController {
     var statusText: String {
         guard isRunning else { return "Not streaming" }
         switch clientCount {
-        case 0: return "Streaming — waiting for VisionVNC to connect"
-        case 1: return "Streaming to 1 client"
-        default: return "Streaming to \(clientCount) clients"
+        case 0: return "Listening — waiting for VisionVNC to connect"
+        default: return "Streaming to VisionVNC"
         }
     }
 
@@ -118,9 +118,11 @@ final class AudioStreamerController {
         stop()
         lastError = nil
 
+        // Start unmuted — local output is only silenced once a client
+        // actually connects (see the client-count handler below).
         let tap = SystemAudioTap()
         do {
-            let format = try tap.start(muteSystemOutput: muteWhileStreaming)
+            let format = try tap.start(muteSystemOutput: false)
             streamFormat = format
 
             let server = AudioStreamServer(
@@ -129,7 +131,7 @@ final class AudioStreamerController {
             )
             server.onClientCountChange = { [weak self] count in
                 Task { @MainActor in
-                    self?.clientCount = count
+                    self?.handleClientCountChange(count)
                 }
             }
             try server.start()
@@ -144,6 +146,48 @@ final class AudioStreamerController {
             tap.stop()
             streamFormat = nil
             lastError = error.localizedDescription
+        }
+    }
+
+    private func handleClientCountChange(_ count: Int) {
+        let previous = clientCount
+        clientCount = count
+        guard muteWhileStreaming, isRunning else { return }
+        // Mute local output only while someone is listening
+        if previous == 0, count > 0 {
+            restartTap(muted: true)
+        } else if previous > 0, count == 0 {
+            restartTap(muted: false)
+        }
+    }
+
+    /// Rebuilds the tap with the given mute behavior (it's baked in at
+    /// creation time). The server and its already-sent header are kept —
+    /// the tap format doesn't change with mute behavior.
+    private func restartTap(muted: Bool) {
+        guard isRunning else { return }
+        tap?.onAudio = nil
+        tap?.stop()
+        tap = nil
+
+        let newTap = SystemAudioTap()
+        do {
+            let format = try newTap.start(muteSystemOutput: muted)
+            if let old = streamFormat,
+               format.sampleRate != old.sampleRate || format.channelCount != old.channelCount {
+                // Stream format changed under us — connected clients hold a
+                // stale header. Restart everything so a reconnect resyncs.
+                newTap.stop()
+                start()
+                return
+            }
+            newTap.onAudio = { [weak server] pcm in
+                server?.broadcast(pcm)
+            }
+            tap = newTap
+        } catch {
+            lastError = error.localizedDescription
+            stop()
         }
     }
 
