@@ -61,6 +61,7 @@ final class AudioStreamManager {
     /// until the stream is up, the user disconnects, or the window closes.
     private var retryTask: Task<Void, Never>?
     private var retryDelay: TimeInterval = 2
+    private var lastReloadAt: Date?
     private static let maxRetryDelay: TimeInterval = 30
 
     private enum DefaultsKeys {
@@ -200,6 +201,24 @@ final class AudioStreamManager {
             pendingArtwork = nil
         case .artwork(let data):
             pendingArtwork = data
+        case .reloadRequested(let reason):
+            // Audio config shifted under us (VoIP call grabbing the session,
+            // route change). Reload immediately — same as the manual reload
+            // button — instead of the backoff retry path: a fresh receiver
+            // re-asserts setCategory/setActive and restores routing.
+            guard receiver != nil else { return }
+            receiver = nil
+            // If the system re-interrupts straight after a reload, don't
+            // hot-loop — fall back to the backoff retry path.
+            if let lastReloadAt, Date().timeIntervalSince(lastReloadAt) < 2 {
+                AppLog.audioStream.line("Reload requested again too soon (\(reason)) — backing off")
+                state = .idle
+                scheduleRetry()
+                return
+            }
+            lastReloadAt = Date()
+            AppLog.audioStream.line("Reloading stream: \(reason)")
+            reconnectLast()
         case .disconnected(let reason):
             // Ignore events from a receiver we already tore down
             guard receiver != nil else { return }
@@ -244,6 +263,9 @@ final class AudioStreamReceiver: @unchecked Sendable {
         case bytesReceived(Int)
         case nowPlaying(NowPlayingInfo)
         case artwork(Data)
+        /// The audio session/config was lost (VoIP interruption, reroute);
+        /// the manager should immediately rebuild via a fresh receiver.
+        case reloadRequested(String)
         case disconnected(String?)
     }
 
@@ -271,6 +293,9 @@ final class AudioStreamReceiver: @unchecked Sendable {
     /// pause); the connection keeps draining.
     private nonisolated(unsafe) var playbackPaused = false
     private nonisolated(unsafe) var droppedWhilePaused = 0
+    private nonisolated(unsafe) var sessionConfigured = false
+    private nonisolated(unsafe) var engineObserver: (any NSObjectProtocol)?
+    private nonisolated(unsafe) var sessionObservers: [any NSObjectProtocol] = []
 
     nonisolated init(hostname: String, port: UInt16) {
         self.hostname = hostname
@@ -306,6 +331,92 @@ final class AudioStreamReceiver: @unchecked Sendable {
             }
         }
         connection.start(queue: queue)
+
+        // Any signal that the audio config has shifted (interruption,
+        // engine config-change, silence-hint flip) triggers an immediate
+        // stream reload via the manager (fresh receiver). Engine-only
+        // rebuilds *don't* recover when visionOS reroutes us away for
+        // another app's VoIP — only a fresh receiver with a re-asserted
+        // setCategory/setActive does (confirmed via the manual reload
+        // button). The crucial case is interruption *began*: the app
+        // loses its audio session the moment GMeet starts, with no
+        // matching route-change or ended event until the call finishes.
+        let center = NotificationCenter.default
+        sessionObservers.append(center.addObserver(
+            forName: AVAudioSession.interruptionNotification,
+            object: AVAudioSession.sharedInstance(),
+            queue: nil
+        ) { [weak self] notification in
+            let rawType = notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt
+            switch rawType {
+            case AVAudioSession.InterruptionType.began.rawValue:
+                AppLog.audioStream.line("Audio session interrupted (began)")
+                self?.requestReload("audio session interrupted")
+            case AVAudioSession.InterruptionType.ended.rawValue:
+                AppLog.audioStream.line("Audio session interruption ended")
+                self?.requestReload("interruption ended")
+            default:
+                break
+            }
+        })
+        sessionObservers.append(center.addObserver(
+            forName: AVAudioSession.mediaServicesWereResetNotification,
+            object: AVAudioSession.sharedInstance(),
+            queue: nil
+        ) { [weak self] _ in
+            AppLog.audioStream.line("Media services reset — rebuilding engine")
+            self?.sessionConfigured = false // session state was wiped
+            self?.scheduleAudioRebuild(delay: .milliseconds(100))
+        })
+        // Diagnostics: visionOS rerouting our output to the People channel
+        // when Safari WebRTC kicks in shows up here, not as an interruption.
+        sessionObservers.append(center.addObserver(
+            forName: AVAudioSession.routeChangeNotification,
+            object: AVAudioSession.sharedInstance(),
+            queue: nil
+        ) { notification in
+            let raw = notification.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt ?? 0
+            let reason = AVAudioSession.RouteChangeReason(rawValue: raw)
+            let session = AVAudioSession.sharedInstance()
+            let outs = session.currentRoute.outputs
+                .map { "\($0.portType.rawValue):\($0.portName)" }
+                .joined(separator: ",")
+            AppLog.audioStream.line("Route change (\(reason.map(String.init(describing:)) ?? "?")) → outputs=[\(outs)] silenceHint=\(session.secondaryAudioShouldBeSilencedHint)")
+        })
+        // visionOS doesn't always notify us via interruption/route-change
+        // when Safari WebRTC takes the People channel — sometimes it just
+        // flips this hint and silently routes our output to nowhere. On
+        // any flip (begin and end), reload the stream.
+        sessionObservers.append(center.addObserver(
+            forName: AVAudioSession.silenceSecondaryAudioHintNotification,
+            object: AVAudioSession.sharedInstance(),
+            queue: nil
+        ) { [weak self] notification in
+            let raw = notification.userInfo?[AVAudioSessionSilenceSecondaryAudioHintTypeKey] as? UInt ?? 0
+            let type = AVAudioSession.SilenceSecondaryAudioHintType(rawValue: raw)
+            AppLog.audioStream.line("Silence-secondary-audio hint: \(type.map(String.init(describing:)) ?? "?")")
+            self?.requestReload("silence-secondary-audio hint flipped")
+        })
+    }
+
+    /// Tears down this receiver and asks the manager to reload the stream
+    /// immediately with a fresh receiver (which re-asserts the audio
+    /// session). Mirrors `fail(_:)` but routes to the instant reload path
+    /// instead of the error/backoff retry path. Safe against bursts: the
+    /// first signal wins, the rest hit `stopped` and no-op.
+    private nonisolated func requestReload(_ reason: String) {
+        queue.async { [self] in
+            guard !stopped else { return }
+            stopped = true
+            connection?.cancel()
+            connection = nil
+            for observer in sessionObservers {
+                NotificationCenter.default.removeObserver(observer)
+            }
+            sessionObservers.removeAll()
+            teardownAudio()
+            onEvent?(.reloadRequested(reason))
+        }
     }
 
     nonisolated func stop() {
@@ -314,6 +425,10 @@ final class AudioStreamReceiver: @unchecked Sendable {
             onEvent = nil
             connection?.cancel()
             connection = nil
+            for observer in sessionObservers {
+                NotificationCenter.default.removeObserver(observer)
+            }
+            sessionObservers.removeAll()
             teardownAudio()
         }
     }
@@ -421,6 +536,10 @@ final class AudioStreamReceiver: @unchecked Sendable {
         stopped = true
         connection?.cancel()
         connection = nil
+        for observer in sessionObservers {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        sessionObservers.removeAll()
         teardownAudio()
         onEvent?(.disconnected(reason))
     }
@@ -428,6 +547,49 @@ final class AudioStreamReceiver: @unchecked Sendable {
     // MARK: - Audio
 
     private nonisolated func setupAudio(header: AudioStreamHeader) -> Bool {
+        let session = AVAudioSession.sharedInstance()
+
+        // Configure the session only once per receiver. Re-asserting the
+        // category mid-stream (e.g. while a VoIP call owns the voice
+        // channel) yanks the system audio config out from under the other
+        // app — the cause of "GMeet loses audio until speaker test".
+        if !sessionConfigured {
+            sessionConfigured = true
+            // Opt out of visionOS's default AutomaticSpatialAudio. The stream is
+            // an already-mixed stereo signal from the Mac; spatializing it again
+            // would double-process it. AVAudioEngine isn't a Now Playing candidate
+            // so the per-app Spatialize Stereo toggle doesn't apply — bypass at
+            // the session level instead.
+            // .mixWithOthers: coexist with other visionOS apps and VoIP calls
+            // instead of taking exclusive audio focus. Deliberate trade-off:
+            // a mixable session is ineligible for Now Playing / Control Center.
+            do {
+                try session.setCategory(.playback, mode: .default, options: [.mixWithOthers])
+                try session.setIntendedSpatialExperience(.bypassed)
+                // Become a Now Playing candidate so visionOS keeps playback running
+                // (and doesn't duck the audio) when the user looks at other windows.
+                try session.setIsNowPlayingCandidate(true)
+            } catch {
+                AppLog.audioStream.line("Failed to configure audio session: \(error)")
+            }
+        }
+
+        // Activate on every (re)build. After an interruption (e.g. a VoIP
+        // call grabbing the People channel) the system deactivates our
+        // session — engine.start() alone won't bring it back, so the
+        // rebuilt engine reports "running" but pumps audio nowhere.
+        // Returning false here engages the rebuild retry/backoff.
+        do {
+            try session.setActive(true)
+        } catch {
+            AppLog.audioStream.line("Failed to activate audio session: \(error)")
+            return false
+        }
+        let outs = session.currentRoute.outputs
+            .map { "\($0.portType.rawValue):\($0.portName)" }
+            .joined(separator: ",")
+        AppLog.audioStream.line("Session activated — outputs=[\(outs)] silenceHint=\(session.secondaryAudioShouldBeSilencedHint) otherAudio=\(session.isOtherAudioPlaying)")
+
         // The wire format is interleaved, but AVAudioEngine throws an
         // NSException ("SetFormat") when connecting a player node to the
         // mixer with an interleaved Float32 format — the engine graph
@@ -437,25 +599,6 @@ final class AudioStreamReceiver: @unchecked Sendable {
             standardFormatWithSampleRate: header.sampleRate,
             channels: AVAudioChannelCount(header.channelCount)
         ) else { return false }
-
-        // Opt out of visionOS's default AutomaticSpatialAudio. The stream is
-        // an already-mixed stereo signal from the Mac; spatializing it again
-        // would double-process it. AVAudioEngine isn't a Now Playing candidate
-        // so the per-app Spatialize Stereo toggle doesn't apply — bypass at
-        // the session level instead.
-        // .mixWithOthers: coexist with other visionOS apps and VoIP calls
-        // instead of taking exclusive audio focus. Deliberate trade-off:
-        // a mixable session is ineligible for Now Playing / Control Center.
-        let session = AVAudioSession.sharedInstance()
-        do {
-            try session.setCategory(.playback, mode: .default, options: [.mixWithOthers])
-            try session.setIntendedSpatialExperience(.bypassed)
-            // Become a Now Playing candidate so visionOS keeps playback running
-            // (and doesn't duck the audio) when the user looks at other windows.
-            try session.setIsNowPlayingCandidate(true)
-        } catch {
-            AppLog.audioStream.line("Failed to configure audio session: \(error)")
-        }
 
         let engine = AVAudioEngine()
         let player = AVAudioPlayerNode()
@@ -473,10 +616,45 @@ final class AudioStreamReceiver: @unchecked Sendable {
         playerNode = player
         audioFormat = format
         scheduledFrames = 0
+
+        // Engine config change = audio path shifted underneath us (VoIP
+        // route, sample-rate switch, device change). Engine-only rebuild
+        // doesn't recover when visionOS has rerouted us — reload the
+        // whole receiver so the next setupAudio re-asserts the session.
+        engineObserver = NotificationCenter.default.addObserver(
+            forName: .AVAudioEngineConfigurationChange,
+            object: engine,
+            queue: nil
+        ) { [weak self] _ in
+            AppLog.audioStream.line("Audio engine configuration changed")
+            self?.requestReload("engine configuration changed")
+        }
+
         return true
     }
 
+    /// Tears down and rebuilds the engine for the current stream format,
+    /// retrying with backoff while the system audio config is in flux
+    /// (engine starts can fail transiently mid-call-transition).
+    private nonisolated func scheduleAudioRebuild(delay: DispatchTimeInterval, attempt: Int = 0) {
+        queue.asyncAfter(deadline: .now() + delay) { [weak self] in
+            guard let self, !self.stopped, let header = self.header else { return }
+            self.teardownAudio()
+            if self.setupAudio(header: header) {
+                AppLog.audioStream.line("Audio engine rebuilt")
+            } else if attempt < 5 {
+                self.scheduleAudioRebuild(delay: .milliseconds(500 * (attempt + 1)), attempt: attempt + 1)
+            } else {
+                AppLog.audioStream.line("Audio engine rebuild failed after \(attempt + 1) attempts")
+            }
+        }
+    }
+
     private nonisolated func teardownAudio() {
+        if let engineObserver {
+            NotificationCenter.default.removeObserver(engineObserver)
+        }
+        engineObserver = nil
         playerNode?.stop()
         audioEngine?.stop()
         if let engine = audioEngine, let player = playerNode {

@@ -29,10 +29,9 @@ struct VisionVNCApp: App {
 
         WindowGroup("Audio Stream", id: "audio-stream") {
             AudioStreamView()
-                .homeOrnament()
                 .environment(audioManager)
         }
-        .defaultSize(width: 400, height: 540)
+        .defaultSize(width: 400, height: 600)
         .windowResizability(.contentSize)
         .defaultLaunchBehavior(.suppressed)
 

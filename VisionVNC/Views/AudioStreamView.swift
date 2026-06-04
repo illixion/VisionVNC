@@ -35,6 +35,9 @@ struct AudioStreamView: View {
 
             controlsRow
                 .padding(.top, 14)
+
+            utilityRow
+                .padding(.top, 10)
                 .padding(.bottom, 22)
         }
         .frame(width: Self.playerWidth)
@@ -195,6 +198,31 @@ struct AudioStreamView: View {
 
     private var hasTransport: Bool {
         audioManager.state == .streaming && audioManager.nowPlaying != nil
+    }
+
+    /// Secondary row: home + manual stream-recovery. The home button
+    /// lives here instead of the bottom ornament — the ornament floats
+    /// over the album art and overlaps the transport controls.
+    private var utilityRow: some View {
+        HStack(spacing: 28) {
+            Button {
+                openWindow(id: "main")
+            } label: {
+                Image(systemName: "house")
+            }
+            .help("Open the connection manager")
+
+            Button {
+                audioManager.reconnectLast()
+            } label: {
+                Image(systemName: "arrow.trianglehead.2.clockwise.rotate.90")
+            }
+            .disabled(audioManager.state == .connecting)
+            .help("Reconnect the audio stream")
+        }
+        .buttonStyle(.borderless)
+        .font(.title3)
+        .foregroundStyle(.secondary)
     }
 
     // MARK: - Status
