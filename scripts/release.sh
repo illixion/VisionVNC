@@ -1,7 +1,9 @@
 #!/bin/bash
 set -euo pipefail
 
-# Build VisionVNC with Moonlight and publish an unsigned IPA as a GitHub Release.
+# Build VisionVNC with Moonlight and attach the unsigned IPA to the GitHub
+# release CI created for the current commit (tag 0.1.0-<sha8>), or create
+# that release if CI hasn't.
 #
 # Prerequisites:
 #   - gh CLI authenticated
@@ -30,10 +32,12 @@ done
 
 cd "$PROJECT_ROOT"
 
-# Version from git
+# Version from git — must match the CI workflow's tag scheme
+# (0.1.0-<8-char sha>) so the Moonlight IPA attaches to the release CI
+# created for this commit.
 SHORT_SHA=$(git rev-parse --short=8 HEAD)
 VERSION="0.1.0-${SHORT_SHA}"
-IPA_NAME="VisionVNC-${VERSION}-unsigned.ipa"
+IPA_NAME="VisionVNC-${VERSION}-moonlight-unsigned.ipa"
 
 BUILD_DIR="$PROJECT_ROOT/build"
 
@@ -76,21 +80,22 @@ if [[ "$DRY_RUN" == true ]]; then
 fi
 
 # --- GitHub Release ---
-echo "==> Creating GitHub release ($VERSION)..."
+# CI (on push to main) creates release $VERSION with the VNC-only IPA and
+# the macOS Audio Sender. If it exists, attach the Moonlight IPA to it;
+# otherwise (CI hasn't run / commit not pushed) create the release here.
+if gh release view "$VERSION" &>/dev/null; then
+    echo "==> Attaching Moonlight IPA to existing release $VERSION..."
+    gh release upload "$VERSION" --clobber "$IPA_PATH#$IPA_NAME"
+else
+    echo "==> No CI release for $VERSION — creating it..."
+    gh release create "$VERSION" \
+        --title "$VERSION" \
+        --notes "Built from \`${SHORT_SHA}\` on $(date +%Y-%m-%d).
 
-# Delete existing "latest" release if present
-if gh release view latest &>/dev/null; then
-    echo "  Deleting previous 'latest' release..."
-    gh release delete latest --yes --cleanup-tag
+Includes an unsigned IPA built with Moonlight support (GPLv3). See [LICENSE](LICENSE.txt) for details." \
+        --latest \
+        "$IPA_PATH#$IPA_NAME"
 fi
 
-gh release create latest \
-    --title "Latest Release" \
-    --notes "Built from \`${SHORT_SHA}\` on $(date +%Y-%m-%d).
-
-This is an unsigned IPA built with Moonlight support (GPLv3). See [LICENSE](LICENSE.txt) for details." \
-    --latest \
-    "$IPA_PATH#$IPA_NAME"
-
 echo ""
-echo "Done! Release published: $(gh release view latest --json url -q .url)"
+echo "Done! Release: $(gh release view "$VERSION" --json url -q .url)"
