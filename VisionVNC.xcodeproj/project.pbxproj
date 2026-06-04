@@ -59,13 +59,6 @@
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
-		AA10AD100000000000000007 /* Frameworks */ = {
-			isa = PBXFrameworksBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 		1DC83C242F74524200BF0482 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -73,6 +66,13 @@
 				1DC83C3D2F74587300BF0482 /* RoyalVNCKit in Frameworks */,
 				1D8097B22F7FCBED00C67700 /* MoonlightCommonC in Frameworks */,
 				1D8097B52F7FCBFA00C67700 /* Opus in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		AA10AD100000000000000007 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -107,29 +107,6 @@
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
-
-/* Begin PBXShellScriptBuildPhase section */
-		1DC83C5A2F9536A000BF0482 /* Copy Third-Party Notices */ = {
-			isa = PBXShellScriptBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			inputFileListPaths = (
-			);
-			inputPaths = (
-				"$(SRCROOT)/THIRD_PARTY_NOTICES.md",
-			);
-			name = "Copy Third-Party Notices";
-			outputFileListPaths = (
-			);
-			outputPaths = (
-				"$(BUILT_PRODUCTS_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/THIRD_PARTY_NOTICES.md",
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-			shellPath = /bin/sh;
-			shellScript = "cp \"${SRCROOT}/THIRD_PARTY_NOTICES.md\" \"${BUILT_PRODUCTS_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/\"\n";
-		};
-/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXNativeTarget section */
 		1DC83C262F74524200BF0482 /* VisionVNC */ = {
@@ -243,6 +220,29 @@
 		};
 /* End PBXResourcesBuildPhase section */
 
+/* Begin PBXShellScriptBuildPhase section */
+		1DC83C5A2F9536A000BF0482 /* Copy Third-Party Notices */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(SRCROOT)/THIRD_PARTY_NOTICES.md",
+			);
+			name = "Copy Third-Party Notices";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(BUILT_PRODUCTS_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/THIRD_PARTY_NOTICES.md",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "cp \"${SRCROOT}/THIRD_PARTY_NOTICES.md\" \"${BUILT_PRODUCTS_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/\"\n";
+		};
+/* End PBXShellScriptBuildPhase section */
+
 /* Begin PBXSourcesBuildPhase section */
 		1DC83C232F74524200BF0482 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
@@ -279,6 +279,8 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "$(TARGET_NAME)/Info.plist";
+				INFOPLIST_KEY_GCSupportsControllerUserInteraction = YES;
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "This app needs local network access to connect to VNC and Moonlight/Sunshine servers on your network.";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -308,6 +310,8 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "$(TARGET_NAME)/Info.plist";
+				INFOPLIST_KEY_GCSupportsControllerUserInteraction = YES;
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "This app needs local network access to connect to VNC and Moonlight/Sunshine servers on your network.";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -449,8 +453,6 @@
 			};
 			name = Release;
 		};
-/* End XCBuildConfiguration section */
-
 		AA10AD10000000000000000A /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -510,15 +512,6 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		AA10AD100000000000000009 /* Build configuration list for PBXNativeTarget "VisionVNCAudioSender" */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				AA10AD10000000000000000A /* Debug */,
-				AA10AD10000000000000000B /* Release */,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
-		};
 		1DC83C222F74524200BF0482 /* Build configuration list for PBXProject "VisionVNC" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
@@ -533,6 +526,15 @@
 			buildConfigurations = (
 				1DC83C372F74524300BF0482 /* Debug */,
 				1DC83C382F74524300BF0482 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		AA10AD100000000000000009 /* Build configuration list for PBXNativeTarget "VisionVNCAudioSender" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				AA10AD10000000000000000A /* Debug */,
+				AA10AD10000000000000000B /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

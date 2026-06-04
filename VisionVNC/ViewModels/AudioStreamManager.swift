@@ -241,6 +241,9 @@ final class AudioStreamReceiver: @unchecked Sendable {
         do {
             try session.setCategory(.playback, mode: .default)
             try session.setIntendedSpatialExperience(.bypassed)
+            // Become a Now Playing candidate so visionOS keeps playback running
+            // (and doesn't duck the audio) when the user looks at other windows.
+            try session.setIsNowPlayingCandidate(true)
         } catch {
             print("[AudioStream] Failed to configure audio session: \(error)")
         }
