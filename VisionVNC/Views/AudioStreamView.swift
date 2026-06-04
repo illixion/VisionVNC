@@ -41,9 +41,14 @@ struct AudioStreamView: View {
 
                 Button(role: .destructive) {
                     audioManager.userDisconnect()
-                    // visionOS won't let an app close its own last window —
-                    // surface the connection manager first so dismissal works.
-                    openWindow(id: "main")
+                    // Pushed windows restore the connection manager on
+                    // dismiss. Standalone (space-restored) windows must
+                    // surface it explicitly — visionOS won't let an app
+                    // close its own last window.
+                    if !audioManager.openedViaPush {
+                        openWindow(id: "main")
+                    }
+                    audioManager.openedViaPush = false
                     dismissWindow(id: "audio-stream")
                 } label: {
                     Label("Disconnect", systemImage: "xmark.circle")

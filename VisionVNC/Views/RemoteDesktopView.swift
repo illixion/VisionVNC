@@ -47,9 +47,14 @@ struct RemoteDesktopView: View {
                 // Server-initiated disconnect: close windows after a brief delay
                 Task {
                     try? await Task.sleep(for: .seconds(1))
-                    // visionOS won't let an app close its own last window —
-                    // surface the connection manager first so dismissal works.
-                    openWindow(id: "main")
+                    // Pushed windows restore the connection manager on
+                    // dismiss. Standalone (space-restored) windows must
+                    // surface it explicitly — visionOS won't let an app
+                    // close its own last window.
+                    if !connectionManager.openedViaPush {
+                        openWindow(id: "main")
+                    }
+                    connectionManager.openedViaPush = false
                     dismissWindow(id: "keyboard")
                     dismissWindow(id: "remote-desktop")
                 }
@@ -118,7 +123,10 @@ struct RemoteDesktopView: View {
                 Text(error ?? "Disconnected")
                     .font(.headline)
                 Button("Close") {
-                    openWindow(id: "main")
+                    if !connectionManager.openedViaPush {
+                        openWindow(id: "main")
+                    }
+                    connectionManager.openedViaPush = false
                     dismissWindow(id: "remote-desktop")
                 }
             } else {
@@ -155,7 +163,10 @@ struct RemoteDesktopView: View {
 
             Button(action: {
                 connectionManager.disconnect()
-                openWindow(id: "main")
+                if !connectionManager.openedViaPush {
+                    openWindow(id: "main")
+                }
+                connectionManager.openedViaPush = false
                 dismissWindow(id: "keyboard")
                 dismissWindow(id: "remote-desktop")
             }) {

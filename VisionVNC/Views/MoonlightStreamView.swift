@@ -111,15 +111,23 @@ struct MoonlightStreamView: View {
         .alert("Disconnect", isPresented: $showDisconnectAlert) {
             Button("Keep Running") {
                 manager.stopStreaming()
-                // visionOS won't let an app close its own last window —
-                // surface the connection manager first so dismissal works.
-                openWindow(id: "main")
+                // Pushed windows restore the connection manager on dismiss.
+                // Standalone (space-restored) windows must surface it
+                // explicitly — visionOS won't let an app close its own
+                // last window.
+                if !manager.openedViaPush {
+                    openWindow(id: "main")
+                }
+                manager.openedViaPush = false
                 dismissWindow(id: "moonlight-keyboard")
                 dismiss()
             }
             Button("End Session", role: .destructive) {
                 manager.stopStreamingAndQuit()
-                openWindow(id: "main")
+                if !manager.openedViaPush {
+                    openWindow(id: "main")
+                }
+                manager.openedViaPush = false
                 dismissWindow(id: "moonlight-keyboard")
                 dismiss()
             }

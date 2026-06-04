@@ -4,6 +4,7 @@ import SwiftData
 struct ConnectionListView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.openWindow) private var openWindow
+    @Environment(\.pushWindow) private var pushWindow
     @Environment(VNCConnectionManager.self) private var connectionManager
     @Environment(AudioStreamManager.self) private var audioManager
     #if MOONLIGHT_ENABLED
@@ -213,7 +214,10 @@ struct ConnectionListView: View {
             title: connection.displayName
         )
 
-        openWindow(id: "remote-desktop")
+        // Push so the connection manager goes into the back stack and
+        // reappears automatically when the remote desktop window closes.
+        connectionManager.openedViaPush = true
+        pushWindow(id: "remote-desktop")
     }
 
     #if MOONLIGHT_ENABLED
@@ -229,6 +233,7 @@ struct ConnectionListView: View {
             port: UInt16(connection.port),
             title: connection.displayName
         )
-        openWindow(id: "audio-stream")
+        audioManager.openedViaPush = true
+        pushWindow(id: "audio-stream")
     }
 }
