@@ -84,21 +84,41 @@ jobs:
           cd $RUNNER_TEMP
           zip -r VisionVNC-unsigned.ipa Payload
 
+      - name: Build Audio Sender (macOS)
+        run: |
+          xcodebuild archive \
+            -project VisionVNC.xcodeproj \
+            -scheme VisionVNCAudioSender \
+            -destination 'generic/platform=macOS' \
+            -archivePath $RUNNER_TEMP/VisionVNCAudioSender.xcarchive \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY=""
+
+      - name: Zip Audio Sender app
+        run: |
+          cd $RUNNER_TEMP/VisionVNCAudioSender.xcarchive/Products/Applications
+          # ditto preserves bundle structure/extended attributes
+          ditto -c -k --keepParent VisionVNCAudioSender.app $RUNNER_TEMP/VisionVNCAudioSender-unsigned.zip
+
       - name: Create a version string from git SHA
         id: version
         run: |
           VERSION="0.1.0-${GITHUB_SHA::8}"
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 
-      - name: Rename IPA with version
-        id: ipa
+      - name: Rename artifacts with version
+        id: artifacts
         run: |
           IPA_NAME="VisionVNC-${{ steps.version.outputs.version }}-unsigned.ipa"
           cp $RUNNER_TEMP/VisionVNC-unsigned.ipa "$IPA_NAME"
           echo "ipa_file=$IPA_NAME" >> $GITHUB_OUTPUT
+          MAC_NAME="VisionVNCAudioSender-${{ steps.version.outputs.version }}-unsigned.zip"
+          cp $RUNNER_TEMP/VisionVNCAudioSender-unsigned.zip "$MAC_NAME"
+          echo "mac_file=$MAC_NAME" >> $GITHUB_OUTPUT
 
       - name: Create GitHub Release
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: github.ref == 'refs/heads/main'
         id: create_release
         uses: actions/create-release@v1
         env:
@@ -109,13 +129,24 @@ jobs:
           draft: false
           prerelease: false
 
-      - name: Upload Release Asset
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+      - name: Upload IPA Release Asset
+        if: github.ref == 'refs/heads/main'
         uses: actions/upload-release-asset@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ${{ steps.ipa.outputs.ipa_file }}
-          asset_name: ${{ steps.ipa.outputs.ipa_file }}
+          asset_path: ${{ steps.artifacts.outputs.ipa_file }}
+          asset_name: ${{ steps.artifacts.outputs.ipa_file }}
           asset_content_type: application/octet-stream
+
+      - name: Upload Audio Sender Release Asset
+        if: github.ref == 'refs/heads/main'
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ${{ steps.artifacts.outputs.mac_file }}
+          asset_name: ${{ steps.artifacts.outputs.mac_file }}
+          asset_content_type: application/zip
