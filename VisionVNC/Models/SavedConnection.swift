@@ -180,7 +180,7 @@ final class SavedConnection {
     var autoLogin: Bool = false
     var savedUsername: String = ""
     var savedPassword: String = ""
-    var vncTouchModeRawValue: String = TouchMode.absolute.rawValue
+    var vncTouchModeRawValue: String = TouchMode.relative.rawValue
 
     var quality: ConnectionQuality {
         get { ConnectionQuality(rawValue: qualityRawValue) ?? .high }
@@ -188,7 +188,7 @@ final class SavedConnection {
     }
 
     var vncTouchMode: TouchMode {
-        get { TouchMode(rawValue: vncTouchModeRawValue) ?? .absolute }
+        get { TouchMode(rawValue: vncTouchModeRawValue) ?? .relative }
         set { vncTouchModeRawValue = newValue.rawValue }
     }
 

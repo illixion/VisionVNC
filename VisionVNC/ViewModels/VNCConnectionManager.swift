@@ -55,6 +55,10 @@ final class VNCConnectionManager: NSObject, VNCConnectionDelegate {
     // Trackpad-only mode (transparent overlay, no video)
     var isTrackpadOnly: Bool = false
 
+    // Optional reference to the SavedConnection driving this session,
+    // used by the credential prompt's "Remember Password" toggle.
+    var pendingSavedConnection: SavedConnection?
+
     // MARK: - Private State
 
     private var connection: VNCConnection?
@@ -239,12 +243,17 @@ final class VNCConnectionManager: NSObject, VNCConnectionDelegate {
 
     // MARK: - Credential Submission
 
-    func submitCredential(username: String?, password: String) {
+    func submitCredential(username: String?, password: String, remember: Bool = false) {
         let credential: VNCCredential
         if let username, credentialAuthType.requiresUsername {
             credential = VNCUsernamePasswordCredential(username: username, password: password)
         } else {
             credential = VNCPasswordCredential(password: password)
+        }
+        if remember, let saved = pendingSavedConnection {
+            saved.savedUsername = (credentialAuthType.requiresUsername ? (username ?? "") : "")
+            saved.savedPassword = password
+            saved.autoLogin = true
         }
         credentialCompletion?(credential)
         credentialCompletion = nil

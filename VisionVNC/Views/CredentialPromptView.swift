@@ -7,9 +7,17 @@ struct CredentialPromptView: View {
 
     @State private var username: String = ""
     @State private var password: String = ""
+    @State private var rememberPassword: Bool = false
+
+    private enum Field: Hashable { case username, password }
+    @FocusState private var focusedField: Field?
 
     private var requiresUsername: Bool {
         connectionManager.credentialAuthType.requiresUsername
+    }
+
+    private var canRemember: Bool {
+        connectionManager.pendingSavedConnection != nil
     }
 
     var body: some View {
@@ -21,9 +29,23 @@ struct CredentialPromptView: View {
                             .textContentType(.username)
                             .autocorrectionDisabled()
                             .textInputAutocapitalization(.never)
+                            .focused($focusedField, equals: .username)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .contentShape(.rect)
+                            .onTapGesture { focusedField = .username }
                     }
                     SecureField("Password", text: $password)
                         .textContentType(.password)
+                        .focused($focusedField, equals: .password)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(.rect)
+                        .onTapGesture { focusedField = .password }
+                }
+
+                if canRemember {
+                    Section {
+                        Toggle("Remember Password", isOn: $rememberPassword)
+                    }
                 }
             }
             .navigationTitle("Authentication")
@@ -38,7 +60,8 @@ struct CredentialPromptView: View {
                     Button("Connect") {
                         connectionManager.submitCredential(
                             username: requiresUsername ? username : nil,
-                            password: password
+                            password: password,
+                            remember: rememberPassword
                         )
                         dismiss()
                     }

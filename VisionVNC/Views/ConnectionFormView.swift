@@ -20,7 +20,12 @@ struct ConnectionFormView: View {
     @State private var autoLogin: Bool = false
     @State private var username: String = ""
     @State private var password: String = ""
-    @State private var vncTouchMode: TouchMode = .absolute
+    @State private var vncTouchMode: TouchMode = .relative
+
+    private enum Field: Hashable {
+        case hostname, port, username, password, label
+    }
+    @FocusState private var focusedField: Field?
 
     #if MOONLIGHT_ENABLED
     // Moonlight — Video
@@ -106,15 +111,27 @@ struct ConnectionFormView: View {
                 .textContentType(.URL)
                 .autocorrectionDisabled()
                 .textInputAutocapitalization(.never)
+                .focused($focusedField, equals: .hostname)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(.rect)
+                .onTapGesture { focusedField = .hostname }
 
             TextField("Port", text: $port)
                 .keyboardType(.numberPad)
+                .focused($focusedField, equals: .port)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(.rect)
+                .onTapGesture { focusedField = .port }
         }
     }
 
     private var labelSection: some View {
         Section("Label") {
             TextField("Display Name (optional)", text: $label)
+                .focused($focusedField, equals: .label)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(.rect)
+                .onTapGesture { focusedField = .label }
         }
     }
 
@@ -130,9 +147,17 @@ struct ConnectionFormView: View {
                     .textContentType(.username)
                     .autocorrectionDisabled()
                     .textInputAutocapitalization(.never)
+                    .focused($focusedField, equals: .username)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(.rect)
+                    .onTapGesture { focusedField = .username }
 
                 SecureField("Password", text: $password)
                     .textContentType(.password)
+                    .focused($focusedField, equals: .password)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(.rect)
+                    .onTapGesture { focusedField = .password }
 
                 if isEditing && hasCredentials {
                     Button("Clear Saved Credentials", role: .destructive) {

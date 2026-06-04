@@ -196,6 +196,7 @@ struct ConnectionListView: View {
             }
         }
 
+        connectionManager.pendingSavedConnection = connection
         connectionManager.connect(
             hostname: connection.hostname,
             port: UInt16(connection.port),
