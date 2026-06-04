@@ -5,6 +5,7 @@ import SwiftUI
 struct AudioStreamView: View {
     @Environment(AudioStreamManager.self) private var audioManager
     @Environment(\.dismissWindow) private var dismissWindow
+    @Environment(\.openWindow) private var openWindow
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
@@ -40,6 +41,9 @@ struct AudioStreamView: View {
 
                 Button(role: .destructive) {
                     audioManager.userDisconnect()
+                    // visionOS won't let an app close its own last window —
+                    // surface the connection manager first so dismissal works.
+                    openWindow(id: "main")
                     dismissWindow(id: "audio-stream")
                 } label: {
                     Label("Disconnect", systemImage: "xmark.circle")
