@@ -4,6 +4,7 @@ import SwiftData
 @main
 struct VisionVNCApp: App {
     @State private var connectionManager = VNCConnectionManager()
+    @State private var audioManager = AudioStreamManager()
     #if MOONLIGHT_ENABLED
     @State private var moonlightManager = MoonlightConnectionManager()
     #endif
@@ -12,11 +13,20 @@ struct VisionVNCApp: App {
         WindowGroup {
             ConnectionListView()
                 .environment(connectionManager)
+                .environment(audioManager)
                 #if MOONLIGHT_ENABLED
                 .environment(moonlightManager)
                 #endif
         }
         .modelContainer(for: SavedConnection.self)
+
+        WindowGroup("Audio Stream", id: "audio-stream") {
+            AudioStreamView()
+                .environment(audioManager)
+        }
+        .defaultSize(width: 420, height: 360)
+        .windowResizability(.contentSize)
+        .defaultLaunchBehavior(.suppressed)
 
         WindowGroup("Remote Desktop", id: "remote-desktop") {
             RemoteDesktopView()

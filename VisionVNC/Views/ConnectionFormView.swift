@@ -72,6 +72,8 @@ struct ConnectionFormView: View {
             case .moonlight:
                 moonlightSections
             #endif
+            case .audio:
+                audioSections
             }
 
             labelSection
@@ -191,6 +193,16 @@ struct ConnectionFormView: View {
             Text(vncTouchMode == .relative
                 ? "Drag to move the cursor. Tap to click at the cursor position. Double-tap for right-click."
                 : "Tap and drag directly on the remote screen. Double-tap for right-click.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    // MARK: - Audio Sections
+
+    private var audioSections: some View {
+        Section("Audio Stream") {
+            Text("Streams uncompressed system audio from the VisionVNC Audio Sender menu bar app on your Mac. Unlike Mac Virtual Display audio, playback respects this app's Spatial Audio setting.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
@@ -402,6 +414,9 @@ struct ConnectionFormView: View {
             connection.moonlightOptimizeGameSettings = moonlightOptimizeGameSettings
             connection.moonlightShowStatsOverlay = moonlightShowStatsOverlay
         #endif
+
+        case .audio:
+            break // no type-specific fields
         }
     }
 }

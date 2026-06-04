@@ -9,6 +9,7 @@ enum ConnectionType: String, CaseIterable, Codable {
     #if MOONLIGHT_ENABLED
     case moonlight
     #endif
+    case audio
 
     var label: String {
         switch self {
@@ -16,6 +17,7 @@ enum ConnectionType: String, CaseIterable, Codable {
         #if MOONLIGHT_ENABLED
         case .moonlight: "Moonlight"
         #endif
+        case .audio: "Audio"
         }
     }
 
@@ -25,6 +27,7 @@ enum ConnectionType: String, CaseIterable, Codable {
         #if MOONLIGHT_ENABLED
         case .moonlight: "gamecontroller"
         #endif
+        case .audio: "speaker.wave.2"
         }
     }
 
@@ -34,6 +37,7 @@ enum ConnectionType: String, CaseIterable, Codable {
         #if MOONLIGHT_ENABLED
         case .moonlight: 47989
         #endif
+        case .audio: Int(AudioStreamProtocol.defaultPort)
         }
     }
 }

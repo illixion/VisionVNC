@@ -6,6 +6,7 @@ VisionVNC is a remote desktop and game streaming app for **visionOS** built in S
 
 1. **VNC** — Traditional remote desktop via [RoyalVNCKit](https://github.com/royalapplications/royalvnc) (MIT, pure Swift, local SPM dependency)
 2. **Moonlight** — Low-latency game streaming via [moonlight-common-c](https://github.com/moonlight-stream/moonlight-common-c) (GPLv3, C protocol library) with hardware-accelerated H.264/HEVC/AV1 decoding, HDR10 support, and Opus audio
+3. **Audio** — Uncompressed system-audio streaming from a companion macOS menu bar app (`VisionVNCAudioSender` target). Works around macOS forcing Spatial Audio on for Mac Virtual Display: audio played by this app honors the per-app Spatial Audio setting.
 
 Moonlight is an **optional build-time feature** controlled by the `MOONLIGHT_ENABLED` Swift compilation condition. When disabled, the app is a pure VNC viewer with zero Moonlight code compiled in.
 
@@ -64,6 +65,17 @@ Five `WindowGroup` scenes in `VisionVNCApp` (three VNC + two Moonlight, conditio
 | `MoonlightGamepadManager` | `GameController` framework bridge for up to 4 Bluetooth gamepads (DualSense, Xbox, etc.). Maps analog sticks, triggers, DPAD, and buttons with optional A/B X/Y swap. |
 | `MoonlightKeyCodes` | Mapping tables from `UIKeyboardHIDUsage` → Windows Virtual Key codes (VK_*), used for keyboard input to the stream. |
 | `MoonlightModels` | Data types: `ServerInfo`, `MoonlightApp`, `MoonlightStreamConfig`, `StreamStats`. |
+
+### Key Types — Audio Streaming
+
+| Type | Role |
+|------|------|
+| `AudioStreamProtocol` / `AudioStreamHeader` | Wire format (in `Shared/`, compiled into both targets). TCP: 16-byte header (magic `VVAS`, version, channels, Float64 sample rate), then length-prefixed interleaved Float32 PCM frames. Little-endian. Default port 4855. |
+| `AudioStreamManager` (visionOS) | `@Observable` MainActor state holder; owns an `AudioStreamReceiver`. |
+| `AudioStreamReceiver` (visionOS) | `@unchecked Sendable`, off-main NWConnection receive loop → AVAudioEngine/AVAudioPlayerNode. Prebuffers 4 frames before `play()` to absorb jitter. |
+| `SystemAudioTap` (macOS) | Core Audio process tap (`CATapDescription` global stereo mixdown, macOS 14.2+) hosted in a private aggregate device; IOProc delivers Float32 PCM. `muteSystemOutput` uses `.muted` tap behavior — silences local/Sidecar output while capturing (the whole point: only the streamed copy is audible). Mute change requires tap restart. No BlackHole/virtual driver needed. Requires TCC "System Audio Recording" (NSAudioCaptureUsageDescription). |
+| `AudioStreamServer` (macOS) | NWListener TCP server, multiple clients, per-client backpressure: frames are dropped for a client >200 KB behind (latency cap) instead of queueing. |
+| `AudioStreamerController` (macOS) | `@Observable` orchestrator behind the `MenuBarExtra` UI in `AudioSenderApp`. |
 
 ### Shared Types
 
@@ -256,6 +268,11 @@ ci/
 - **HDR metadata uses raw memory access** to read `SS_HDR_METADATA` because Swift cannot directly access the anonymous struct array `displayPrimaries[3]` from the C header. The `packHdrMetadata` method reads fields at known offsets via `UnsafeRawPointer.bindMemory`. MDCV is packed in GBR order (not RGB) per the MDCV spec. Format description extension keys must use the proper CoreMedia constants (`kCMFormatDescriptionExtension_MasteringDisplayColorVolume`, `kCMFormatDescriptionExtension_ContentLightLevelInfo`) — lowercase string literals are silently ignored.
 - **Audio FEC patches are required** — without the CI patches, moonlight-common-c crashes on FEC recovery with newer Sunshine versions. Always apply patches from `ci/patches/` when setting up the dependency.
 - **Pairing supports two hash variants** — SHA-256 for server generation >= 7 (modern Sunshine), SHA-1 for older servers. The `NvPairingManager` auto-detects based on `/serverinfo` response.
+
+### Audio Streaming
+- **The Opus x86_64 simulator slice fails to build** (`_Builtin_intrinsics.arm.neon` modulemap error) — pre-existing; build visionOS Simulator with `ARCHS=arm64`.
+- **`ConnectionType.audio` is not gated** behind a compilation condition (unlike `.moonlight`) — it has no external dependencies.
+- The macOS target shares the visionOS target's Swift settings (`SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`); `Shared/` types are declared `nonisolated` so they're usable from audio/network threads in both targets.
 
 ### General
 - **SwiftData migrations** require default values on all new non-optional properties and `@Attribute(originalName:)` for renamed columns, or the store fails to load (CoreData error 134110).

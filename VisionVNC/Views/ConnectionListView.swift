@@ -5,6 +5,7 @@ struct ConnectionListView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.openWindow) private var openWindow
     @Environment(VNCConnectionManager.self) private var connectionManager
+    @Environment(AudioStreamManager.self) private var audioManager
     #if MOONLIGHT_ENABLED
     @Environment(MoonlightConnectionManager.self) private var moonlightManager
     #endif
@@ -180,6 +181,8 @@ struct ConnectionListView: View {
         case .moonlight:
             connectMoonlight(connection)
         #endif
+        case .audio:
+            connectAudio(connection)
         }
     }
 
@@ -219,4 +222,13 @@ struct ConnectionListView: View {
         moonlightConnection = connection
     }
     #endif
+
+    private func connectAudio(_ connection: SavedConnection) {
+        audioManager.connect(
+            hostname: connection.hostname,
+            port: UInt16(connection.port),
+            title: connection.displayName
+        )
+        openWindow(id: "audio-stream")
+    }
 }
