@@ -5,8 +5,8 @@ set -euo pipefail
 #
 # Prerequisites:
 #   - gh CLI authenticated
-#   - Local deps set up in repos/ (royalvnc, moonlight-common-c, opus)
 #   - Xcode with visionOS SDK
+# Local deps in repos/ are set up automatically via scripts/setup-deps.sh.
 #
 # Usage:
 #   ./scripts/release.sh              # Build and release
@@ -36,6 +36,9 @@ VERSION="0.1.0-${SHORT_SHA}"
 IPA_NAME="VisionVNC-${VERSION}-unsigned.ipa"
 
 BUILD_DIR="$PROJECT_ROOT/build"
+
+# --- Dependencies ---
+"$SCRIPT_DIR/setup-deps.sh"
 
 # --- Build ---
 echo "==> Building (Release + Moonlight)..."
