@@ -37,8 +37,10 @@ else
     (
         cd repos/royalvnc
         git checkout "$ROYALVNC_REF"
-        # Use static linking to avoid dyld embedding issues on visionOS
-        sed -i '' 's/type: .dynamic/type: .static/' Package.swift
+        # Static linking (dyld embedding fix) + VisionVNC API additions:
+        # per-connection JPEG quality/compression settings and
+        # pause/resumeFramebufferUpdates
+        git apply ../../ci/patches/royalvnc-visionvnc.patch
     )
 fi
 
