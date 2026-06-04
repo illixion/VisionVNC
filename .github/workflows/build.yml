@@ -1,13 +1,13 @@
 name: Build VisionVNC
 
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
 
 # Pinned dependency versions
 env:
   ROYALVNC_REF: '337197a'
-  MOONLIGHT_COMMON_C_REF: '7b026e77be62175104640e7e722b758df6d3d0d7'
-  OPUS_REF: '788cc89ce4f2c42025d8c70ec1b4457dc89cd50f'
 
 jobs:
   build-and-release:
@@ -30,33 +30,28 @@ jobs:
           # Use static linking to avoid dyld embedding issues on visionOS
           sed -i '' 's/type: .dynamic/type: .static/' Package.swift
 
-      - name: Clone and patch moonlight-common-c
+      # Moonlight is disabled in CI builds: enet doesn't compile on the
+      # runner image. The project's local package references still need to
+      # resolve, so stand in empty stub packages with matching product
+      # names — nothing (including enet) gets compiled or linked beyond an
+      # empty module, and without MOONLIGHT_ENABLED no Swift code imports them.
+      - name: Stub out Moonlight dependencies
         run: |
-          git clone --recursive https://github.com/moonlight-stream/moonlight-common-c.git repos/moonlight-common-c
-          cd repos/moonlight-common-c
-          git checkout $MOONLIGHT_COMMON_C_REF
-          # Add SPM Package.swift wrapper and public headers directory
-          cp ../../ci/deps/moonlight-common-c/Package.swift .
-          mkdir -p include
-          cp src/Limelight.h include/
-          # Apply FEC recovery crash fixes for newer Sunshine versions
-          git apply ../../ci/patches/moonlight-common-c-fec-fix.patch
-          git apply ../../ci/patches/moonlight-common-c-audio-fec-fix.patch
-          # Add CommonCrypto backend for AES-GCM/CBC (replaces OpenSSL on Apple platforms)
-          git apply ../../ci/patches/moonlight-common-c-commoncrypto.patch
-
-      - name: Clone and patch Opus
-        run: |
-          git clone https://github.com/xiph/opus.git repos/opus
-          cd repos/opus
-          git checkout $OPUS_REF
-          # Add SPM Package.swift wrapper and config files
-          cp ../../ci/deps/opus/Package.swift .
-          mkdir -p spm-config
-          cp ../../ci/deps/opus/spm-config/config.h spm-config/
-          cp ../../ci/deps/opus/include/module.modulemap include/
-          # Patch opus.h to include multistream API for SPM umbrella header
-          git apply ../../ci/patches/opus-spm-umbrella.patch
+          for pkg in MoonlightCommonC Opus; do
+            dir=$([ "$pkg" = "MoonlightCommonC" ] && echo repos/moonlight-common-c || echo repos/opus)
+            mkdir -p "$dir/Sources/$pkg"
+            cat > "$dir/Package.swift" <<EOF
+          // swift-tools-version:5.9
+          // CI stub — Moonlight is disabled in pipeline builds.
+          import PackageDescription
+          let package = Package(
+              name: "$pkg",
+              products: [.library(name: "$pkg", targets: ["$pkg"])],
+              targets: [.target(name: "$pkg")]
+          )
+          EOF
+            echo "// CI stub" > "$dir/Sources/$pkg/Stub.swift"
+          done
 
       - name: Resolve packages
         run: |
@@ -64,7 +59,7 @@ jobs:
             -project VisionVNC.xcodeproj \
             -scheme VisionVNC
 
-      - name: Build archive with Moonlight (GPLv3)
+      - name: Build archive (VNC + Audio, Moonlight disabled)
         run: |
           xcodebuild archive \
             -project VisionVNC.xcodeproj \
@@ -74,7 +69,7 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
-            SWIFT_ACTIVE_COMPILATION_CONDITIONS='$(inherited) MOONLIGHT_ENABLED'
+            SWIFT_ACTIVE_COMPILATION_CONDITIONS='$(inherited)'
 
       - name: Create unsigned IPA
         run: |
