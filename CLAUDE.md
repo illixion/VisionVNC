@@ -270,11 +270,11 @@ ci/
 - **Pairing supports two hash variants** — SHA-256 for server generation >= 7 (modern Sunshine), SHA-1 for older servers. The `NvPairingManager` auto-detects based on `/serverinfo` response.
 
 ### Audio Streaming
-- **The Opus x86_64 simulator slice fails to build** (`_Builtin_intrinsics.arm.neon` modulemap error) — pre-existing; build visionOS Simulator with `ARCHS=arm64`.
 - **`ConnectionType.audio` is not gated** behind a compilation condition (unlike `.moonlight`) — it has no external dependencies.
 - The macOS target shares the visionOS target's Swift settings (`SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`); `Shared/` types are declared `nonisolated` so they're usable from audio/network threads in both targets.
 
 ### General
+- **The project is arm64-only** (`ARCHS = arm64` in the project-level build configs). Caveat: SPM packages do NOT inherit project build settings, so `-destination 'generic/platform=visionOS Simulator'` still builds Opus for x86_64 and fails (`_Builtin_intrinsics.arm.neon` modulemap error — the spm-config presumes NEON). Use a concrete simulator destination (`platform=visionOS Simulator,name=Apple Vision Pro`, builds active arch only) or pass `ARCHS=arm64` on the xcodebuild command line (overrides apply to packages too).
 - **SwiftData migrations** require default values on all new non-optional properties and `@Attribute(originalName:)` for renamed columns, or the store fails to load (CoreData error 134110).
 - **`navigationTitle` requires `NavigationStack`** on visionOS — without it, the title bar doesn't render.
 - **`dismissWindow(id:)`** is the correct API for closing `WindowGroup` windows on visionOS, not `dismiss()`.

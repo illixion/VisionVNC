@@ -112,7 +112,7 @@ Moonlight streaming requires [moonlight-common-c](https://github.com/moonlight-s
 
 Open `VisionVNC.xcodeproj` in Xcode, then add the local packages as described above. Build and run on Apple Vision Pro or the visionOS Simulator.
 
-> **Note:** the Opus package's x86_64 simulator slice currently fails to build (`_Builtin_intrinsics.arm.neon` modulemap error). When building for the visionOS Simulator from the command line, pass `ARCHS=arm64`.
+The project is **arm64-only** (`ARCHS = arm64` at the project level) — Apple deprecated x86_64 with macOS Tahoe. When building for the simulator from the command line, use a concrete destination (e.g. `-destination 'platform=visionOS Simulator,name=Apple Vision Pro'`) rather than a generic one.
 
 ### Building the Audio Sender (macOS)
 
