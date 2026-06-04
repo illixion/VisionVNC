@@ -14,7 +14,11 @@ struct AudioSenderApp: App {
         MenuBarExtra {
             AudioSenderMenuView(controller: controller)
         } label: {
-            Image(systemName: controller.isRunning ? "speaker.wave.2.fill" : "speaker.slash")
+            if let track = controller.menuBarTrackText {
+                Text("\(track) ♪")
+            } else {
+                Image(systemName: controller.isRunning ? "speaker.wave.2.fill" : "speaker.slash")
+            }
         }
         .menuBarExtraStyle(.window)
     }
@@ -34,6 +38,10 @@ struct AudioSenderMenuView: View {
             Toggle("Mute Mac output while streaming", isOn: $controller.muteWhileStreaming)
                 .toggleStyle(.checkbox)
                 .help("Silences the local (or Vision Pro Sidecar) output so audio only plays through the VisionVNC app.")
+
+            Toggle("Show track in menu bar", isOn: $controller.showTrackInMenuBar)
+                .toggleStyle(.checkbox)
+                .help("Shows the current Music.app track as \"Artist – Title\" in the menu bar while streaming.")
 
             Divider()
 
@@ -87,6 +95,28 @@ final class AudioStreamerController {
             guard newValue != isRunning else { return }
             newValue ? start() : stop()
         }
+    }
+
+    var showTrackInMenuBar: Bool {
+        get {
+            access(keyPath: \.showTrackInMenuBar)
+            return UserDefaults.standard.bool(forKey: "showTrackInMenuBar")
+        }
+        set {
+            withMutation(keyPath: \.showTrackInMenuBar) {
+                UserDefaults.standard.set(newValue, forKey: "showTrackInMenuBar")
+            }
+        }
+    }
+
+    /// "Artist – Title" for the menu bar label, or nil when the option is
+    /// off, nothing is playing (paused hides it too), or metadata is missing.
+    var menuBarTrackText: String? {
+        guard showTrackInMenuBar,
+              let nowPlaying, nowPlaying.hasTrack, nowPlaying.isPlaying else { return nil }
+        let parts = [nowPlaying.artist, nowPlaying.title].compactMap { $0?.isEmpty == false ? $0 : nil }
+        guard !parts.isEmpty else { return nil }
+        return parts.joined(separator: " – ")
     }
 
     var muteWhileStreaming: Bool {
