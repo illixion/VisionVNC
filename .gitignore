@@ -29,3 +29,4 @@ build/
 # Build artifacts and configs
 build/
 scripts/build-signing.conf
+Configuration/BuildInfo.xcconfig

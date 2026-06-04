@@ -36,9 +36,9 @@ DIST_PROFILE_PATH="$HOME/Downloads/Distribution.mobileprovision"
 DEVICE_NAME="Apple Vision Pro"
 
 # --- Optional pre-build hook ---
-# Sets up the gitignored Moonlight/VNC/Opus deps in repos/ (idempotent),
-# so a full Moonlight-enabled build works on a fresh clone.
-PRE_BUILD_HOOK="./scripts/setup-deps.sh"
+# Sets up the gitignored Moonlight/VNC/Opus deps in repos/ (idempotent)
+# and stamps the git commit hash into the build (shown in Settings).
+PRE_BUILD_HOOK="./scripts/setup-deps.sh && ./scripts/set-build-info.sh"
 
 # --- Extra xcodebuild settings (bash array) ---
 # Moonlight is an optional build-time feature; this enables it.

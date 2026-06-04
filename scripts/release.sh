@@ -43,6 +43,7 @@ BUILD_DIR="$PROJECT_ROOT/build"
 
 # --- Dependencies ---
 "$SCRIPT_DIR/setup-deps.sh"
+"$SCRIPT_DIR/set-build-info.sh"
 
 # --- Build ---
 echo "==> Building (Release + Moonlight)..."

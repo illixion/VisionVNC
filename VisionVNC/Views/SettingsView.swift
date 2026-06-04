@@ -95,9 +95,25 @@ struct SettingsView: View {
                     portField("Port", value: $moonlightPort)
                 }
                 #endif
+
+                Section("About") {
+                    LabeledContent("Version", value: appVersionString)
+                }
             }
             .navigationTitle("Settings")
         }
+    }
+
+    /// "0.1.0 (abc1234)" — commit baked in by scripts/set-build-info.sh
+    /// via Configuration/BuildInfo.xcconfig; falls back to the bare
+    /// version for builds without it (e.g. plain Xcode builds).
+    private var appVersionString: String {
+        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
+        let commitHash = Bundle.main.infoDictionary?["CommitHash"] as? String
+        if let commitHash, !commitHash.isEmpty, commitHash != "unknown" {
+            return "\(version) (\(commitHash))"
+        }
+        return version
     }
 
     private func portField(_ title: String, value: Binding<Int>) -> some View {

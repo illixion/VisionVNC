@@ -55,6 +55,9 @@ jobs:
             echo "// CI stub" > "$dir/Sources/$pkg/Stub.swift"
           done
 
+      - name: Set build info (commit hash shown in Settings)
+        run: ./scripts/set-build-info.sh "${GITHUB_SHA::7}"
+
       - name: Resolve packages
         run: |
           xcodebuild -resolvePackageDependencies \
