@@ -1,5 +1,6 @@
 #if MOONLIGHT_ENABLED
 import Foundation
+import os
 import SwiftUI
 import AVFoundation
 import QuartzCore
@@ -457,7 +458,7 @@ class MoonlightConnectionManager: MoonlightStreamDelegate {
     private func updateStreamFrame() {
         guard let renderer = videoRenderer else {
             if displayLinkLogCount < 3 {
-                print("[MoonlightStream] Display link: no videoRenderer")
+                AppLog.moonlightStream.line("Display link: no videoRenderer")
                 displayLinkLogCount += 1
             }
             return

@@ -1,5 +1,6 @@
 #if MOONLIGHT_ENABLED
 import Foundation
+import os
 import AVFoundation
 import Opus
 @preconcurrency import MoonlightCommonC
@@ -48,7 +49,7 @@ class MoonlightAudioRenderer: @unchecked Sendable {
         }
 
         guard error == OPUS_OK, decoder != nil else {
-            print("[MoonlightAudio] Failed to create Opus decoder: \(error)")
+            AppLog.moonlightAudio.line("Failed to create Opus decoder: \(error)")
             return -1
         }
 
@@ -66,7 +67,7 @@ class MoonlightAudioRenderer: @unchecked Sendable {
             channels: AVAudioChannelCount(channelCount),
             interleaved: true
         ) else {
-            print("[MoonlightAudio] Failed to create audio format")
+            AppLog.moonlightAudio.line("Failed to create audio format")
             return -1
         }
 
@@ -86,7 +87,7 @@ class MoonlightAudioRenderer: @unchecked Sendable {
             try audioEngine?.start()
             playerNode?.play()
         } catch {
-            print("[MoonlightAudio] Failed to start audio engine: \(error)")
+            AppLog.moonlightAudio.line("Failed to start audio engine: \(error)")
         }
     }
 

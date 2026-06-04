@@ -1,5 +1,6 @@
 #if MOONLIGHT_ENABLED
 import Foundation
+import os
 import GameController
 import CoreHaptics
 @preconcurrency import MoonlightCommonC
@@ -30,7 +31,7 @@ class MoonlightGamepadManager: @unchecked Sendable {
     // MARK: - Lifecycle
 
     func startListening() {
-        print("[GamepadManager] Starting controller listening")
+        AppLog.gamepadManager.line("Starting controller listening")
 
         connectObserver = NotificationCenter.default.addObserver(
             forName: .GCControllerDidConnect,
@@ -57,7 +58,7 @@ class MoonlightGamepadManager: @unchecked Sendable {
     }
 
     func stopListening() {
-        print("[GamepadManager] Stopping controller listening")
+        AppLog.gamepadManager.line("Stopping controller listening")
 
         if let obs = connectObserver {
             NotificationCenter.default.removeObserver(obs)
@@ -88,14 +89,14 @@ class MoonlightGamepadManager: @unchecked Sendable {
 
     private func controllerConnected(_ controller: GCController) {
         guard controller.extendedGamepad != nil else {
-            print("[GamepadManager] Ignoring non-extended gamepad: \(controller.vendorName ?? "unknown")")
+            AppLog.gamepadManager.line("Ignoring non-extended gamepad: \(controller.vendorName ?? "unknown")")
             return
         }
 
         // Assign player index (0-3)
         let playerIndex = nextAvailableIndex()
         guard playerIndex < 4 else {
-            print("[GamepadManager] Maximum 4 controllers reached, ignoring")
+            AppLog.gamepadManager.line("Maximum 4 controllers reached, ignoring")
             return
         }
 
@@ -107,7 +108,7 @@ class MoonlightGamepadManager: @unchecked Sendable {
         let capabilities = detectCapabilities(controller)
         let supportedButtons = buildSupportedButtonFlags()
 
-        print("[GamepadManager] Controller \(playerIndex) connected: \(controller.vendorName ?? "unknown"), type=\(controllerType), caps=0x\(String(capabilities, radix: 16))")
+        AppLog.gamepadManager.line("Controller \(playerIndex) connected: \(controller.vendorName ?? "unknown"), type=\(controllerType), caps=0x\(String(capabilities, radix: 16))")
 
         // Notify host of controller arrival
         LiSendControllerArrivalEvent(
@@ -125,7 +126,7 @@ class MoonlightGamepadManager: @unchecked Sendable {
     private func controllerDisconnected(_ controller: GCController) {
         guard let playerIndex = controllers.first(where: { $0.value === controller })?.key else { return }
 
-        print("[GamepadManager] Controller \(playerIndex) disconnected: \(controller.vendorName ?? "unknown")")
+        AppLog.gamepadManager.line("Controller \(playerIndex) disconnected: \(controller.vendorName ?? "unknown")")
 
         // Re-enable system gestures on disconnect
         for element in controller.physicalInputProfile.allElements {

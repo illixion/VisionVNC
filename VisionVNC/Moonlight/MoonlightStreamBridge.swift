@@ -1,5 +1,6 @@
 #if MOONLIGHT_ENABLED
 import Foundation
+import os
 @preconcurrency import MoonlightCommonC
 
 // MARK: - Global Renderer References
@@ -51,26 +52,26 @@ let audioConfig71: Int32 = 0x63F08CA
 private nonisolated func bridgeVideoSetup(_ videoFormat: Int32, _ width: Int32, _ height: Int32,
                                _ redrawRate: Int32, _ context: UnsafeMutableRawPointer?,
                                _ drFlags: Int32) -> Int32 {
-    print("[MoonlightBridge] Video setup: \(width)x\(height)@\(redrawRate) format=0x\(String(videoFormat, radix: 16))")
+    AppLog.moonlightBridge.line("Video setup: \(width)x\(height)@\(redrawRate) format=0x\(String(videoFormat, radix: 16))")
     guard let renderer = activeVideoRenderer else {
-        print("[MoonlightBridge] ERROR: No video renderer!")
+        AppLog.moonlightBridge.line("ERROR: No video renderer!")
         return -1
     }
     return renderer.setup(videoFormat: videoFormat, width: width, height: height, fps: redrawRate)
 }
 
 private nonisolated func bridgeVideoStart() {
-    print("[MoonlightBridge] Video start")
+    AppLog.moonlightBridge.line("Video start")
     activeVideoRenderer?.start()
 }
 
 private nonisolated func bridgeVideoStop() {
-    print("[MoonlightBridge] Video stop")
+    AppLog.moonlightBridge.line("Video stop")
     activeVideoRenderer?.stop()
 }
 
 private nonisolated func bridgeVideoCleanup() {
-    print("[MoonlightBridge] Video cleanup")
+    AppLog.moonlightBridge.line("Video cleanup")
     activeVideoRenderer?.cleanup()
 }
 
@@ -111,39 +112,39 @@ private nonisolated func bridgeAudioDecodeAndPlay(_ sampleData: UnsafeMutablePoi
 
 private nonisolated func bridgeStageStarting(_ stage: Int32) {
     let stageName = moonlightStageName(stage)
-    print("[MoonlightBridge] Stage starting: \(stageName) (\(stage))")
+    AppLog.moonlightBridge.line("Stage starting: \(stageName) (\(stage))")
     let delegate = activeStreamDelegate
     Task { @MainActor in delegate?.moonlightStreamStageStarting(stage) }
 }
 
 private nonisolated func bridgeStageComplete(_ stage: Int32) {
     let stageName = moonlightStageName(stage)
-    print("[MoonlightBridge] Stage complete: \(stageName) (\(stage))")
+    AppLog.moonlightBridge.line("Stage complete: \(stageName) (\(stage))")
     let delegate = activeStreamDelegate
     Task { @MainActor in delegate?.moonlightStreamStageComplete(stage) }
 }
 
 private nonisolated func bridgeStageFailed(_ stage: Int32, _ errorCode: Int32) {
     let stageName = moonlightStageName(stage)
-    print("[MoonlightBridge] Stage FAILED: \(stageName) (\(stage)), error=\(errorCode)")
+    AppLog.moonlightBridge.line("Stage FAILED: \(stageName) (\(stage)), error=\(errorCode)")
     let delegate = activeStreamDelegate
     Task { @MainActor in delegate?.moonlightStreamStageFailed(stage, errorCode: errorCode) }
 }
 
 private nonisolated func bridgeConnectionStarted() {
-    print("[MoonlightBridge] Connection started successfully!")
+    AppLog.moonlightBridge.line("Connection started successfully!")
     let delegate = activeStreamDelegate
     Task { @MainActor in delegate?.moonlightStreamConnectionStarted() }
 }
 
 private nonisolated func bridgeConnectionTerminated(_ errorCode: Int32) {
-    print("[MoonlightBridge] Connection terminated, error=\(errorCode)")
+    AppLog.moonlightBridge.line("Connection terminated, error=\(errorCode)")
     let delegate = activeStreamDelegate
     Task { @MainActor in delegate?.moonlightStreamConnectionTerminated(errorCode) }
 }
 
 private nonisolated func bridgeConnectionStatusUpdate(_ status: Int32) {
-    print("[MoonlightBridge] Connection status update: \(status)")
+    AppLog.moonlightBridge.line("Connection status update: \(status)")
     let delegate = activeStreamDelegate
     Task { @MainActor in delegate?.moonlightStreamConnectionStatusUpdate(status) }
 }
@@ -171,7 +172,7 @@ private nonisolated func bridgeRumble(_ controllerNumber: UInt16, _ lowFreqMotor
     activeGamepadManager?.handleRumble(controllerNumber: controllerNumber, lowFreqMotor: lowFreqMotor, highFreqMotor: highFreqMotor)
 }
 private nonisolated func bridgeSetHdrMode(_ hdrEnabled: Bool) {
-    print("[MoonlightBridge] HDR mode: \(hdrEnabled)")
+    AppLog.moonlightBridge.line("HDR mode: \(hdrEnabled)")
     // Forward HDR mode to renderer so it can update metadata and request IDR
     activeVideoRenderer?.setHdrMode(hdrEnabled)
     let delegate = activeStreamDelegate
@@ -315,7 +316,7 @@ nonisolated func startMoonlightStream(
     clCallbacks.setAdaptiveTriggers = bridgeSetAdaptiveTriggers
 
     // Start connection (blocks until connected or failed)
-    print("[MoonlightBridge] Calling LiStartConnection...")
+    AppLog.moonlightBridge.line("Calling LiStartConnection...")
     let result = LiStartConnection(
         &serverInfo,
         &streamConfig,
@@ -327,19 +328,19 @@ nonisolated func startMoonlightStream(
         nil,  // audioContext
         0     // arFlags
     )
-    print("[MoonlightBridge] LiStartConnection returned: \(result)")
+    AppLog.moonlightBridge.line("LiStartConnection returned: \(result)")
 
     return result
 }
 
 /// Stops the active Moonlight streaming session.
 nonisolated func stopMoonlightStream() {
-    print("[MoonlightBridge] Stopping stream...")
+    AppLog.moonlightBridge.line("Stopping stream...")
     LiStopConnection()
     activeVideoRenderer = nil
     activeAudioRenderer = nil
     activeStreamDelegate = nil
     activeGamepadManager = nil
-    print("[MoonlightBridge] Stream stopped")
+    AppLog.moonlightBridge.line("Stream stopped")
 }
 #endif

@@ -1,5 +1,6 @@
 #if MOONLIGHT_ENABLED
 import Foundation
+import os
 import Network
 @preconcurrency import Security
 
@@ -322,10 +323,10 @@ actor NvHTTPClient {
             if let secIdentity = sec_identity_create(identity) {
                 sec_protocol_options_set_local_identity(secOptions, secIdentity)
             } else {
-                print("[NvHTTPClient] WARNING: sec_identity_create returned nil — TLS client auth will fail")
+                AppLog.nvHTTPClient.line("WARNING: sec_identity_create returned nil — TLS client auth will fail")
             }
         } catch {
-            print("[NvHTTPClient] ERROR: Failed to get client identity for TLS: \(error)")
+            AppLog.nvHTTPClient.line("ERROR: Failed to get client identity for TLS: \(error)")
         }
 
         return NWParameters(tls: tlsOptions)

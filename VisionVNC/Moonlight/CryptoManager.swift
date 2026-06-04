@@ -1,5 +1,6 @@
 #if MOONLIGHT_ENABLED
 import Foundation
+import os
 import Security
 import CommonCrypto
 
@@ -79,7 +80,7 @@ actor CryptoManager {
             return try Self.importPKCS12Identity(p12Data, password: Self.p12Password)
         } catch {
             // Cached P12 might be stale — rebuild and retry once
-            print("[CryptoManager] PKCS#12 import failed, rebuilding: \(error)")
+            AppLog.cryptoManager.line("PKCS#12 import failed, rebuilding: \(error)")
             UserDefaults.standard.removeObject(forKey: Self.p12DefaultsKey)
             let rebuilt = try buildAndStorePKCS12()
             return try Self.importPKCS12Identity(rebuilt, password: Self.p12Password)
@@ -103,7 +104,7 @@ actor CryptoManager {
             throw MoonlightError.cryptoError("SecPKCS12Import returned empty items array (count: \(itemArray.count))")
         }
 
-        print("[CryptoManager] P12 import keys: \(firstItem.keys.sorted())")
+        AppLog.cryptoManager.line("P12 import keys: \(firstItem.keys.sorted())")
 
         guard let identity = firstItem[kSecImportItemIdentity as String] else {
             let keys = firstItem.keys.joined(separator: ", ")
