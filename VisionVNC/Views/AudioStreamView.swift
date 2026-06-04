@@ -1,7 +1,9 @@
 import SwiftUI
 
-/// Status window for an active audio-only stream from the
-/// VisionVNC Audio Sender Mac menu bar app.
+/// Mini-player window for an active audio-only stream from the
+/// VisionVNC Audio Sender Mac menu bar app: large album art (falls back
+/// to the speaker status glyph) over a transport row, with technical
+/// stream info tucked into a corner of the art.
 struct AudioStreamView: View {
     @Environment(AudioStreamManager.self) private var audioManager
     @Environment(\.dismissWindow) private var dismissWindow
@@ -10,67 +12,22 @@ struct AudioStreamView: View {
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 20) {
-                Image(systemName: iconName)
-                    .font(.system(size: 56))
-                    .foregroundStyle(audioManager.state == .streaming ? Color.accentColor : .secondary)
-                    .symbolEffect(.variableColor.iterative, options: .repeating, isActive: audioManager.state == .streaming)
+            VStack(spacing: 16) {
+                artworkPane
 
-                VStack(spacing: 6) {
-                    Text(statusText)
+                VStack(spacing: 2) {
+                    Text(primaryLine)
                         .font(.headline)
-
-                    if audioManager.state == .streaming {
-                        Text(audioManager.formatLabel)
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-
-                        Text(dataLabel)
-                            .font(.caption)
-                            .foregroundStyle(.tertiary)
-                            .monospacedDigit()
-                    }
-
-                    if case .error(let message) = audioManager.state {
-                        Text(message)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .multilineTextAlignment(.center)
-                    }
+                        .lineLimit(1)
+                    Text(secondaryLine)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
                 }
 
-                if audioManager.nowPlaying != nil {
-                    nowPlayingCard
-                }
-
-                HStack(spacing: 12) {
-                    if audioManager.state == .streaming {
-                        Button {
-                            audioManager.setMuted(!audioManager.isMuted)
-                        } label: {
-                            Label(
-                                audioManager.isMuted ? "Unmute" : "Mute",
-                                systemImage: audioManager.isMuted ? "speaker.slash.fill" : "speaker.wave.2"
-                            )
-                        }
-                    }
-
-                    Button(role: .destructive) {
-                        audioManager.userDisconnect()
-                        // Pushed windows restore the connection manager on
-                        // dismiss. Standalone (space-restored) windows must
-                        // surface it explicitly — visionOS won't let an app
-                        // close its own last window.
-                        if !audioManager.openedViaPush {
-                            openWindow(id: "main")
-                        }
-                        dismissWindow(id: "audio-stream")
-                    } label: {
-                        Label("Disconnect", systemImage: "xmark.circle")
-                    }
-                }
+                controlsRow
             }
-            .padding(32)
+            .padding(24)
             .navigationTitle(audioManager.connectionTitle.isEmpty ? "Audio Stream" : audioManager.connectionTitle)
         }
         .onAppear {
@@ -90,65 +47,127 @@ struct AudioStreamView: View {
         }
     }
 
-    // MARK: - Now Playing
+    // MARK: - Artwork
 
-    /// Card mirroring the Mac's Music.app playback with transport controls.
-    private var nowPlayingCard: some View {
-        HStack(spacing: 14) {
-            Group {
-                if let artwork = audioManager.artworkImage {
-                    Image(uiImage: artwork)
-                        .resizable()
-                        .aspectRatio(contentMode: .fill)
-                } else {
-                    Image(systemName: "music.note")
-                        .font(.title)
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .background(.fill.tertiary)
-                }
+    /// Big square album art; when there is none (streaming-only Apple
+    /// Music tracks expose no artwork via scripting) or nothing playing,
+    /// shows the speaker status glyph instead. Technical stream info sits
+    /// in the bottom-trailing corner.
+    private var artworkPane: some View {
+        ZStack {
+            if let artwork = audioManager.artworkImage {
+                Image(uiImage: artwork)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+            } else {
+                Rectangle()
+                    .fill(.fill.tertiary)
+                Image(systemName: iconName)
+                    .font(.system(size: 64))
+                    .foregroundStyle(audioManager.state == .streaming ? Color.accentColor : .secondary)
+                    .symbolEffect(.variableColor.iterative, options: .repeating, isActive: audioManager.state == .streaming)
             }
-            .frame(width: 64, height: 64)
-            .clipShape(RoundedRectangle(cornerRadius: 8))
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(audioManager.nowPlaying?.title ?? "")
-                    .font(.subheadline.weight(.semibold))
-                    .lineLimit(1)
-                if let artist = audioManager.nowPlaying?.artist, !artist.isEmpty {
-                    Text(artist)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-
-                HStack(spacing: 4) {
-                    Button {
-                        audioManager.sendCommand(.previous)
-                    } label: {
-                        Image(systemName: "backward.fill")
-                    }
-                    Button {
-                        audioManager.sendCommand(.toggle)
-                    } label: {
-                        Image(systemName: audioManager.nowPlaying?.isPlaying == true ? "pause.fill" : "play.fill")
-                    }
-                    Button {
-                        audioManager.sendCommand(.next)
-                    } label: {
-                        Image(systemName: "forward.fill")
-                    }
-                }
-                .buttonStyle(.borderless)
-                .font(.body)
-                .padding(.top, 4)
-            }
-            Spacer(minLength: 0)
         }
-        .padding(12)
-        .frame(maxWidth: 320)
-        .background(.fill.quaternary, in: RoundedRectangle(cornerRadius: 16))
+        .frame(width: 260, height: 260)
+        .clipShape(RoundedRectangle(cornerRadius: 16))
+        .overlay(alignment: .bottomTrailing) {
+            if audioManager.state == .streaming {
+                VStack(alignment: .trailing, spacing: 1) {
+                    Text(audioManager.formatLabel)
+                    Text(dataLabel)
+                        .monospacedDigit()
+                }
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 5)
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+                .padding(8)
+            }
+        }
     }
+
+    // MARK: - Labels
+
+    private var primaryLine: String {
+        if let title = audioManager.nowPlaying?.title, !title.isEmpty {
+            return title
+        }
+        return statusText
+    }
+
+    private var secondaryLine: String {
+        if let artist = audioManager.nowPlaying?.artist, !artist.isEmpty {
+            return artist
+        }
+        if case .error(let message) = audioManager.state {
+            return message
+        }
+        return " " // keep layout height stable
+    }
+
+    // MARK: - Controls
+
+    /// [disconnect] [prev] [play/pause] [next] [mute]
+    private var controlsRow: some View {
+        HStack(spacing: 14) {
+            Button(role: .destructive) {
+                audioManager.userDisconnect()
+                // Pushed windows restore the connection manager on
+                // dismiss. Standalone (space-restored) windows must
+                // surface it explicitly — visionOS won't let an app
+                // close its own last window.
+                if !audioManager.openedViaPush {
+                    openWindow(id: "main")
+                }
+                dismissWindow(id: "audio-stream")
+            } label: {
+                Image(systemName: "xmark.circle")
+            }
+            .help("Disconnect")
+
+            Button {
+                audioManager.sendCommand(.previous)
+            } label: {
+                Image(systemName: "backward.fill")
+            }
+            .disabled(!hasTransport)
+            .help("Previous track")
+
+            Button {
+                audioManager.sendCommand(.toggle)
+            } label: {
+                Image(systemName: audioManager.nowPlaying?.isPlaying == true ? "pause.fill" : "play.fill")
+            }
+            .disabled(!hasTransport)
+            .help("Play / pause")
+
+            Button {
+                audioManager.sendCommand(.next)
+            } label: {
+                Image(systemName: "forward.fill")
+            }
+            .disabled(!hasTransport)
+            .help("Next track")
+
+            Button {
+                audioManager.setMuted(!audioManager.isMuted)
+            } label: {
+                Image(systemName: audioManager.isMuted ? "speaker.slash.fill" : "speaker.wave.2")
+            }
+            .disabled(audioManager.state != .streaming)
+            .help(audioManager.isMuted ? "Unmute" : "Mute")
+        }
+        .buttonStyle(.bordered)
+        .buttonBorderShape(.circle)
+        .font(.title3)
+    }
+
+    private var hasTransport: Bool {
+        audioManager.state == .streaming && audioManager.nowPlaying != nil
+    }
+
+    // MARK: - Status
 
     private var iconName: String {
         switch audioManager.state {
@@ -170,6 +189,6 @@ struct AudioStreamView: View {
 
     private var dataLabel: String {
         let mb = Double(audioManager.bytesReceived) / 1_048_576
-        return String(format: "%.1f MB received", mb)
+        return String(format: "%.1f MB", mb)
     }
 }
