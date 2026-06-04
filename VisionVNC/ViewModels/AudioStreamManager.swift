@@ -222,11 +222,14 @@ final class AudioStreamReceiver: @unchecked Sendable {
     // MARK: - Audio
 
     private nonisolated func setupAudio(header: AudioStreamHeader) -> Bool {
+        // The wire format is interleaved, but AVAudioEngine throws an
+        // NSException ("SetFormat") when connecting a player node to the
+        // mixer with an interleaved Float32 format — the engine graph
+        // requires the standard (deinterleaved) format. We deinterleave
+        // in schedule() instead.
         guard let format = AVAudioFormat(
-            commonFormat: .pcmFormatFloat32,
-            sampleRate: header.sampleRate,
-            channels: AVAudioChannelCount(header.channelCount),
-            interleaved: true
+            standardFormatWithSampleRate: header.sampleRate,
+            channels: AVAudioChannelCount(header.channelCount)
         ) else { return false }
 
         let engine = AVAudioEngine()
@@ -263,17 +266,24 @@ final class AudioStreamReceiver: @unchecked Sendable {
     private nonisolated func schedule(_ payload: Data) {
         guard let playerNode, let format = audioFormat else { return }
 
-        let bytesPerFrame = Int(format.streamDescription.pointee.mBytesPerFrame)
-        guard bytesPerFrame > 0, payload.count % bytesPerFrame == 0 else { return }
-        let frameCount = AVAudioFrameCount(payload.count / bytesPerFrame)
+        let channels = Int(format.channelCount)
+        let bytesPerWireFrame = channels * MemoryLayout<Float32>.size
+        guard payload.count % bytesPerWireFrame == 0 else { return }
+        let frameCount = AVAudioFrameCount(payload.count / bytesPerWireFrame)
         guard frameCount > 0,
               let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameCount) else { return }
         buffer.frameLength = frameCount
 
-        // Interleaved Float32 — all channels live in the first buffer
+        // Deinterleave wire Float32 into the engine's per-channel buffers
         payload.withUnsafeBytes { raw in
-            guard let base = raw.baseAddress, let channelData = buffer.floatChannelData else { return }
-            memcpy(channelData[0], base, payload.count)
+            guard let channelData = buffer.floatChannelData else { return }
+            let samples = raw.bindMemory(to: Float32.self)
+            for channel in 0..<channels {
+                let out = channelData[channel]
+                for frame in 0..<Int(frameCount) {
+                    out[frame] = samples[frame * channels + channel]
+                }
+            }
         }
 
         playerNode.scheduleBuffer(buffer)
