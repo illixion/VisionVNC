@@ -232,6 +232,19 @@ final class AudioStreamReceiver: @unchecked Sendable {
             channels: AVAudioChannelCount(header.channelCount)
         ) else { return false }
 
+        // Opt out of visionOS's default AutomaticSpatialAudio. The stream is
+        // an already-mixed stereo signal from the Mac; spatializing it again
+        // would double-process it. AVAudioEngine isn't a Now Playing candidate
+        // so the per-app Spatialize Stereo toggle doesn't apply — bypass at
+        // the session level instead.
+        let session = AVAudioSession.sharedInstance()
+        do {
+            try session.setCategory(.playback, mode: .default)
+            try session.setIntendedSpatialExperience(.bypassed)
+        } catch {
+            print("[AudioStream] Failed to configure audio session: \(error)")
+        }
+
         let engine = AVAudioEngine()
         let player = AVAudioPlayerNode()
         engine.attach(player)
