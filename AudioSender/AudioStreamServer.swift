@@ -24,12 +24,16 @@ final class AudioStreamServer: @unchecked Sendable {
         let connection: NWConnection
         var pendingBytes = 0
         var headerSent = false
-        /// Buffer for inbound command frames from the client.
+        /// Set once the client has presented the correct token. The header
+        /// and all stream/metadata frames are withheld until then.
+        var authenticated = false
+        /// Buffer for inbound frames (auth, then commands) from the client.
         var inbound = Data()
         init(connection: NWConnection) { self.connection = connection }
     }
 
     private let port: UInt16
+    private let token: String
     private let header: AudioStreamHeader
     private let queue = DispatchQueue(label: "com.illixion.VisionVNCAudioSender.server", qos: .userInteractive)
     private nonisolated(unsafe) var listener: NWListener?
@@ -40,8 +44,9 @@ final class AudioStreamServer: @unchecked Sendable {
     private nonisolated(unsafe) var currentNowPlayingFrame: Data?
     private nonisolated(unsafe) var currentArtworkFrame: Data?
 
-    nonisolated init(port: UInt16, header: AudioStreamHeader) {
+    nonisolated init(port: UInt16, token: String, header: AudioStreamHeader) {
         self.port = port
+        self.token = token
         self.header = header
     }
 
@@ -131,17 +136,9 @@ final class AudioStreamServer: @unchecked Sendable {
             guard let self else { return }
             switch state {
             case .ready:
-                client.connection.send(content: self.header.encoded(), completion: .contentProcessed { _ in })
-                client.headerSent = true
-                // Replay current now-playing state (artwork first so the
-                // receiver can pair it with the info's artworkID).
-                if let artwork = self.currentArtworkFrame {
-                    client.connection.send(content: artwork, completion: .contentProcessed { _ in })
-                }
-                if let info = self.currentNowPlayingFrame {
-                    client.connection.send(content: info, completion: .contentProcessed { _ in })
-                }
-                self.notifyClientCount()
+                // Withhold the header until the client authenticates — the
+                // receive loop calls authenticate(_:) on the auth frame.
+                break
             case .failed, .cancelled:
                 self.remove(connection)
             default:
@@ -169,7 +166,9 @@ final class AudioStreamServer: @unchecked Sendable {
         }
     }
 
-    /// Parses typed frames from the client. Only `command` frames are
+    /// Parses typed frames from the client. The first frame must be a valid
+    /// `auth` frame; until authenticated, any other frame (or a bad token)
+    /// drops the connection. Afterwards only `command` frames are
     /// meaningful; unknown types are skipped. Runs on `queue`.
     private nonisolated func processInbound(_ client: Client) {
         while let length = AudioStreamProtocol.decodeFrameLength(client.inbound) {
@@ -188,11 +187,62 @@ final class AudioStreamServer: @unchecked Sendable {
             )
             client.inbound.removeFirst(frameEnd)
 
+            guard client.authenticated else {
+                // First frame must authenticate; anything else is rejected.
+                guard type == AudioStreamProtocol.FrameType.auth.rawValue,
+                      let presented = String(data: payload, encoding: .utf8),
+                      constantTimeEquals(presented, token) else {
+                    rejectAuth(client)
+                    return
+                }
+                authenticate(client)
+                continue
+            }
+
             if type == AudioStreamProtocol.FrameType.command.rawValue,
                let message = MediaCommandMessage.decode(payload) {
                 onCommand?(message.command)
             }
         }
+    }
+
+    /// Marks the client authenticated, sends the header, and replays the
+    /// current now-playing state. Runs on `queue`.
+    private nonisolated func authenticate(_ client: Client) {
+        client.authenticated = true
+        client.connection.send(content: header.encoded(), completion: .contentProcessed { _ in })
+        client.headerSent = true
+        // Replay current now-playing state (artwork first so the receiver
+        // can pair it with the info's artworkID).
+        if let artwork = currentArtworkFrame {
+            client.connection.send(content: artwork, completion: .contentProcessed { _ in })
+        }
+        if let info = currentNowPlayingFrame {
+            client.connection.send(content: info, completion: .contentProcessed { _ in })
+        }
+        notifyClientCount()
+    }
+
+    /// Sends an authFailed frame explaining the rejection, then drops the
+    /// client once the frame has flushed. Runs on `queue`.
+    private nonisolated func rejectAuth(_ client: Client) {
+        let frame = AudioStreamProtocol.encodeFrame(
+            .authFailed,
+            Data("Invalid access token".utf8)
+        )
+        client.connection.send(content: frame, completion: .contentProcessed { [weak self] _ in
+            self?.remove(client.connection)
+        })
+    }
+
+    /// Length-aware, content-independent string comparison to avoid leaking
+    /// the token via response timing.
+    private nonisolated func constantTimeEquals(_ a: String, _ b: String) -> Bool {
+        let lhs = Array(a.utf8), rhs = Array(b.utf8)
+        guard lhs.count == rhs.count else { return false }
+        var diff: UInt8 = 0
+        for i in 0..<lhs.count { diff |= lhs[i] ^ rhs[i] }
+        return diff == 0
     }
 
     private nonisolated func remove(_ connection: NWConnection) {

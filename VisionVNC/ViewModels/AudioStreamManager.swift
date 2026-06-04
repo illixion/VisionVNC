@@ -64,10 +64,22 @@ final class AudioStreamManager {
     private var lastReloadAt: Date?
     private static let maxRetryDelay: TimeInterval = 30
 
+    /// Token delivered via an AirDropped x-callback URL, waiting to be
+    /// consumed by an open (or freshly opened) connection form. Set by the
+    /// app's onOpenURL handler; cleared once a form fills its field.
+    var pendingImportedToken: String?
+
+    /// Records a token imported from a `visionvnc://…/setAudioToken` URL so
+    /// the connection form can auto-fill it.
+    func importToken(_ token: String) {
+        pendingImportedToken = token
+    }
+
     private enum DefaultsKeys {
         static let host = "lastAudioHost"
         static let port = "lastAudioPort"
         static let title = "lastAudioTitle"
+        static let token = "lastAudioToken"
     }
 
     /// True while streaming and data has arrived recently. The receiver
@@ -78,7 +90,7 @@ final class AudioStreamManager {
         return Date().timeIntervalSince(lastActivityAt) < 2.5
     }
 
-    func connect(hostname: String, port: UInt16, title: String) {
+    func connect(hostname: String, port: UInt16, token: String, title: String) {
         disconnect()
         connectionTitle = title
         state = .connecting
@@ -97,8 +109,9 @@ final class AudioStreamManager {
         defaults.set(hostname, forKey: DefaultsKeys.host)
         defaults.set(Int(port), forKey: DefaultsKeys.port)
         defaults.set(title, forKey: DefaultsKeys.title)
+        defaults.set(token, forKey: DefaultsKeys.token)
 
-        let receiver = AudioStreamReceiver(hostname: hostname, port: port)
+        let receiver = AudioStreamReceiver(hostname: hostname, port: port, token: token)
         receiver.onEvent = { [weak self] event in
             Task { @MainActor in
                 self?.handle(event)
@@ -125,6 +138,7 @@ final class AudioStreamManager {
         defaults.removeObject(forKey: DefaultsKeys.host)
         defaults.removeObject(forKey: DefaultsKeys.port)
         defaults.removeObject(forKey: DefaultsKeys.title)
+        defaults.removeObject(forKey: DefaultsKeys.token)
         disconnect()
     }
 
@@ -134,7 +148,12 @@ final class AudioStreamManager {
         guard let host = defaults.string(forKey: DefaultsKeys.host),
               let port = UInt16(exactly: defaults.integer(forKey: DefaultsKeys.port)),
               port > 0 else { return }
-        connect(hostname: host, port: port, title: defaults.string(forKey: DefaultsKeys.title) ?? "")
+        connect(
+            hostname: host,
+            port: port,
+            token: defaults.string(forKey: DefaultsKeys.token) ?? "",
+            title: defaults.string(forKey: DefaultsKeys.title) ?? ""
+        )
     }
 
     /// Called when the audio window (re)appears or its scene becomes
@@ -219,6 +238,18 @@ final class AudioStreamManager {
             lastReloadAt = Date()
             AppLog.audioStream.line("Reloading stream: \(reason)")
             reconnectLast()
+        case .authFailed(let reason):
+            guard receiver != nil else { return }
+            receiver = nil
+            nowPlaying = nil
+            artworkImage = nil
+            pendingArtwork = nil
+            // Terminal: don't schedule a retry — the same token would just
+            // be rejected again. The user must fix the token and reconnect.
+            retryTask?.cancel()
+            retryTask = nil
+            state = .error(reason)
+            AppLog.audioStream.line("Authentication failed: \(reason)")
         case .disconnected(let reason):
             // Ignore events from a receiver we already tore down
             guard receiver != nil else { return }
@@ -266,6 +297,9 @@ final class AudioStreamReceiver: @unchecked Sendable {
         /// The audio session/config was lost (VoIP interruption, reroute);
         /// the manager should immediately rebuild via a fresh receiver.
         case reloadRequested(String)
+        /// The sender rejected our token. Terminal — auto-retry with the
+        /// same token would just loop, so the manager surfaces it and stops.
+        case authFailed(String)
         case disconnected(String?)
     }
 
@@ -273,6 +307,7 @@ final class AudioStreamReceiver: @unchecked Sendable {
 
     private let hostname: String
     private let port: UInt16
+    private let token: String
     private let queue = DispatchQueue(label: "com.illixion.VisionVNC.audio-stream", qos: .userInteractive)
 
     private nonisolated(unsafe) var connection: NWConnection?
@@ -297,9 +332,10 @@ final class AudioStreamReceiver: @unchecked Sendable {
     private nonisolated(unsafe) var engineObserver: (any NSObjectProtocol)?
     private nonisolated(unsafe) var sessionObservers: [any NSObjectProtocol] = []
 
-    nonisolated init(hostname: String, port: UInt16) {
+    nonisolated init(hostname: String, port: UInt16, token: String) {
         self.hostname = hostname
         self.port = port
+        self.token = token
     }
 
     nonisolated func start() {
@@ -321,6 +357,10 @@ final class AudioStreamReceiver: @unchecked Sendable {
             guard let self else { return }
             switch state {
             case .ready:
+                // Authenticate first: the sender withholds the stream
+                // header until this token matches its configured one.
+                let authFrame = AudioStreamProtocol.encodeFrame(.auth, Data(self.token.utf8))
+                connection.send(content: authFrame, completion: .contentProcessed { _ in })
                 self.receiveLoop()
             case .failed(let error):
                 self.fail("Connection failed: \(error.localizedDescription)")
@@ -458,6 +498,15 @@ final class AudioStreamReceiver: @unchecked Sendable {
     private nonisolated func processPending() {
         // Header first
         if header == nil {
+            // Before the header, the only thing the sender may send instead
+            // is an authFailed frame (token rejected). The header begins with
+            // the magic; an authFailed frame begins with its length prefix —
+            // so a non-magic prefix means auth was rejected.
+            if pending.count >= AudioStreamProtocol.frameLengthPrefixSize,
+               Array(pending.prefix(4)) != AudioStreamProtocol.magic {
+                handlePreHeaderFrame()
+                return
+            }
             guard pending.count >= AudioStreamProtocol.headerSize else { return }
             guard let parsed = AudioStreamHeader(parsing: pending) else {
                 fail("Invalid stream header — is the sender the VisionVNC Audio Sender?")
@@ -498,9 +547,33 @@ final class AudioStreamReceiver: @unchecked Sendable {
                 }
             case .artwork:
                 onEvent?(.artwork(payload))
-            case .command, nil:
+            case .command, .auth, .authFailed, nil:
                 break // not receiver-bound / unknown — skip
             }
+        }
+    }
+
+    /// Parses a frame received before the stream header. The sender only
+    /// emits one here: an authFailed frame when the token is rejected.
+    /// Waits for the full frame, then surfaces the reason as a terminal
+    /// error (retrying with the same token won't help).
+    private nonisolated func handlePreHeaderFrame() {
+        guard let length = AudioStreamProtocol.decodeFrameLength(pending) else { return }
+        guard length >= 1, length <= AudioStreamProtocol.maxFrameBytes else {
+            fail("Malformed stream from sender")
+            return
+        }
+        let frameEnd = AudioStreamProtocol.frameLengthPrefixSize + Int(length)
+        guard pending.count >= frameEnd else { return } // await the rest
+
+        let type = pending[pending.startIndex.advanced(by: AudioStreamProtocol.frameLengthPrefixSize)]
+        let payload = pending.subdata(in: pending.startIndex.advanced(by: AudioStreamProtocol.frameLengthPrefixSize + 1)..<pending.startIndex.advanced(by: frameEnd))
+
+        if type == AudioStreamProtocol.FrameType.authFailed.rawValue {
+            let reason = String(data: payload, encoding: .utf8) ?? "Authentication failed"
+            authFailed(reason)
+        } else {
+            fail("Unexpected response from sender")
         }
     }
 
@@ -542,6 +615,21 @@ final class AudioStreamReceiver: @unchecked Sendable {
         sessionObservers.removeAll()
         teardownAudio()
         onEvent?(.disconnected(reason))
+    }
+
+    /// Like `fail`, but routes to the terminal authFailed event so the
+    /// manager surfaces the reason without scheduling a retry.
+    private nonisolated func authFailed(_ reason: String) {
+        guard !stopped else { return }
+        stopped = true
+        connection?.cancel()
+        connection = nil
+        for observer in sessionObservers {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        sessionObservers.removeAll()
+        teardownAudio()
+        onEvent?(.authFailed(reason))
     }
 
     // MARK: - Audio

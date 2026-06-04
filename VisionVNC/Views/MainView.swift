@@ -19,6 +19,7 @@ struct MainView: View {
         }
     }
 
+    @Environment(AudioStreamManager.self) private var audioManager
     @State private var selectedTab: Tab = .connections
 
     var body: some View {
@@ -31,6 +32,13 @@ struct MainView: View {
             case .console:
                 ConsoleView()
             }
+        }
+        .onOpenURL { url in
+            // An AirDropped visionvnc://…/setAudioToken URL: stash the token
+            // and surface the Connections tab so the form can auto-fill it.
+            guard let token = AudioTokenURL.parseToken(from: url) else { return }
+            selectedTab = .connections
+            audioManager.importToken(token)
         }
         .ornament(attachmentAnchor: .scene(.bottomFront)) {
             HStack(spacing: 4) {

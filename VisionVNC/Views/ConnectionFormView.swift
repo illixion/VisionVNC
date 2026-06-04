@@ -6,6 +6,7 @@ struct ConnectionFormView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openWindow) private var openWindow
     @Environment(VNCConnectionManager.self) private var connectionManager
+    @Environment(AudioStreamManager.self) private var audioManager
 
     var savedConnection: SavedConnection?
 
@@ -22,8 +23,11 @@ struct ConnectionFormView: View {
     @State private var password: String = ""
     @State private var vncTouchMode: TouchMode = ConnectionDefaults.vncTouchMode
 
+    // Audio
+    @State private var audioToken: String = ""
+
     private enum Field: Hashable {
-        case hostname, port, username, password, label
+        case hostname, port, username, password, label, audioToken
     }
     @FocusState private var focusedField: Field?
 
@@ -87,9 +91,15 @@ struct ConnectionFormView: View {
                 .disabled(hostname.trimmingCharacters(in: .whitespaces).isEmpty)
             }
         }
-        .onAppear(perform: loadFromSavedConnection)
+        .onAppear {
+            loadFromSavedConnection()
+            consumePendingImportedToken()
+        }
         .onChange(of: connectionType) { _, newType in
             port = String(ConnectionDefaults.port(for: newType))
+        }
+        .onChange(of: audioManager.pendingImportedToken) { _, _ in
+            consumePendingImportedToken()
         }
     }
 
@@ -200,9 +210,25 @@ struct ConnectionFormView: View {
 
     // MARK: - Audio Sections
 
+    @ViewBuilder
     private var audioSections: some View {
         Section("Audio Stream") {
             Text("Streams uncompressed system audio from the VisionVNC Audio Sender menu bar app on your Mac. Unlike Mac Virtual Display audio, playback respects this app's Spatial Audio setting.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+
+        Section("Access Token") {
+            TextField("Token", text: $audioToken)
+                .font(.system(.body, design: .monospaced))
+                .autocorrectionDisabled()
+                .textInputAutocapitalization(.never)
+                .focused($focusedField, equals: .audioToken)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(.rect)
+                .onTapGesture { focusedField = .audioToken }
+
+            Text("Copy the token from the Audio Sender menu bar app, or AirDrop it to auto-fill this field. The connection is unencrypted — use Tailscale (or another VPN) to encrypt traffic between your devices.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
@@ -342,6 +368,7 @@ struct ConnectionFormView: View {
         username = saved.savedUsername
         password = saved.savedPassword
         vncTouchMode = saved.vncTouchMode
+        audioToken = saved.audioToken
 
         #if MOONLIGHT_ENABLED
         // Moonlight fields
@@ -416,8 +443,22 @@ struct ConnectionFormView: View {
         #endif
 
         case .audio:
-            break // no type-specific fields
+            connection.audioToken = audioToken.trimmingCharacters(in: .whitespacesAndNewlines)
         }
+    }
+
+    /// Consumes a token delivered via an AirDropped x-callback URL: switches
+    /// a new form to the Audio type and fills the token field. For an
+    /// existing connection, only fills if it's already an audio connection.
+    private func consumePendingImportedToken() {
+        guard let token = audioManager.pendingImportedToken else { return }
+        if isEditing {
+            guard connectionType == .audio else { return }
+        } else {
+            connectionType = .audio
+        }
+        audioToken = token
+        audioManager.pendingImportedToken = nil
     }
 }
 

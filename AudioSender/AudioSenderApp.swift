@@ -26,6 +26,25 @@ struct AudioSenderApp: App {
 
 struct AudioSenderMenuView: View {
     @Bindable var controller: AudioStreamerController
+    @State private var copied = false
+
+    private func copyToken() {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(controller.token, forType: .string)
+        copied = true
+        Task {
+            try? await Task.sleep(for: .seconds(1.5))
+            copied = false
+        }
+    }
+
+    /// Opens the AirDrop sheet with the token's x-callback URL. AirDropping
+    /// it to the Vision Pro launches VisionVNC and auto-fills the token.
+    private func shareToken() {
+        guard let url = controller.tokenShareURL,
+              let service = NSSharingService(named: .sendViaAirDrop) else { return }
+        service.perform(withItems: [url])
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -64,6 +83,49 @@ struct AudioSenderMenuView: View {
 
             Divider()
 
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Access Token")
+                    .font(.subheadline.weight(.semibold))
+
+                HStack(spacing: 8) {
+                    Text(controller.token)
+                        .font(.system(.caption, design: .monospaced))
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
+
+                    Button {
+                        copyToken()
+                    } label: {
+                        Image(systemName: copied ? "checkmark" : "doc.on.doc")
+                    }
+                    .help("Copy the token to the clipboard")
+
+                    Button {
+                        shareToken()
+                    } label: {
+                        Image(systemName: "square.and.arrow.up")
+                    }
+                    .help("Send the token to your Vision Pro via AirDrop")
+                }
+
+                Text("Enter this token in VisionVNC, or AirDrop it to auto-fill. The connection itself is unencrypted — use Tailscale (or another VPN) to encrypt traffic between your Mac and Vision Pro.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Button("Regenerate Token", role: .destructive) {
+                    controller.regenerateToken()
+                }
+                .controlSize(.small)
+            }
+
+            Divider()
+
             Button("Quit") {
                 controller.stop()
                 NSApplication.shared.terminate(nil)
@@ -79,6 +141,34 @@ struct AudioSenderMenuView: View {
 final class AudioStreamerController {
 
     let port: UInt16 = AudioStreamProtocol.defaultPort
+
+    /// Persistent static auth token — clients must present it to connect.
+    /// Loaded from (or generated into) UserDefaults on init; the didSet
+    /// keeps the store in sync when regenerated.
+    var token: String = AudioStreamerController.loadOrCreateToken() {
+        didSet { UserDefaults.standard.set(token, forKey: "audioStreamToken") }
+    }
+
+    /// x-callback URL carrying the token, for AirDrop to the Vision Pro.
+    var tokenShareURL: URL? {
+        AudioTokenURL.make(token: token)
+    }
+
+    private static func loadOrCreateToken() -> String {
+        if let existing = UserDefaults.standard.string(forKey: "audioStreamToken"), !existing.isEmpty {
+            return existing
+        }
+        let generated = AudioToken.generate()
+        UserDefaults.standard.set(generated, forKey: "audioStreamToken")
+        return generated
+    }
+
+    /// Discards the current token and generates a fresh one. Any connected
+    /// client is dropped (its old token no longer matches) and must re-pair.
+    func regenerateToken() {
+        token = AudioToken.generate()
+        if isRunning { start() } // restart server with the new token
+    }
 
     var clientCount = 0
     var lastError: String?
@@ -163,6 +253,7 @@ final class AudioStreamerController {
 
             let server = AudioStreamServer(
                 port: port,
+                token: token,
                 header: AudioStreamHeader(sampleRate: format.sampleRate, channelCount: format.channelCount)
             )
             server.onClientCountChange = { [weak self] count in

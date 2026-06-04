@@ -186,6 +186,12 @@ final class SavedConnection {
     var savedPassword: String = ""
     var vncTouchModeRawValue: String = TouchMode.relative.rawValue
 
+    // MARK: Audio-specific
+
+    /// Static auth token presented to the VisionVNC Audio Sender. Default
+    /// empty so lightweight migration of existing stores is safe.
+    var audioToken: String = ""
+
     var quality: ConnectionQuality {
         get { ConnectionQuality(rawValue: qualityRawValue) ?? .high }
         set { qualityRawValue = newValue.rawValue }

@@ -1,31 +1,37 @@
 import Foundation
+import Security
 
 /// Wire protocol for streaming uncompressed system audio from the macOS
 /// sender (VisionVNC Audio Sender) to the visionOS receiver, plus
 /// now-playing metadata (sender → receiver) and media transport commands
 /// (receiver → sender) for controlling Music.app on the Mac.
 ///
-/// Transport: TCP. The sender writes a fixed 16-byte header on connect,
-/// followed by typed, length-prefixed frames in both directions.
-/// All integers are little-endian.
+/// Transport: TCP. On connect the receiver authenticates by sending an
+/// `auth` frame carrying the static token; only then does the sender write
+/// the fixed 16-byte header, followed by typed, length-prefixed frames in
+/// both directions. All integers are little-endian.
+///
+/// The transport itself is unencrypted — pair it with Tailscale (or another
+/// WireGuard tunnel) for confidentiality on untrusted networks. The token
+/// gates *who* may connect; the tunnel protects the bytes on the wire.
 ///
 /// Header layout (16 bytes):
 ///   0-3   magic "VVAS"
-///   4     protocol version (2)
+///   4     protocol version (3)
 ///   5     channel count
 ///   6-7   reserved (0)
 ///   8-15  sample rate, Float64 bit pattern
 ///
-/// Frame layout (v2):
+/// Frame layout (v3):
 ///   0-3   body byte count (type byte + payload), UInt32
 ///   4     frame type (FrameType)
 ///   5-    payload
 ///
 /// Both apps are released together; version mismatches hard-fail at the
-/// header parse (no v1 compatibility path).
+/// header parse (no older-version compatibility path).
 nonisolated enum AudioStreamProtocol {
     static let magic: [UInt8] = Array("VVAS".utf8)
-    static let version: UInt8 = 2
+    static let version: UInt8 = 3
     static let headerSize = 16
     static let frameLengthPrefixSize = 4
     static let defaultPort: UInt16 = 4855
@@ -42,6 +48,15 @@ nonisolated enum AudioStreamProtocol {
         case artwork = 0x02
         /// MediaCommandMessage JSON (receiver → sender).
         case command = 0x03
+        /// Static auth token, UTF-8 (receiver → sender). Must be the first
+        /// frame the receiver sends; the sender withholds the header until
+        /// it matches the configured token, then ignores further auth frames.
+        case auth = 0x04
+        /// Auth rejection reason, UTF-8 (sender → receiver). Sent in place
+        /// of the header when the token doesn't match, just before the
+        /// sender closes the connection — lets the receiver show a precise
+        /// error instead of a generic "stream closed".
+        case authFailed = 0x05
     }
 
     /// Wraps a payload in a typed, length-prefixed frame.
@@ -116,6 +131,53 @@ nonisolated struct MediaCommandMessage: Codable, Sendable {
 
     static func decode(_ data: Data) -> MediaCommandMessage? {
         try? JSONDecoder().decode(MediaCommandMessage.self, from: data)
+    }
+}
+
+// MARK: - Static Auth Token
+
+/// Persistent shared secret gating the audio stream. The macOS sender
+/// generates one (`generate()`), the visionOS receiver presents it in the
+/// `auth` frame on connect. Transport stays unencrypted — see the protocol
+/// note about pairing this with Tailscale.
+nonisolated enum AudioToken {
+    /// Generates a 256-bit URL-safe token (base64url, no padding).
+    static func generate() -> String {
+        var bytes = [UInt8](repeating: 0, count: 32)
+        _ = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
+        return Data(bytes).base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
+    }
+}
+
+/// x-callback-style URL the macOS sender shares (via AirDrop) so the
+/// visionOS app can auto-fill the token without manual copy/paste:
+///   visionvnc://x-callback-url/setAudioToken?token=<token>
+/// Registered as a custom URL scheme in the visionOS app's Info.plist.
+nonisolated enum AudioTokenURL {
+    static let scheme = "visionvnc"
+    static let host = "x-callback-url"
+    static let action = "setAudioToken"
+
+    static func make(token: String) -> URL? {
+        var components = URLComponents()
+        components.scheme = scheme
+        components.host = host
+        components.path = "/" + action
+        components.queryItems = [URLQueryItem(name: "token", value: token)]
+        return components.url
+    }
+
+    /// Returns the token if `url` is a well-formed setAudioToken callback.
+    static func parseToken(from url: URL) -> String? {
+        guard url.scheme?.lowercased() == scheme,
+              url.host?.lowercased() == host,
+              let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              components.path == "/" + action else { return nil }
+        let token = components.queryItems?.first { $0.name == "token" }?.value
+        return (token?.isEmpty == false) ? token : nil
     }
 }
 

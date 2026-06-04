@@ -56,6 +56,13 @@ struct ConnectionListView: View {
                 }
             }
             .navigationTitle("VisionVNC")
+            .onChange(of: audioManager.pendingImportedToken) { _, token in
+                // A token arrived via AirDrop while no form was open — open a
+                // new connection form so it can auto-fill (the form clears the
+                // pending token itself; if one is already open it consumes it).
+                guard token != nil, !showingNewConnection, connectionToEdit == nil else { return }
+                showingNewConnection = true
+            }
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
                     Button("Add Connection", systemImage: "plus") {
@@ -231,6 +238,7 @@ struct ConnectionListView: View {
         audioManager.connect(
             hostname: connection.hostname,
             port: UInt16(connection.port),
+            token: connection.audioToken,
             title: connection.displayName
         )
         audioManager.openedViaPush = true
