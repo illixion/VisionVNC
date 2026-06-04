@@ -27,6 +27,13 @@ VisionVNC combines a full-featured **VNC viewer** with a **Moonlight game stream
 - PIN-based pairing with Sunshine servers (SHA-256 and legacy SHA-1)
 - Session management — disconnect locally or quit the app on the server
 
+### Audio Streaming
+- Stream bit-exact, uncompressed system audio from your Mac via the bundled **VisionVNC Audio Sender** menu bar app (separate macOS target in this project)
+- Works around macOS forcing Spatial Audio on for Mac Virtual Display audio — playback through VisionVNC honors the per-app Spatial Audio setting
+- Captures system audio with a Core Audio process tap — no virtual audio driver (BlackHole etc.) required
+- Optional "Mute Mac output while streaming" so audio plays only through the Vision Pro
+- Float32 PCM over TCP on the local network (~3 Mbps for stereo 48 kHz), no lossy codec in the chain
+
 ### Shared
 - Multi-window interface — remote desktop, stream view, keyboard, and server list as separate visionOS windows
 - Saved connections with SwiftData persistence
@@ -105,6 +112,27 @@ Moonlight streaming requires [moonlight-common-c](https://github.com/moonlight-s
 
 Open `VisionVNC.xcodeproj` in Xcode, then add the local packages as described above. Build and run on Apple Vision Pro or the visionOS Simulator.
 
+> **Note:** the Opus package's x86_64 simulator slice currently fails to build (`_Builtin_intrinsics.arm.neon` modulemap error). When building for the visionOS Simulator from the command line, pass `ARCHS=arm64`.
+
+### Building the Audio Sender (macOS)
+
+The **VisionVNCAudioSender** scheme builds the macOS menu bar app that streams system audio to VisionVNC. It has no external dependencies, so it builds even without the `repos/` setup above. Select the `VisionVNCAudioSender` scheme in Xcode and run, or from the command line:
+
+```bash
+xcodebuild -project VisionVNC.xcodeproj -scheme VisionVNCAudioSender -configuration Release build
+# Built product:
+# ~/Library/Developer/Xcode/DerivedData/VisionVNC-*/Build/Products/Release/VisionVNCAudioSender.app
+```
+
+(Add `-derivedDataPath build/dd` to get the app at `build/dd/Build/Products/Release/VisionVNCAudioSender.app` instead.)
+
+Requires macOS 14.2+. On first start of streaming, grant the **System Audio Recording** permission prompt (System Settings → Privacy & Security → Screen & System Audio Recording).
+
+**Usage:**
+1. Launch VisionVNCAudioSender on the Mac (speaker icon in the menu bar) and enable **Stream system audio**
+2. In VisionVNC on the Vision Pro, add an **Audio** connection pointing at your Mac's IP, port 4855
+3. To avoid spatialized playback, turn off Spatial Audio for VisionVNC (look at the app window, then Environments button / volume control → per-app audio settings)
+
 ## Architecture
 
 The app uses a multi-window SwiftUI architecture with two independent protocol paths sharing a common connection list and persistence layer:
@@ -128,10 +156,22 @@ VisionVNCApp
 │   ├── MoonlightStreamView       — Stream display + gesture/mouse input
 │   └── MoonlightKeyboardView     — Soft keyboard window
 │
+├── Audio Path
+│   ├── AudioStreamManager        — Stream state, @Observable
+│   ├── AudioStreamReceiver       — NWConnection → AVAudioEngine playback
+│   └── AudioStreamView           — Stream status window
+│
 └── Shared
     ├── SavedConnection           — SwiftData model (VNC + Moonlight settings)
     ├── ConnectionListView        — Unified server list, routes by type
     └── ConnectionFormView        — Per-connection settings form
+
+VisionVNCAudioSender (macOS menu bar app)
+├── SystemAudioTap                — Core Audio process tap + aggregate device
+├── AudioStreamServer             — TCP server, Float32 PCM frames
+└── AudioSenderApp                — MenuBarExtra UI
+
+Shared/AudioStreamProtocol.swift  — wire format, compiled into both targets
 ```
 
 ### How Moonlight Streaming Works
