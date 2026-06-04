@@ -1,4 +1,5 @@
 import Foundation
+import os
 import Network
 import AVFoundation
 import Observation
@@ -33,6 +34,34 @@ final class AudioStreamManager {
 
     private var receiver: AudioStreamReceiver?
 
+    /// Last event (connect or data) timestamp — drives the health probe
+    /// used to detect a silently dead TCP connection after the app was
+    /// suspended (visionOS space restore / scenePhase flips).
+    private var lastActivityAt: Date?
+    private var pendingCloseTask: Task<Void, Never>?
+
+    /// Auto-reconnect after unexpected drops. On a space-restoration
+    /// relaunch the first attempt typically fails (the network stack isn't
+    /// ready that early), so a single try isn't enough — retry with backoff
+    /// until the stream is up, the user disconnects, or the window closes.
+    private var retryTask: Task<Void, Never>?
+    private var retryDelay: TimeInterval = 2
+    private static let maxRetryDelay: TimeInterval = 30
+
+    private enum DefaultsKeys {
+        static let host = "lastAudioHost"
+        static let port = "lastAudioPort"
+        static let title = "lastAudioTitle"
+    }
+
+    /// True while streaming and data has arrived recently. The receiver
+    /// reports byte counts every ~0.5 s, so a few seconds of silence means
+    /// the connection is dead even if no error has surfaced yet.
+    var isHealthy: Bool {
+        guard state == .streaming, let lastActivityAt else { return false }
+        return Date().timeIntervalSince(lastActivityAt) < 2.5
+    }
+
     func connect(hostname: String, port: UInt16, title: String) {
         disconnect()
         connectionTitle = title
@@ -40,6 +69,14 @@ final class AudioStreamManager {
         bytesReceived = 0
         sampleRate = 0
         channelCount = 0
+        lastActivityAt = nil
+
+        // Remember the target so the stream can resume after the app is
+        // relaunched by visionOS space restoration of a snapped window.
+        let defaults = UserDefaults.standard
+        defaults.set(hostname, forKey: DefaultsKeys.host)
+        defaults.set(Int(port), forKey: DefaultsKeys.port)
+        defaults.set(title, forKey: DefaultsKeys.title)
 
         let receiver = AudioStreamReceiver(hostname: hostname, port: port)
         receiver.onEvent = { [weak self] event in
@@ -52,9 +89,63 @@ final class AudioStreamManager {
     }
 
     func disconnect() {
+        pendingCloseTask?.cancel()
+        pendingCloseTask = nil
+        retryTask?.cancel()
+        retryTask = nil
         receiver?.stop()
         receiver = nil
         state = .idle
+    }
+
+    /// Explicit user disconnect: also forget the last connection so the
+    /// stream doesn't auto-resurrect on the next window restore.
+    func userDisconnect() {
+        let defaults = UserDefaults.standard
+        defaults.removeObject(forKey: DefaultsKeys.host)
+        defaults.removeObject(forKey: DefaultsKeys.port)
+        defaults.removeObject(forKey: DefaultsKeys.title)
+        disconnect()
+    }
+
+    /// Reconnects to the last-used sender, if one is remembered.
+    func reconnectLast() {
+        let defaults = UserDefaults.standard
+        guard let host = defaults.string(forKey: DefaultsKeys.host),
+              let port = UInt16(exactly: defaults.integer(forKey: DefaultsKeys.port)),
+              port > 0 else { return }
+        connect(hostname: host, port: port, title: defaults.string(forKey: DefaultsKeys.title) ?? "")
+    }
+
+    /// Called when the audio window (re)appears or its scene becomes
+    /// active: cancels any pending close-grace disconnect and rebuilds the
+    /// connection if it is idle, errored, or silently dead.
+    func ensureConnected() {
+        pendingCloseTask?.cancel()
+        pendingCloseTask = nil
+        switch state {
+        case .connecting:
+            break
+        case .idle, .error:
+            reconnectLast()
+        case .streaming:
+            if !isHealthy {
+                AppLog.audioStream.line("Connection unhealthy after scene activation — reconnecting")
+                reconnectLast()
+            }
+        }
+    }
+
+    /// Called from the window's onDisappear. visionOS also fires this on
+    /// transient hides (space restore, snapping), so tear down only after a
+    /// grace period — `ensureConnected()` cancels it if the window returns.
+    func windowDisappeared() {
+        pendingCloseTask?.cancel()
+        pendingCloseTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(2))
+            guard !Task.isCancelled else { return }
+            self?.disconnect()
+        }
     }
 
     private func handle(_ event: AudioStreamReceiver.Event) {
@@ -63,17 +154,39 @@ final class AudioStreamManager {
             sampleRate = rate
             channelCount = channels
             state = .streaming
+            lastActivityAt = Date()
+            retryDelay = 2
+            AppLog.audioStream.line("Connected: \(channels)ch @ \(Int(rate)) Hz")
         case .bytesReceived(let total):
             bytesReceived = total
+            lastActivityAt = Date()
         case .disconnected(let reason):
             // Ignore events from a receiver we already tore down
             guard receiver != nil else { return }
             receiver = nil
             if let reason {
                 state = .error(reason)
+                AppLog.audioStream.line("Disconnected: \(reason)")
             } else {
                 state = .idle
+                AppLog.audioStream.line("Disconnected: sender closed the stream")
             }
+            scheduleRetry()
+        }
+    }
+
+    /// Retries the last connection after an unexpected drop, with capped
+    /// exponential backoff. Cancelled by disconnect()/userDisconnect()
+    /// (and therefore by the window-close grace teardown).
+    private func scheduleRetry() {
+        retryTask?.cancel()
+        let delay = retryDelay
+        retryDelay = min(retryDelay * 2, Self.maxRetryDelay)
+        AppLog.audioStream.line("Reconnecting in \(Int(delay)) s")
+        retryTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(delay))
+            guard !Task.isCancelled else { return }
+            self?.reconnectLast()
         }
     }
 }
@@ -245,7 +358,7 @@ final class AudioStreamReceiver: @unchecked Sendable {
             // (and doesn't duck the audio) when the user looks at other windows.
             try session.setIsNowPlayingCandidate(true)
         } catch {
-            print("[AudioStream] Failed to configure audio session: \(error)")
+            AppLog.audioStream.line("Failed to configure audio session: \(error)")
         }
 
         let engine = AVAudioEngine()
@@ -256,7 +369,7 @@ final class AudioStreamReceiver: @unchecked Sendable {
         do {
             try engine.start()
         } catch {
-            print("[AudioStream] Failed to start audio engine: \(error)")
+            AppLog.audioStream.line("Failed to start audio engine: \(error)")
             return false
         }
 

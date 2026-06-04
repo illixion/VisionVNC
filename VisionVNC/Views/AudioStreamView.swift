@@ -5,6 +5,7 @@ import SwiftUI
 struct AudioStreamView: View {
     @Environment(AudioStreamManager.self) private var audioManager
     @Environment(\.dismissWindow) private var dismissWindow
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         NavigationStack {
@@ -38,7 +39,7 @@ struct AudioStreamView: View {
                 }
 
                 Button(role: .destructive) {
-                    audioManager.disconnect()
+                    audioManager.userDisconnect()
                     dismissWindow(id: "audio-stream")
                 } label: {
                     Label("Disconnect", systemImage: "xmark.circle")
@@ -47,8 +48,20 @@ struct AudioStreamView: View {
             .padding(32)
             .navigationTitle(audioManager.connectionTitle.isEmpty ? "Audio Stream" : audioManager.connectionTitle)
         }
+        .onAppear {
+            // Resumes the last stream when visionOS restores this window
+            // after an app relaunch (snapped-window space restoration).
+            audioManager.ensureConnected()
+        }
         .onDisappear {
-            audioManager.disconnect()
+            // Grace-period teardown — transient hides (space restore)
+            // re-trigger onAppear/scenePhase, which cancels it.
+            audioManager.windowDisappeared()
+        }
+        .onChange(of: scenePhase) { _, newPhase in
+            if newPhase == .active {
+                audioManager.ensureConnected()
+            }
         }
     }
 
