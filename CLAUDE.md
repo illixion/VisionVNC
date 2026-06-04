@@ -6,7 +6,7 @@ VisionVNC is a remote desktop and game streaming app for **visionOS** built in S
 
 1. **VNC** — Traditional remote desktop via [RoyalVNCKit](https://github.com/royalapplications/royalvnc) (MIT, pure Swift, local SPM dependency)
 2. **Moonlight** — Low-latency game streaming via [moonlight-common-c](https://github.com/moonlight-stream/moonlight-common-c) (GPLv3, C protocol library) with hardware-accelerated H.264/HEVC/AV1 decoding, HDR10 support, and Opus audio
-3. **Audio** — Uncompressed system-audio streaming from a companion macOS menu bar app (`VisionVNCAudioSender` target). Works around macOS forcing Spatial Audio on for Mac Virtual Display: audio played by this app honors the per-app Spatial Audio setting.
+3. **Audio** — Uncompressed system-audio streaming from a companion macOS menu bar app (`VisionVNCAudioSender` target). Works around macOS forcing Spatial Audio on for Mac Virtual Display: audio played by this app honors the per-app Spatial Audio setting. Also carries Music.app now-playing metadata (title/artist/artwork) to the Vision Pro and transport commands (play/pause/next/prev) back to the Mac; the visionOS side is an iTunes-style mini player.
 
 Moonlight is an **optional build-time feature** controlled by the `MOONLIGHT_ENABLED` Swift compilation condition. When disabled, the app is a pure VNC viewer with zero Moonlight code compiled in.
 
@@ -16,33 +16,42 @@ Moonlight is an **optional build-time feature** controlled by the `MOONLIGHT_ENA
 - **Swift version:** 5.0
 - **SWIFT_DEFAULT_ACTOR_ISOLATION:** MainActor (all types are implicitly @MainActor)
 - **SWIFT_APPROACHABLE_CONCURRENCY:** YES
-- **RoyalVNCKit:** Local SPM package from `repos/royalvnc/` (modified to `.static` library type to avoid dyld embedding issues)
+- **RoyalVNCKit:** Local SPM package from `repos/royalvnc/`, modified beyond upstream: `.static` library type (dyld fix), per-connection `jpegQualityLevel`/`compressionLevel` settings, and `pauseFramebufferUpdates`/`resumeFramebufferUpdates`. The full delta vs the pinned ref is committed as `ci/patches/royalvnc-visionvnc.patch`. **REQUIREMENT: after any edit inside `repos/royalvnc`, re-export the patch** — `cd repos/royalvnc && git diff 337197a > ../../ci/patches/royalvnc-visionvnc.patch` — or CI and fresh local setups will fail to compile the app.
 - **moonlight-common-c:** Local SPM package from `repos/moonlight-common-c/` with CI patches applied (CommonCrypto backend, FEC fixes). Wrapped via `ci/deps/moonlight-common-c/Package.swift`. Includes bundled `enet` networking library.
 - **Opus:** Local SPM package from `repos/opus/` for audio decoding. Wrapped via `ci/deps/opus/Package.swift` with custom `module.modulemap` exposing multistream API.
 - **MOONLIGHT_ENABLED:** Swift active compilation condition that gates all Moonlight code. Set in Xcode build settings.
 - `repos/` is gitignored — all dependency sources live there but are not committed
 
-### CI Dependency Setup
+### Dependency Setup (CI + local)
 
-The GitHub Actions workflow (`ci/`) clones dependencies and applies patches:
+**CI builds with Moonlight DISABLED** — enet doesn't compile on the GitHub runner image. The workflow (`.github/workflows/build.yml`, triggers on push to main + manual dispatch) stubs out the moonlight-common-c and opus packages with empty SPM packages (same product names, nothing compiled), clones+patches RoyalVNC only, and archives without `MOONLIGHT_ENABLED`. It releases the unsigned visionOS IPA and an unsigned macOS Audio Sender zip.
+
+**Local Moonlight-enabled builds** use `scripts/setup-deps.sh` (idempotent, `--force` to redo), which recreates the full dependency setup in gitignored `repos/`:
+- `royalvnc-visionvnc.patch` — Static linking + VisionVNC API additions (see Build Configuration above)
 - `moonlight-common-c-commoncrypto.patch` — Replaces OpenSSL with CommonCrypto/Security.framework for AES-GCM, SHA, HMAC (avoids large binary bloat on Apple platforms)
 - `moonlight-common-c-fec-fix.patch` — Fixes audio FEC recovery crash
 - `moonlight-common-c-audio-fec-fix.patch` — Compatibility with newer Sunshine pre-release server versions
 - `opus-spm-umbrella.patch` — Exposes `opus_multistream.h` via SPM umbrella header
 
+Other scripts: `scripts/build-and-sign.sh` (config-driven device build+sign+deploy; reads gitignored `scripts/build-signing.conf`, runs setup-deps as pre-build hook, passes `MOONLIGHT_ENABLED` via `EXTRA_BUILD_SETTINGS`), `scripts/release.sh` (local Moonlight-enabled GitHub release via `gh`).
+
 ## Architecture
 
 ### Multi-Window Design
 
-Five `WindowGroup` scenes in `VisionVNCApp` (three VNC + two Moonlight, conditionally compiled):
+Seven `WindowGroup` scenes in `VisionVNCApp` (two conditionally compiled):
 
-1. **Main window** — `ConnectionListView` with SwiftData-backed server list (both VNC and Moonlight)
-2. **Remote Desktop** (`id: "remote-desktop"`) — `RemoteDesktopView` for VNC, 1280x800 default
-3. **Keyboard** (`id: "keyboard"`) — `KeyboardInputView` for VNC, 500x400
-4. **Moonlight Stream** (`id: "moonlight-stream"`) — `MoonlightStreamView`, 1920x1080 default (`#if MOONLIGHT_ENABLED`)
-5. **Moonlight Keyboard** (`id: "moonlight-keyboard"`) — `MoonlightKeyboardView`, 500x450 (`#if MOONLIGHT_ENABLED`)
+1. **Main window** (`id: "main"`) — `MainView` with a bottom-ornament tab bar: **Connections** (`ConnectionListView`, SwiftData-backed server list), **Settings** (`SettingsView`, new-connection defaults via `@AppStorage`/`ConnectionDefaults`), **Console** (`ConsoleView`, in-app log viewer)
+2. **Console** (`id: "console"`) — pop-out `ConsoleView`, 760x480
+3. **Audio Stream** (`id: "audio-stream"`) — `AudioStreamView` mini player, 400x540
+4. **Remote Desktop** (`id: "remote-desktop"`) — `RemoteDesktopView` for VNC, 1280x800 default
+5. **Keyboard** (`id: "keyboard"`) — `KeyboardInputView` for VNC, 500x400
+6. **Moonlight Stream** (`id: "moonlight-stream"`) — `MoonlightStreamView`, 1920x1080 default (`#if MOONLIGHT_ENABLED`)
+7. **Moonlight Keyboard** (`id: "moonlight-keyboard"`) — `MoonlightKeyboardView`, 500x450 (`#if MOONLIGHT_ENABLED`)
 
-`VNCConnectionManager` and `MoonlightConnectionManager` are injected via `.environment()`. Connection type routing happens in `ConnectionListView` — VNC connections open `RemoteDesktopView`, Moonlight connections present `MoonlightPairingView` as a sheet.
+`VNCConnectionManager`, `AudioStreamManager`, and `MoonlightConnectionManager` are injected via `.environment()`. Connection type routing happens in `ConnectionListView` — VNC/audio connections **push** their windows (`pushWindow`), Moonlight presents `MoonlightPairingView` as a sheet which pushes the stream window on launch.
+
+**Window navigation:** connection windows open via `pushWindow` so the main window goes into the back stack and restores automatically on dismiss; managers track `openedViaPush`. Sub-windows also carry a Home ornament (`.homeOrnament()`, bottom-front) that opens `id: "main"` — needed because visionOS reopens the last-used window on app launch. The audio mini player instead has home + reload buttons in its utility row (the ornament overlapped its transport controls).
 
 ### Key Types — VNC
 
@@ -70,19 +79,22 @@ Five `WindowGroup` scenes in `VisionVNCApp` (three VNC + two Moonlight, conditio
 
 | Type | Role |
 |------|------|
-| `AudioStreamProtocol` / `AudioStreamHeader` | Wire format (in `Shared/`, compiled into both targets). TCP: 16-byte header (magic `VVAS`, version, channels, Float64 sample rate), then length-prefixed interleaved Float32 PCM frames. Little-endian. Default port 4855. |
-| `AudioStreamManager` (visionOS) | `@Observable` MainActor state holder; owns an `AudioStreamReceiver`. |
-| `AudioStreamReceiver` (visionOS) | `@unchecked Sendable`, off-main NWConnection receive loop → AVAudioEngine/AVAudioPlayerNode. Prebuffers 4 frames before `play()` to absorb jitter. |
+| `AudioStreamProtocol` / `AudioStreamHeader` | Wire format **v2** (in `Shared/`, compiled into both targets). TCP: 16-byte header (magic `VVAS`, version=2, channels, Float64 sample rate), then typed length-prefixed frames `[UInt32 len][UInt8 type][payload]`: `pcm` 0x00 (interleaved Float32), `nowPlaying` 0x01 (JSON), `artwork` 0x02 (scaled JPEG, sent before its matching nowPlaying), `command` 0x03 (JSON, client→server). Little-endian. Default port 4855. Version mismatch hard-fails at header parse (both apps released together). |
+| `NowPlayingInfo` / `MediaCommand` (Shared) | Codable payloads: track metadata snapshot (elapsed extrapolated client-side while playing, `artworkID` = Music persistent ID) and transport commands (play/pause/toggle/next/previous). |
+| `AudioStreamManager` (visionOS) | `@Observable` MainActor state holder; owns an `AudioStreamReceiver`. Persists last connection (UserDefaults) and auto-reconnects on space restoration / scenePhase activation (`ensureConnected()`, 2.5 s data-activity health probe) with capped-backoff retry on drops; immediate reload on `.reloadRequested` (audio session lost). `userDisconnect()` clears persistence; window close uses a 2 s grace teardown. |
+| `AudioStreamReceiver` (visionOS) | `@unchecked Sendable`, off-main NWConnection receive loop → AVAudioEngine/AVAudioPlayerNode. Prebuffers 4 frames before `play()` to absorb jitter. Local mute drops PCM (no backlog). Observes audio-session interruption/engine-config-change/silence-hint and emits `.reloadRequested` (see Gotchas). |
 | `SystemAudioTap` (macOS) | Core Audio process tap (`CATapDescription` global stereo mixdown, macOS 14.2+) hosted in a private aggregate device; IOProc delivers Float32 PCM. `muteSystemOutput` uses `.muted` tap behavior — silences local/Sidecar output while capturing (the whole point: only the streamed copy is audible). Mute change requires tap restart. No BlackHole/virtual driver needed. Requires TCC "System Audio Recording" (NSAudioCaptureUsageDescription). |
-| `AudioStreamServer` (macOS) | NWListener TCP server, multiple clients, per-client backpressure: frames are dropped for a client >200 KB behind (latency cap) instead of queueing. |
-| `AudioStreamerController` (macOS) | `@Observable` orchestrator behind the `MenuBarExtra` UI in `AudioSenderApp`. |
+| `AudioStreamServer` (macOS) | NWListener TCP server, **single client (newest-wins: new connection displaces the old)**, per-client backpressure: PCM frames dropped for a client >200 KB behind (latency cap). Metadata/artwork frames bypass the cap and are replayed to newly connected clients after the header. Inbound loop parses `command` frames → `onCommand`. |
+| `AudioStreamerController` (macOS) | `@Observable` orchestrator behind the `MenuBarExtra` UI in `AudioSenderApp`. Tap starts **unmuted**; restarts muted on the 0→1 client edge and unmuted on 1→0 (mute only while someone is listening). |
+| `MusicAppBridge` (macOS) | Music.app metadata + control via public APIs only: `DistributedNotificationCenter` `com.apple.Music.playerInfo` (event-driven) + `NSAppleScript` one-shots for artwork (≤600 px JPEG, on track change), player position, and transport. Every script call is guarded by an `NSRunningApplication` check (`tell application "Music"` would launch it). Needs `NSAppleEventsUsageDescription` / one-time Automation TCC. |
 
 ### Shared Types
 
 | Type | Role |
 |------|------|
 | `SavedConnection` | `@Model` (SwiftData). Persists hostname, port, label, connection type, quality settings. Extended with ~15 Moonlight-specific optional properties (bitrate, FPS, resolution, codec, audio config, touch mode, etc.). Server cert and UUID stored in UserDefaults (binary data not suitable for SwiftData). |
-| `ConnectionType` | Enum: `.vnc` / `.moonlight` (conditionally compiled). Discriminates routing and form fields. |
+| `ConnectionType` | Enum: `.vnc` / `.moonlight` (conditionally compiled) / `.audio`. Discriminates routing and form fields. |
+| `ConnectionDefaults` | UserDefaults-backed new-connection defaults (VNC quality/touch mode, ports, Moonlight video/audio/input), edited in the Settings tab and seeded into `ConnectionFormView` for new connections. |
 
 ### Moonlight Connection State Machine
 
@@ -156,10 +168,10 @@ Gestures: single tap = left click, double tap = right click, two-finger press-an
 
 ### Window Lifecycle
 
-- Closing the remote desktop / stream window triggers `onDisappear` which disconnects and closes the keyboard window
-- Pressing Disconnect immediately closes both windows
-- Server-initiated disconnect auto-closes windows after 1 second delay
+- Closing the remote desktop / stream window triggers `onDisappear` which disconnects and closes the keyboard window. The audio window instead uses a 2 s grace teardown (visionOS fires transient onDisappear during space restoration).
+- Pressing Disconnect immediately closes the windows; server-initiated VNC disconnect auto-closes after 1 second
 - Uses `dismissWindow(id:)` (not `dismiss()`) for proper `WindowGroup` window management
+- **visionOS refuses to programmatically close the app's last window.** Connection windows are pushed (`pushWindow`) so dismissal restores the manager from the back stack; standalone windows (space-restoration relaunch, `openedViaPush == false`) explicitly `openWindow(id: "main")` before dismissing. Don't reset `openedViaPush` in dismissal handlers — multiple dismissal paths can fire for one disconnect (caused spurious manager windows once).
 - Moonlight disconnect offers choice: end session on server (quit app) or keep running (local disconnect only)
 
 ### Moonlight Networking Details
@@ -177,19 +189,27 @@ Gestures: single tap = left click, double tap = right click, two-finger press-an
 
 ```
 VisionVNC/
-├── VisionVNCApp.swift                  — App entry, 5 WindowGroup scenes (2 Moonlight conditional)
+├── VisionVNCApp.swift                  — App entry, 7 WindowGroup scenes (2 Moonlight conditional)
 ├── Models/
 │   └── SavedConnection.swift           — SwiftData model, ConnectionType, Moonlight settings enums
 ├── ViewModels/
 │   ├── VNCConnectionManager.swift      — VNC connection bridge, @Observable
+│   ├── AudioStreamManager.swift        — Audio manager + AudioStreamReceiver (reconnect, mute, now-playing)
+│   ├── LogStore.swift                  — OSLogStore poller backing the Console tab/window
 │   └── MoonlightConnectionManager.swift — Moonlight orchestrator, state machine, @Observable
 ├── Views/
-│   ├── ConnectionListView.swift        — Server list, routes by connection type
-│   ├── ConnectionFormView.swift        — Add/edit form (VNC + Moonlight settings sections)
+│   ├── MainView.swift                  — Main window: ornament tab bar (Connections/Settings/Console)
+│   ├── ConnectionListView.swift        — Server list, routes by connection type (pushWindow)
+│   ├── ConnectionFormView.swift        — Add/edit form, seeded from ConnectionDefaults
+│   ├── SettingsView.swift              — New-connection defaults (@AppStorage)
+│   ├── ConsoleView.swift               — Log viewer (tab + "console" pop-out window)
+│   ├── AudioStreamView.swift           — Audio mini player (album art, transport, mute, utility row)
+│   ├── HomeOrnamentModifier.swift      — Home ornament for sub-windows (opens id "main")
 │   ├── RemoteDesktopView.swift         — VNC framebuffer display + gestures + toolbar
 │   ├── KeyboardInputView.swift         — VNC soft keyboard window
 │   ├── HardwareKeyboardView.swift      — VNC hardware keyboard capture (UIViewRepresentable)
 │   ├── CredentialPromptView.swift      — VNC auth prompt sheet
+│   ├── ThirdPartyNoticesView.swift     — Parses THIRD_PARTY_NOTICES.md by H2 headings
 │   ├── MoonlightPairingView.swift      — Pairing flow, PIN display, app picker, launch
 │   ├── MoonlightStreamView.swift       — Stream display, gesture input, controls ornament
 │   ├── MoonlightKeyboardView.swift     — Moonlight soft keyboard window
@@ -206,9 +226,26 @@ VisionVNC/
 │   ├── NvPairingManager.swift          — Challenge-response pairing handshake
 │   └── CryptoManager.swift             — X.509, PKCS#12, AES-128-ECB, RSA (CommonCrypto)
 ├── Utilities/
+│   ├── AppLog.swift                    — os.Logger per category + Logger.line() helper
+│   ├── ConnectionDefaults.swift        — UserDefaults keys/getters for new-connection defaults
 │   └── GestureTranslator.swift         — View-to-framebuffer coordinate mapping (VNC)
 ├── Assets.xcassets/                    — App icon (solidimagestack, 1024x1024 @2x)
 └── Info.plist                          — NSLocalNetworkUsageDescription, multi-scene
+
+Shared/                                 — compiled into BOTH targets (visionOS app + macOS sender)
+└── AudioStreamProtocol.swift           — Wire protocol v2, NowPlayingInfo, MediaCommand
+
+AudioSender/                            — macOS menu bar sender target (VisionVNCAudioSender)
+├── AudioSenderApp.swift                — MenuBarExtra UI + AudioStreamerController
+├── AudioStreamServer.swift             — Single-client TCP server, metadata replay, command rx
+├── SystemAudioTap.swift                — Core Audio process tap
+├── MusicAppBridge.swift                — Music.app metadata/control (notifications + AppleScript)
+└── Info.plist                          — NSAudioCaptureUsageDescription, NSAppleEventsUsageDescription
+
+scripts/
+├── setup-deps.sh                       — Clone+patch repos/ deps (local Moonlight builds)
+├── build-and-sign.sh                   — Config-driven device build/sign/deploy (build-signing.conf, gitignored)
+└── release.sh                          — Local Moonlight-enabled GitHub release (gh CLI)
 
 ci/
 ├── deps/
@@ -218,6 +255,7 @@ ci/
 │       ├── include/module.modulemap    — Exposes multistream API
 │       └── spm-config/config.h         — Build configuration
 ├── patches/
+│   ├── royalvnc-visionvnc.patch              — Static linking + VisionVNC API additions (KEEP IN SYNC with repos/royalvnc)
 │   ├── moonlight-common-c-commoncrypto.patch — Replace OpenSSL with CommonCrypto
 │   ├── moonlight-common-c-fec-fix.patch      — Audio FEC crash fix
 │   ├── moonlight-common-c-audio-fec-fix.patch — Newer Sunshine compat
@@ -236,7 +274,8 @@ ci/
 - **Mouse:** `.mouseMove(x:y:)`, `.mouseButtonDown/Up(_:x:y:)`, `.mouseWheel(_:x:y:steps:)`
 - **Keyboard:** `.keyDown(_:)`, `.keyUp(_:)` with `VNCKeyCode` (X11 KeySymbols)
 - **Key codes:** `VNCKeyCode.withCharacter(_:)` for printable chars, static constants for special keys (`.shift`, `.control`, `.option`, `.command`, `.return`, `.escape`, `.f1`–`.f19`, etc.)
-- **Compression/JPEG quality:** Hardcoded to level 6 in the library (not configurable without modifying VNCConnection.swift)
+- **Compression/JPEG quality:** Configurable per connection via the local patch — `Settings(jpegQualityLevel:compressionLevel:)` (upstream hardcodes level 6)
+- **Framebuffer pause:** `pauseFramebufferUpdates()` / `resumeFramebufferUpdates()` — local patch additions
 
 ## moonlight-common-c API Quick Reference
 
@@ -255,7 +294,7 @@ ci/
 
 ### VNC
 - **8-bit color depth is broken** with most modern VNC servers (including macOS Screen Sharing). It creates a palettized color map mode (`trueColor: false`) that Tight and ZRLE encodings reject. Low quality uses 16-bit instead.
-- **RoyalVNCKit is statically linked** — the library's `Package.swift` was modified from `.dynamic` to `.static` to fix a dyld crash on device. This change lives in `repos/royalvnc/Package.swift` (gitignored).
+- **RoyalVNCKit carries local modifications** — static linking (dyld crash fix), JPEG quality/compression settings, framebuffer pause/resume. The gitignored `repos/royalvnc` checkout is the working copy; the committed source of truth is `ci/patches/royalvnc-visionvnc.patch`. **Re-export the patch after any change to `repos/royalvnc`** (`cd repos/royalvnc && git diff 337197a > ../../ci/patches/royalvnc-visionvnc.patch`), otherwise CI release builds break (this happened: VNCConnectionManager failed to compile against pristine upstream).
 
 ### Moonlight
 - **C callbacks fire on background threads** — renderers use `nonisolated(unsafe)` globals and `@unchecked Sendable` conformance. Only one stream is active at a time; the bridge stores a global reference to the active manager/renderers.
@@ -272,6 +311,14 @@ ci/
 ### Audio Streaming
 - **`ConnectionType.audio` is not gated** behind a compilation condition (unlike `.moonlight`) — it has no external dependencies.
 - The macOS target shares the visionOS target's Swift settings (`SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`); `Shared/` types are declared `nonisolated` so they're usable from audio/network threads in both targets.
+- **The receiver session is mixable** (`.playback` + `.mixWithOthers`, spatial experience `.bypassed`, `setIsNowPlayingCandidate(true)`): coexists with other apps and VoIP calls, never interrupts. Deliberate trade-off: a mixable session is **ineligible for Now Playing / Control Center** — don't add MPNowPlayingInfoCenter/MPRemoteCommandCenter, it would force an interrupting player session.
+- **VoIP calls steal the audio session** (e.g. Google Meet in Safari): interruption *began* fires when the call starts (no ended/route-change until it finishes) and playback dies silently while TCP keeps flowing. Engine-only rebuilds do NOT recover — only a fresh receiver that re-asserts `setCategory`/`setActive` does. The receiver observes interruption (began+ended), `AVAudioEngineConfigurationChange`, and the silence-secondary-audio hint, and emits `.reloadRequested` → the manager reconnects immediately (loop guard: a second reload within 2 s falls back to backoff retry). Configure the session **once per receiver** — re-asserting it mid-call breaks the call's audio.
+- **`setActive(true)` on every engine build** — after an interruption the session is deactivated; `engine.start()` alone reports running but pumps audio nowhere.
+- **Apple Music streaming tracks expose no artwork** via the Music scripting interface (`artwork 1 of current track` is empty) — only local/downloaded files have it. The mini player falls back to the speaker status glyph; there is no public workaround.
+- **Audio-session / window-lifecycle changes can only be verified on device** — build, then leave uncommitted for on-device testing before committing.
+
+### Logging
+- visionOS app logs via `AppLog` (`os.Logger`, one category per component, `.line()` helper marks messages `.public` so OSLogStore shows them un-redacted — never use for secrets). `LogStore` polls the process-scoped OSLogStore (~1 s, viewer-refcounted, only while a Console view is visible) for the in-app Console tab/pop-out. The macOS sender uses local `os.Logger` instances (AppLog is visionOS-only).
 
 ### General
 - **The project is arm64-only** (`ARCHS = arm64` in the project-level build configs). Caveat: SPM packages do NOT inherit project build settings, so `-destination 'generic/platform=visionOS Simulator'` still builds Opus for x86_64 and fails (`_Builtin_intrinsics.arm.neon` modulemap error — the spm-config presumes NEON). Use a concrete simulator destination (`platform=visionOS Simulator,name=Apple Vision Pro`, builds active arch only) or pass `ARCHS=arm64` on the xcodebuild command line (overrides apply to packages too).
