@@ -17,11 +17,15 @@ final class AudioStreamServer: @unchecked Sendable {
     private static let maxPendingBytes = 200_000
 
     nonisolated(unsafe) var onClientCountChange: (@Sendable (Int) -> Void)?
+    /// Media transport command received from the client (fires on `queue`).
+    nonisolated(unsafe) var onCommand: (@Sendable (MediaCommand) -> Void)?
 
     private final class Client {
         let connection: NWConnection
         var pendingBytes = 0
         var headerSent = false
+        /// Buffer for inbound command frames from the client.
+        var inbound = Data()
         init(connection: NWConnection) { self.connection = connection }
     }
 
@@ -30,6 +34,11 @@ final class AudioStreamServer: @unchecked Sendable {
     private let queue = DispatchQueue(label: "com.illixion.VisionVNCAudioSender.server", qos: .userInteractive)
     private nonisolated(unsafe) var listener: NWListener?
     private nonisolated(unsafe) var clients: [ObjectIdentifier: Client] = [:]
+
+    /// Latest pre-encoded metadata frames, replayed to newly connected
+    /// clients right after the header. Mutated only on `queue`.
+    private nonisolated(unsafe) var currentNowPlayingFrame: Data?
+    private nonisolated(unsafe) var currentArtworkFrame: Data?
 
     nonisolated init(port: UInt16, header: AudioStreamHeader) {
         self.port = port
@@ -60,6 +69,30 @@ final class AudioStreamServer: @unchecked Sendable {
             }
             clients.removeAll()
             notifyClientCount()
+        }
+    }
+
+    /// Publishes new now-playing metadata. Pre-encoded frames are stored
+    /// for replay-on-connect and sent to the connected client immediately.
+    /// Metadata frames bypass the PCM latency cap — they're rare and must
+    /// not be dropped. Pass a nil artwork frame when artwork is unchanged;
+    /// pass nil info to clear (e.g. Music quit).
+    nonisolated func updateMetadata(infoFrame: Data?, artworkFrame: Data?) {
+        queue.async { [self] in
+            if let artworkFrame {
+                currentArtworkFrame = artworkFrame
+            } else if infoFrame == nil {
+                currentArtworkFrame = nil
+            }
+            currentNowPlayingFrame = infoFrame
+            for client in clients.values where client.headerSent {
+                if let artworkFrame {
+                    client.connection.send(content: artworkFrame, completion: .contentProcessed { _ in })
+                }
+                if let infoFrame {
+                    client.connection.send(content: infoFrame, completion: .contentProcessed { _ in })
+                }
+            }
         }
     }
 
@@ -100,6 +133,14 @@ final class AudioStreamServer: @unchecked Sendable {
             case .ready:
                 client.connection.send(content: self.header.encoded(), completion: .contentProcessed { _ in })
                 client.headerSent = true
+                // Replay current now-playing state (artwork first so the
+                // receiver can pair it with the info's artworkID).
+                if let artwork = self.currentArtworkFrame {
+                    client.connection.send(content: artwork, completion: .contentProcessed { _ in })
+                }
+                if let info = self.currentNowPlayingFrame {
+                    client.connection.send(content: info, completion: .contentProcessed { _ in })
+                }
                 self.notifyClientCount()
             case .failed, .cancelled:
                 self.remove(connection)
@@ -108,17 +149,48 @@ final class AudioStreamServer: @unchecked Sendable {
             }
         }
 
-        // Receive loop solely to detect remote close (clients never send)
-        receiveToDetectClose(connection)
+        // Receive loop: parses inbound command frames and detects remote close
+        receiveLoop(client)
         connection.start(queue: queue)
     }
 
-    private nonisolated func receiveToDetectClose(_ connection: NWConnection) {
-        connection.receive(minimumIncompleteLength: 1, maximumLength: 1 << 12) { [weak self] _, _, isComplete, error in
+    private nonisolated func receiveLoop(_ client: Client) {
+        client.connection.receive(minimumIncompleteLength: 1, maximumLength: 1 << 12) { [weak self] data, _, isComplete, error in
+            guard let self else { return }
+            if let data, !data.isEmpty {
+                client.inbound.append(data)
+                self.processInbound(client)
+            }
             if isComplete || error != nil {
-                self?.remove(connection)
+                self.remove(client.connection)
             } else {
-                self?.receiveToDetectClose(connection)
+                self.receiveLoop(client)
+            }
+        }
+    }
+
+    /// Parses typed frames from the client. Only `command` frames are
+    /// meaningful; unknown types are skipped. Runs on `queue`.
+    private nonisolated func processInbound(_ client: Client) {
+        while let length = AudioStreamProtocol.decodeFrameLength(client.inbound) {
+            guard length >= 1, length <= AudioStreamProtocol.maxFrameBytes else {
+                // Malformed stream — drop the client
+                remove(client.connection)
+                return
+            }
+            let frameEnd = AudioStreamProtocol.frameLengthPrefixSize + Int(length)
+            guard client.inbound.count >= frameEnd else { return }
+
+            let start = client.inbound.startIndex
+            let type = client.inbound[start + AudioStreamProtocol.frameLengthPrefixSize]
+            let payload = client.inbound.subdata(
+                in: start.advanced(by: AudioStreamProtocol.frameLengthPrefixSize + 1)..<start.advanced(by: frameEnd)
+            )
+            client.inbound.removeFirst(frameEnd)
+
+            if type == AudioStreamProtocol.FrameType.command.rawValue,
+               let message = MediaCommandMessage.decode(payload) {
+                onCommand?(message.command)
             }
         }
     }

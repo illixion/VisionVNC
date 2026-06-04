@@ -39,18 +39,35 @@ struct AudioStreamView: View {
                     }
                 }
 
-                Button(role: .destructive) {
-                    audioManager.userDisconnect()
-                    // Pushed windows restore the connection manager on
-                    // dismiss. Standalone (space-restored) windows must
-                    // surface it explicitly — visionOS won't let an app
-                    // close its own last window.
-                    if !audioManager.openedViaPush {
-                        openWindow(id: "main")
+                if audioManager.nowPlaying != nil {
+                    nowPlayingCard
+                }
+
+                HStack(spacing: 12) {
+                    if audioManager.state == .streaming {
+                        Button {
+                            audioManager.setMuted(!audioManager.isMuted)
+                        } label: {
+                            Label(
+                                audioManager.isMuted ? "Unmute" : "Mute",
+                                systemImage: audioManager.isMuted ? "speaker.slash.fill" : "speaker.wave.2"
+                            )
+                        }
                     }
-                    dismissWindow(id: "audio-stream")
-                } label: {
-                    Label("Disconnect", systemImage: "xmark.circle")
+
+                    Button(role: .destructive) {
+                        audioManager.userDisconnect()
+                        // Pushed windows restore the connection manager on
+                        // dismiss. Standalone (space-restored) windows must
+                        // surface it explicitly — visionOS won't let an app
+                        // close its own last window.
+                        if !audioManager.openedViaPush {
+                            openWindow(id: "main")
+                        }
+                        dismissWindow(id: "audio-stream")
+                    } label: {
+                        Label("Disconnect", systemImage: "xmark.circle")
+                    }
                 }
             }
             .padding(32)
@@ -71,6 +88,66 @@ struct AudioStreamView: View {
                 audioManager.ensureConnected()
             }
         }
+    }
+
+    // MARK: - Now Playing
+
+    /// Card mirroring the Mac's Music.app playback with transport controls.
+    private var nowPlayingCard: some View {
+        HStack(spacing: 14) {
+            Group {
+                if let artwork = audioManager.artworkImage {
+                    Image(uiImage: artwork)
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                } else {
+                    Image(systemName: "music.note")
+                        .font(.title)
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .background(.fill.tertiary)
+                }
+            }
+            .frame(width: 64, height: 64)
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(audioManager.nowPlaying?.title ?? "")
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(1)
+                if let artist = audioManager.nowPlaying?.artist, !artist.isEmpty {
+                    Text(artist)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+
+                HStack(spacing: 4) {
+                    Button {
+                        audioManager.sendCommand(.previous)
+                    } label: {
+                        Image(systemName: "backward.fill")
+                    }
+                    Button {
+                        audioManager.sendCommand(.toggle)
+                    } label: {
+                        Image(systemName: audioManager.nowPlaying?.isPlaying == true ? "pause.fill" : "play.fill")
+                    }
+                    Button {
+                        audioManager.sendCommand(.next)
+                    } label: {
+                        Image(systemName: "forward.fill")
+                    }
+                }
+                .buttonStyle(.borderless)
+                .font(.body)
+                .padding(.top, 4)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(12)
+        .frame(maxWidth: 320)
+        .background(.fill.quaternary, in: RoundedRectangle(cornerRadius: 16))
     }
 
     private var iconName: String {

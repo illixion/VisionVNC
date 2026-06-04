@@ -3,6 +3,7 @@ import os
 import Network
 import AVFoundation
 import Observation
+import UIKit
 
 /// Receives an uncompressed PCM audio stream from the VisionVNC Audio Sender
 /// Mac menu bar app and plays it through AVAudioEngine.
@@ -22,6 +23,14 @@ final class AudioStreamManager {
 
     var state: ConnectionState = .idle
     var connectionTitle: String = ""
+
+    /// Now-playing state mirrored from the Mac's Music.app (nil when
+    /// nothing is playing or Music is closed).
+    var nowPlaying: NowPlayingInfo?
+    var artworkImage: UIImage?
+    /// Local mute: drops the stream's audio on this end without
+    /// disconnecting or affecting Mac playback.
+    private(set) var isMuted = false
     /// True when the audio window was opened via pushWindow from the
     /// connection manager — dismissing it then restores the manager
     /// automatically. False after a space-restoration relaunch (standalone).
@@ -43,6 +52,8 @@ final class AudioStreamManager {
     /// suspended (visionOS space restore / scenePhase flips).
     private var lastActivityAt: Date?
     private var pendingCloseTask: Task<Void, Never>?
+    /// Artwork bytes waiting for the matching nowPlaying frame's artworkID.
+    private var pendingArtwork: Data?
 
     /// Auto-reconnect after unexpected drops. On a space-restoration
     /// relaunch the first attempt typically fails (the network stack isn't
@@ -74,6 +85,10 @@ final class AudioStreamManager {
         sampleRate = 0
         channelCount = 0
         lastActivityAt = nil
+        nowPlaying = nil
+        artworkImage = nil
+        pendingArtwork = nil
+        isMuted = false
 
         // Remember the target so the stream can resume after the app is
         // relaunched by visionOS space restoration of a snapped window.
@@ -152,6 +167,17 @@ final class AudioStreamManager {
         }
     }
 
+    /// Toggles local mute (drop incoming audio; connection stays up).
+    func setMuted(_ muted: Bool) {
+        isMuted = muted
+        receiver?.setPaused(muted)
+    }
+
+    /// Sends a media transport command to control Music.app on the Mac.
+    func sendCommand(_ command: MediaCommand) {
+        receiver?.send(command)
+    }
+
     private func handle(_ event: AudioStreamReceiver.Event) {
         switch event {
         case .connected(let rate, let channels):
@@ -164,10 +190,23 @@ final class AudioStreamManager {
         case .bytesReceived(let total):
             bytesReceived = total
             lastActivityAt = Date()
+        case .nowPlaying(let info):
+            nowPlaying = info.hasTrack ? info : nil
+            if info.artworkID == nil {
+                artworkImage = nil
+            } else if let pendingArtwork {
+                artworkImage = UIImage(data: pendingArtwork)
+            } // same artworkID as before and no new artwork frame: keep current image
+            pendingArtwork = nil
+        case .artwork(let data):
+            pendingArtwork = data
         case .disconnected(let reason):
             // Ignore events from a receiver we already tore down
             guard receiver != nil else { return }
             receiver = nil
+            nowPlaying = nil
+            artworkImage = nil
+            pendingArtwork = nil
             if let reason {
                 state = .error(reason)
                 AppLog.audioStream.line("Disconnected: \(reason)")
@@ -203,6 +242,8 @@ final class AudioStreamReceiver: @unchecked Sendable {
     enum Event: Sendable {
         case connected(sampleRate: Double, channels: Int)
         case bytesReceived(Int)
+        case nowPlaying(NowPlayingInfo)
+        case artwork(Data)
         case disconnected(String?)
     }
 
@@ -226,6 +267,10 @@ final class AudioStreamReceiver: @unchecked Sendable {
     private static let prebufferFrameCount = 4
     private nonisolated(unsafe) var scheduledFrames = 0
     private nonisolated(unsafe) var totalBytes = 0
+    /// While true, incoming PCM is dropped instead of scheduled (local
+    /// pause); the connection keeps draining.
+    private nonisolated(unsafe) var playbackPaused = false
+    private nonisolated(unsafe) var droppedWhilePaused = 0
 
     nonisolated init(hostname: String, port: UInt16) {
         self.hostname = hostname
@@ -312,18 +357,62 @@ final class AudioStreamReceiver: @unchecked Sendable {
             onEvent?(.connected(sampleRate: parsed.sampleRate, channels: parsed.channelCount))
         }
 
-        // Then length-prefixed PCM frames
+        // Then typed, length-prefixed frames
         while let length = AudioStreamProtocol.decodeFrameLength(pending) {
-            guard length <= AudioStreamProtocol.maxFrameBytes else {
+            guard length >= 1, length <= AudioStreamProtocol.maxFrameBytes else {
                 fail("Malformed frame (\(length) bytes)")
                 return
             }
             let frameEnd = AudioStreamProtocol.frameLengthPrefixSize + Int(length)
             guard pending.count >= frameEnd else { return }
 
-            let payload = pending.subdata(in: pending.startIndex.advanced(by: AudioStreamProtocol.frameLengthPrefixSize)..<pending.startIndex.advanced(by: frameEnd))
+            let type = pending[pending.startIndex.advanced(by: AudioStreamProtocol.frameLengthPrefixSize)]
+            let payload = pending.subdata(in: pending.startIndex.advanced(by: AudioStreamProtocol.frameLengthPrefixSize + 1)..<pending.startIndex.advanced(by: frameEnd))
             pending.removeFirst(frameEnd)
-            schedule(payload)
+
+            switch AudioStreamProtocol.FrameType(rawValue: type) {
+            case .pcm:
+                schedule(payload)
+            case .nowPlaying:
+                // Malformed metadata is logged and skipped — never fail
+                // the audio stream over it.
+                if let info = NowPlayingInfo.decode(payload) {
+                    onEvent?(.nowPlaying(info))
+                } else {
+                    AppLog.audioStream.line("Skipping malformed now-playing frame (\(payload.count) bytes)")
+                }
+            case .artwork:
+                onEvent?(.artwork(payload))
+            case .command, nil:
+                break // not receiver-bound / unknown — skip
+            }
+        }
+    }
+
+    /// Sends a media transport command to the Mac sender.
+    nonisolated func send(_ command: MediaCommand) {
+        queue.async { [self] in
+            guard !stopped, let connection,
+                  let payload = MediaCommandMessage(command: command).encoded() else { return }
+            let frame = AudioStreamProtocol.encodeFrame(.command, payload)
+            connection.send(content: frame, completion: .contentProcessed { _ in })
+        }
+    }
+
+    /// Locally pauses/resumes playback without disconnecting: incoming PCM
+    /// is dropped while paused (no stale backlog on resume) and the
+    /// connection keeps draining so it stays healthy.
+    nonisolated func setPaused(_ paused: Bool) {
+        queue.async { [self] in
+            guard playbackPaused != paused else { return }
+            playbackPaused = paused
+            if paused {
+                playerNode?.pause()
+            } else {
+                // Restart with the normal jitter prebuffer.
+                playerNode?.stop()
+                scheduledFrames = 0
+            }
         }
     }
 
@@ -354,9 +443,12 @@ final class AudioStreamReceiver: @unchecked Sendable {
         // would double-process it. AVAudioEngine isn't a Now Playing candidate
         // so the per-app Spatialize Stereo toggle doesn't apply — bypass at
         // the session level instead.
+        // .mixWithOthers: coexist with other visionOS apps and VoIP calls
+        // instead of taking exclusive audio focus. Deliberate trade-off:
+        // a mixable session is ineligible for Now Playing / Control Center.
         let session = AVAudioSession.sharedInstance()
         do {
-            try session.setCategory(.playback, mode: .default)
+            try session.setCategory(.playback, mode: .default, options: [.mixWithOthers])
             try session.setIntendedSpatialExperience(.bypassed)
             // Become a Now Playing candidate so visionOS keeps playback running
             // (and doesn't duck the audio) when the user looks at other windows.
@@ -398,6 +490,16 @@ final class AudioStreamReceiver: @unchecked Sendable {
 
     private nonisolated func schedule(_ payload: Data) {
         guard let playerNode, let format = audioFormat else { return }
+
+        // Local pause: drop frames (no stale backlog on resume) but keep
+        // emitting throttled stats so the connection health probe stays alive.
+        if playbackPaused {
+            droppedWhilePaused += 1
+            if droppedWhilePaused % 50 == 0 {
+                onEvent?(.bytesReceived(totalBytes))
+            }
+            return
+        }
 
         let channels = Int(format.channelCount)
         let bytesPerWireFrame = channels * MemoryLayout<Float32>.size

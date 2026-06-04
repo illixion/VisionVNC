@@ -42,6 +42,10 @@ struct AudioSenderMenuView: View {
                 if controller.isRunning {
                     Text("Port \(String(controller.port)) · \(controller.formatText)")
                 }
+                if let nowPlaying = controller.nowPlaying, nowPlaying.hasTrack {
+                    Text("♪ \(nowPlaying.title ?? "") — \(nowPlaying.artist ?? "")")
+                        .lineLimit(1)
+                }
                 if let error = controller.lastError {
                     Text(error)
                         .foregroundStyle(.red)
@@ -71,9 +75,11 @@ final class AudioStreamerController {
     var clientCount = 0
     var lastError: String?
     private(set) var streamFormat: SystemAudioTap.StreamFormat?
+    private(set) var nowPlaying: NowPlayingInfo?
 
     private var tap: SystemAudioTap?
     private var server: AudioStreamServer?
+    private var musicBridge: MusicAppBridge?
 
     var isRunning: Bool {
         get { tap != nil }
@@ -140,8 +146,21 @@ final class AudioStreamerController {
                 server?.broadcast(pcm)
             }
 
+            // Music.app now-playing metadata + transport commands
+            let bridge = MusicAppBridge()
+            bridge.onNowPlaying = { [weak self] info, artwork in
+                self?.handleNowPlaying(info, artwork: artwork)
+            }
+            server.onCommand = { [weak bridge] command in
+                Task { @MainActor in
+                    bridge?.send(command)
+                }
+            }
+            bridge.start()
+
             self.tap = tap
             self.server = server
+            self.musicBridge = bridge
         } catch {
             tap.stop()
             streamFormat = nil
@@ -195,9 +214,20 @@ final class AudioStreamerController {
         tap?.onAudio = nil
         tap?.stop()
         tap = nil
+        musicBridge?.stop()
+        musicBridge = nil
         server?.stop()
         server = nil
         clientCount = 0
         streamFormat = nil
+        nowPlaying = nil
+    }
+
+    private func handleNowPlaying(_ info: NowPlayingInfo?, artwork: Data?) {
+        nowPlaying = info
+        let infoFrame = info?.encoded().map { AudioStreamProtocol.encodeFrame(.nowPlaying, $0) }
+            ?? NowPlayingInfo(isPlaying: false).encoded().map { AudioStreamProtocol.encodeFrame(.nowPlaying, $0) }
+        let artworkFrame = artwork.map { AudioStreamProtocol.encodeFrame(.artwork, $0) }
+        server?.updateMetadata(infoFrame: infoFrame, artworkFrame: artworkFrame)
     }
 }
