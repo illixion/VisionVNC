@@ -10,8 +10,8 @@ struct VisionVNCApp: App {
     #endif
 
     var body: some Scene {
-        WindowGroup {
-            ConnectionListView()
+        WindowGroup(id: "main") {
+            MainView()
                 .environment(connectionManager)
                 .environment(audioManager)
                 #if MOONLIGHT_ENABLED
@@ -20,8 +20,16 @@ struct VisionVNCApp: App {
         }
         .modelContainer(for: SavedConnection.self)
 
+        WindowGroup("Console", id: "console") {
+            ConsoleView(isPopout: true)
+                .homeOrnament()
+        }
+        .defaultSize(width: 760, height: 480)
+        .defaultLaunchBehavior(.suppressed)
+
         WindowGroup("Audio Stream", id: "audio-stream") {
             AudioStreamView()
+                .homeOrnament()
                 .environment(audioManager)
         }
         .defaultSize(width: 420, height: 360)
@@ -30,6 +38,7 @@ struct VisionVNCApp: App {
 
         WindowGroup("Remote Desktop", id: "remote-desktop") {
             RemoteDesktopView()
+                .homeOrnament()
                 .environment(connectionManager)
         }
         .defaultSize(width: 1280, height: 800)
@@ -40,6 +49,7 @@ struct VisionVNCApp: App {
         #if MOONLIGHT_ENABLED
         WindowGroup("Moonlight Stream", id: "moonlight-stream") {
             MoonlightStreamView()
+                .homeOrnament()
                 .environment(moonlightManager)
         }
         .defaultSize(width: 1920, height: 1080)
@@ -49,6 +59,7 @@ struct VisionVNCApp: App {
 
         WindowGroup("Keyboard", id: "keyboard") {
             KeyboardInputView()
+                .homeOrnament()
                 .environment(connectionManager)
         }
         .defaultSize(width: 500, height: 400)
@@ -58,6 +69,7 @@ struct VisionVNCApp: App {
         #if MOONLIGHT_ENABLED
         WindowGroup("Moonlight Keyboard", id: "moonlight-keyboard") {
             MoonlightKeyboardView()
+                .homeOrnament()
                 .environment(moonlightManager)
         }
         .defaultSize(width: 500, height: 450)

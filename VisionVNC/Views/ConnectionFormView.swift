@@ -9,18 +9,18 @@ struct ConnectionFormView: View {
 
     var savedConnection: SavedConnection?
 
-    // Common
+    // Common — new connections are seeded from ConnectionDefaults (Settings tab)
     @State private var connectionType: ConnectionType = .vnc
     @State private var hostname: String = ""
-    @State private var port: String = "5900"
+    @State private var port: String = String(ConnectionDefaults.port(for: .vnc))
     @State private var label: String = ""
 
     // VNC
-    @State private var quality: ConnectionQuality = .high
+    @State private var quality: ConnectionQuality = ConnectionDefaults.vncQuality
     @State private var autoLogin: Bool = false
     @State private var username: String = ""
     @State private var password: String = ""
-    @State private var vncTouchMode: TouchMode = .relative
+    @State private var vncTouchMode: TouchMode = ConnectionDefaults.vncTouchMode
 
     private enum Field: Hashable {
         case hostname, port, username, password, label
@@ -29,19 +29,19 @@ struct ConnectionFormView: View {
 
     #if MOONLIGHT_ENABLED
     // Moonlight — Video
-    @State private var moonlightResolution: MoonlightResolution = .r1080p
-    @State private var moonlightFPS: Int = 60
-    @State private var moonlightBitrate: Double = 20000
-    @State private var moonlightVideoCodec: VideoCodecPreference = .auto
+    @State private var moonlightResolution: MoonlightResolution = ConnectionDefaults.moonlightResolution
+    @State private var moonlightFPS: Int = ConnectionDefaults.moonlightFPS
+    @State private var moonlightBitrate: Double = Double(ConnectionDefaults.moonlightBitrate)
+    @State private var moonlightVideoCodec: VideoCodecPreference = ConnectionDefaults.moonlightCodec
     @State private var moonlightEnableHDR: Bool = false
     @State private var moonlightUseFramePacing: Bool = false
 
     // Moonlight — Audio
-    @State private var moonlightAudioConfig: AudioConfiguration = .stereo
+    @State private var moonlightAudioConfig: AudioConfiguration = ConnectionDefaults.moonlightAudioConfig
     @State private var moonlightPlayAudioOnPC: Bool = false
 
     // Moonlight — Input
-    @State private var moonlightTouchMode: TouchMode = .relative
+    @State private var moonlightTouchMode: TouchMode = ConnectionDefaults.moonlightTouchMode
     @State private var moonlightMultiController: Bool = true
     @State private var moonlightSwapABXY: Bool = false
 
@@ -89,7 +89,7 @@ struct ConnectionFormView: View {
         }
         .onAppear(perform: loadFromSavedConnection)
         .onChange(of: connectionType) { _, newType in
-            port = String(newType.defaultPort)
+            port = String(ConnectionDefaults.port(for: newType))
         }
     }
 
