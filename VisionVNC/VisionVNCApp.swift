@@ -32,7 +32,7 @@ struct VisionVNCApp: App {
                 .homeOrnament()
                 .environment(audioManager)
         }
-        .defaultSize(width: 420, height: 360)
+        .defaultSize(width: 400, height: 540)
         .windowResizability(.contentSize)
         .defaultLaunchBehavior(.suppressed)
 

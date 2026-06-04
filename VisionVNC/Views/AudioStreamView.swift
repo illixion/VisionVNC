@@ -10,26 +10,31 @@ struct AudioStreamView: View {
     @Environment(\.openWindow) private var openWindow
     @Environment(\.scenePhase) private var scenePhase
 
+    /// Width of the window content; the album art is an edge-to-edge
+    /// square of this size, iTunes-mini-player style.
+    private static let playerWidth: CGFloat = 400
+
     var body: some View {
-        NavigationStack {
-            VStack(spacing: 16) {
-                artworkPane
+        VStack(spacing: 0) {
+            artworkPane
 
-                VStack(spacing: 2) {
-                    Text(primaryLine)
-                        .font(.headline)
-                        .lineLimit(1)
-                    Text(secondaryLine)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-
-                controlsRow
+            VStack(spacing: 2) {
+                Text(primaryLine)
+                    .font(.title3.weight(.semibold))
+                    .lineLimit(1)
+                Text(secondaryLine)
+                    .font(.body)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
             }
-            .padding(24)
-            .navigationTitle(audioManager.connectionTitle.isEmpty ? "Audio Stream" : audioManager.connectionTitle)
+            .padding(.horizontal, 20)
+            .padding(.top, 16)
+
+            controlsRow
+                .padding(.top, 14)
+                .padding(.bottom, 22)
         }
+        .frame(width: Self.playerWidth)
         .onAppear {
             // Resumes the last stream when visionOS restores this window
             // after an app relaunch (snapped-window space restoration).
@@ -68,8 +73,8 @@ struct AudioStreamView: View {
                     .symbolEffect(.variableColor.iterative, options: .repeating, isActive: audioManager.state == .streaming)
             }
         }
-        .frame(width: 260, height: 260)
-        .clipShape(RoundedRectangle(cornerRadius: 16))
+        .frame(width: Self.playerWidth, height: Self.playerWidth)
+        .clipped()
         .overlay(alignment: .bottomTrailing) {
             if audioManager.state == .streaming {
                 VStack(alignment: .trailing, spacing: 1) {
@@ -110,7 +115,7 @@ struct AudioStreamView: View {
 
     /// [disconnect] [prev] [play/pause] [next] [mute]
     private var controlsRow: some View {
-        HStack(spacing: 14) {
+        HStack(spacing: 26) {
             Button(role: .destructive) {
                 audioManager.userDisconnect()
                 // Pushed windows restore the connection manager on
@@ -138,6 +143,7 @@ struct AudioStreamView: View {
                 audioManager.sendCommand(.toggle)
             } label: {
                 Image(systemName: audioManager.nowPlaying?.isPlaying == true ? "pause.fill" : "play.fill")
+                    .font(.largeTitle)
             }
             .disabled(!hasTransport)
             .help("Play / pause")
@@ -158,9 +164,8 @@ struct AudioStreamView: View {
             .disabled(audioManager.state != .streaming)
             .help(audioManager.isMuted ? "Unmute" : "Mute")
         }
-        .buttonStyle(.bordered)
-        .buttonBorderShape(.circle)
-        .font(.title3)
+        .buttonStyle(.borderless)
+        .font(.title)
     }
 
     private var hasTransport: Bool {
