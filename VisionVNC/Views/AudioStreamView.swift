@@ -10,6 +10,9 @@ struct AudioStreamView: View {
     @Environment(\.openWindow) private var openWindow
     @Environment(\.scenePhase) private var scenePhase
 
+    @State private var showTechInfo = false
+    @State private var techInfoHideTask: Task<Void, Never>?
+
     /// Width of the window content; the album art is an edge-to-edge
     /// square of this size, iTunes-mini-player style.
     private static let playerWidth: CGFloat = 400
@@ -56,8 +59,9 @@ struct AudioStreamView: View {
 
     /// Big square album art; when there is none (streaming-only Apple
     /// Music tracks expose no artwork via scripting) or nothing playing,
-    /// shows the speaker status glyph instead. Technical stream info sits
-    /// in the bottom-trailing corner.
+    /// shows the speaker status glyph instead. Tapping the art reveals
+    /// technical stream info in the bottom-trailing corner, which
+    /// auto-hides after a few seconds.
     private var artworkPane: some View {
         ZStack {
             if let artwork = audioManager.artworkImage {
@@ -75,8 +79,10 @@ struct AudioStreamView: View {
         }
         .frame(width: Self.playerWidth, height: Self.playerWidth)
         .clipped()
+        .contentShape(Rectangle())
+        .onTapGesture(perform: toggleTechInfo)
         .overlay(alignment: .bottomTrailing) {
-            if audioManager.state == .streaming {
+            if audioManager.state == .streaming, showTechInfo {
                 VStack(alignment: .trailing, spacing: 1) {
                     Text(audioManager.formatLabel)
                     Text(dataLabel)
@@ -88,6 +94,25 @@ struct AudioStreamView: View {
                 .padding(.vertical, 5)
                 .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
                 .padding(8)
+                .transition(.opacity)
+                .allowsHitTesting(false)
+            }
+        }
+    }
+
+    /// Tap on the art: show the tech info and auto-hide it after a few
+    /// seconds; tapping again while visible hides it immediately.
+    private func toggleTechInfo() {
+        techInfoHideTask?.cancel()
+        withAnimation(.easeInOut(duration: 0.2)) {
+            showTechInfo.toggle()
+        }
+        guard showTechInfo else { return }
+        techInfoHideTask = Task {
+            try? await Task.sleep(for: .seconds(4))
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeInOut(duration: 0.3)) {
+                showTechInfo = false
             }
         }
     }
