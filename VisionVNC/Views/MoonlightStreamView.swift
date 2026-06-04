@@ -118,7 +118,6 @@ struct MoonlightStreamView: View {
                 if !manager.openedViaPush {
                     openWindow(id: "main")
                 }
-                manager.openedViaPush = false
                 dismissWindow(id: "moonlight-keyboard")
                 dismiss()
             }
@@ -127,7 +126,6 @@ struct MoonlightStreamView: View {
                 if !manager.openedViaPush {
                     openWindow(id: "main")
                 }
-                manager.openedViaPush = false
                 dismissWindow(id: "moonlight-keyboard")
                 dismiss()
             }

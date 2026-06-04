@@ -48,7 +48,6 @@ struct AudioStreamView: View {
                     if !audioManager.openedViaPush {
                         openWindow(id: "main")
                     }
-                    audioManager.openedViaPush = false
                     dismissWindow(id: "audio-stream")
                 } label: {
                     Label("Disconnect", systemImage: "xmark.circle")

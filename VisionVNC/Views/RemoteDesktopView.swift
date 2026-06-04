@@ -54,7 +54,6 @@ struct RemoteDesktopView: View {
                     if !connectionManager.openedViaPush {
                         openWindow(id: "main")
                     }
-                    connectionManager.openedViaPush = false
                     dismissWindow(id: "keyboard")
                     dismissWindow(id: "remote-desktop")
                 }
@@ -126,7 +125,6 @@ struct RemoteDesktopView: View {
                     if !connectionManager.openedViaPush {
                         openWindow(id: "main")
                     }
-                    connectionManager.openedViaPush = false
                     dismissWindow(id: "remote-desktop")
                 }
             } else {
@@ -166,7 +164,6 @@ struct RemoteDesktopView: View {
                 if !connectionManager.openedViaPush {
                     openWindow(id: "main")
                 }
-                connectionManager.openedViaPush = false
                 dismissWindow(id: "keyboard")
                 dismissWindow(id: "remote-desktop")
             }) {

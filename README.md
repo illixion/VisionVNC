@@ -131,7 +131,7 @@ Requires macOS 14.2+. On first start of streaming, grant the **System Audio Reco
 **Usage:**
 1. Launch VisionVNCAudioSender on the Mac (speaker icon in the menu bar) and enable **Stream system audio**
 2. In VisionVNC on the Vision Pro, add an **Audio** connection pointing at your Mac's IP, port 4855
-3. To avoid spatialized playback, turn off Spatial Audio for VisionVNC (look at the app window, then Environments button / volume control → per-app audio settings)
+3. Spatialized Stereo will be off by default, since the Mac Virtual Display's audio stream is always forced into Spatialized Stereo, so if you ever need to stream 5.1/7.1 surround just use Mac VD audio streaming instead.
 
 ## Architecture
 
