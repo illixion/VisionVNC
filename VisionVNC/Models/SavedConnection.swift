@@ -197,6 +197,14 @@ final class SavedConnection {
     /// false so lightweight migration is safe and behavior is unchanged.
     var lowLatencyAudio: Bool = false
 
+    /// On a VNC connection, the `id` of a saved **audio** connection to start
+    /// alongside the VNC session. Lets the desktop run over an encrypted
+    /// tunnel (e.g. Tailscale) while audio streams over a different host on
+    /// the LAN — the implicit same-hostname match can't express that. nil →
+    /// fall back to the hostname match (or no companion). Default nil so
+    /// lightweight migration is safe.
+    var linkedAudioConnectionID: UUID?
+
     var quality: ConnectionQuality {
         get { ConnectionQuality(rawValue: qualityRawValue) ?? .high }
         set { qualityRawValue = newValue.rawValue }

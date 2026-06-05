@@ -207,13 +207,18 @@ struct ConnectionListView: View {
             }
         }
 
-        // If a saved audio connection targets the same host, start its
-        // stream alongside the VNC session, synced to the VNC lifecycle.
-        // Trackpad-only sessions are input-only (no video), so don't pull
-        // in companion audio there.
-        let audioCompanion = connection.quality == .trackpadOnly ? nil : savedConnections.first {
-            $0.connectionType == .audio && $0.hostname == connection.hostname
-        }.map {
+        // Start a companion audio stream alongside the VNC session, synced to
+        // the VNC lifecycle. Prefer an explicitly linked audio connection (so
+        // the desktop can run over a tunnel while audio uses a LAN host); fall
+        // back to a saved audio connection on the same host. Trackpad-only
+        // sessions are input-only (no video), so skip companion audio there.
+        let audioConnection: SavedConnection? = connection.quality == .trackpadOnly ? nil
+            : (connection.linkedAudioConnectionID.flatMap { linkedID in
+                savedConnections.first { $0.connectionType == .audio && $0.id == linkedID }
+              } ?? savedConnections.first {
+                $0.connectionType == .audio && $0.hostname == connection.hostname
+              })
+        let audioCompanion = audioConnection.map {
             VNCConnectionManager.AudioCompanion(
                 hostname: $0.hostname,
                 port: UInt16($0.port),

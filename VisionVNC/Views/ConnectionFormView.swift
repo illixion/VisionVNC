@@ -10,6 +10,12 @@ struct ConnectionFormView: View {
 
     var savedConnection: SavedConnection?
 
+    /// All saved connections, used to populate the audio-companion picker.
+    @Query private var allConnections: [SavedConnection]
+    private var audioConnections: [SavedConnection] {
+        allConnections.filter { $0.connectionType == .audio }
+    }
+
     // Common — new connections are seeded from ConnectionDefaults (Settings tab)
     @State private var connectionType: ConnectionType = .vnc
     @State private var hostname: String = ""
@@ -22,6 +28,7 @@ struct ConnectionFormView: View {
     @State private var username: String = ""
     @State private var password: String = ""
     @State private var vncTouchMode: TouchMode = ConnectionDefaults.vncTouchMode
+    @State private var linkedAudioConnectionID: UUID?
 
     // Audio
     @State private var audioToken: String = ""
@@ -207,6 +214,25 @@ struct ConnectionFormView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
+
+        Section("Audio Companion") {
+            if audioConnections.isEmpty {
+                Text("Create an Audio connection first to link one here.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else {
+                Picker("Linked Audio", selection: $linkedAudioConnectionID) {
+                    Text("None").tag(UUID?.none)
+                    ForEach(audioConnections) { conn in
+                        Text(conn.displayName).tag(Optional(conn.id))
+                    }
+                }
+
+                Text("Starts the selected Audio connection automatically when this desktop opens. Use it to stream audio over the LAN while the desktop runs over Tailscale (or another tunnel). When unset, audio on the same host as this server is used if one exists.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
     }
 
     // MARK: - Audio Sections
@@ -377,6 +403,7 @@ struct ConnectionFormView: View {
         username = saved.savedUsername
         password = saved.savedPassword
         vncTouchMode = saved.vncTouchMode
+        linkedAudioConnectionID = saved.linkedAudioConnectionID
         audioToken = saved.audioToken
         lowLatencyAudio = saved.lowLatencyAudio
 
@@ -432,6 +459,7 @@ struct ConnectionFormView: View {
             connection.savedUsername = autoLogin ? username : ""
             connection.savedPassword = autoLogin ? password : ""
             connection.vncTouchMode = vncTouchMode
+            connection.linkedAudioConnectionID = linkedAudioConnectionID
 
         #if MOONLIGHT_ENABLED
         case .moonlight:
