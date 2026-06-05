@@ -28,16 +28,28 @@ final class AudioStreamManager {
     /// nothing is playing or Music is closed).
     var nowPlaying: NowPlayingInfo?
     var artworkImage: UIImage?
-    /// Local mute: drops the stream's audio on this end without
-    /// disconnecting or affecting Mac playback.
+    /// Local mute, derived from `volume`: true while the slider is at 0.
+    /// Dropping the stream's audio on this end (no disconnect, no effect on
+    /// Mac playback) is driven by the volume setter — there is no separate
+    /// mute control.
     private(set) var isMuted = false
 
     /// Local output volume (0…1), applied to the player node on this end
-    /// only. Persisted so it carries across reconnects and relaunches.
+    /// only. Persisted so it carries across reconnects and relaunches. At 0
+    /// it engages the internal mute (drops incoming PCM so no backlog builds
+    /// while silenced); any positive value resumes playback and applies the
+    /// gain. The slider *is* the mute.
     var volume: Double = UserDefaults.standard.object(forKey: "audioVolume") as? Double ?? 1.0 {
         didSet {
             UserDefaults.standard.set(volume, forKey: "audioVolume")
-            receiver?.setVolume(Float(volume))
+            let muted = volume <= 0
+            if muted != isMuted {
+                isMuted = muted
+                receiver?.setPaused(muted)
+            }
+            if !muted {
+                receiver?.setVolume(Float(volume))
+            }
         }
     }
     /// True when the audio window was opened via pushWindow from the
@@ -133,7 +145,7 @@ final class AudioStreamManager {
         nowPlaying = nil
         artworkImage = nil
         pendingArtwork = nil
-        isMuted = false
+        isMuted = volume <= 0
         lowLatencyRequested = lowLatency
         lowLatencyActive = false
         // Reset the sticky degraded flag only on a genuine low-latency
@@ -157,6 +169,7 @@ final class AudioStreamManager {
             }
         }
         self.receiver = receiver
+        if isMuted { receiver.setPaused(true) } // started with the slider at 0
         receiver.start()
     }
 
@@ -229,12 +242,6 @@ final class AudioStreamManager {
             guard !Task.isCancelled else { return }
             self?.disconnect()
         }
-    }
-
-    /// Toggles local mute (drop incoming audio; connection stays up).
-    func setMuted(_ muted: Bool) {
-        isMuted = muted
-        receiver?.setPaused(muted)
     }
 
     /// Sends a media transport command to control Music.app on the Mac.

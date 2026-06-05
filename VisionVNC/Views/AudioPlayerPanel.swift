@@ -15,10 +15,11 @@ struct AudioPlayerPanel: View {
     /// size, iTunes-mini-player style.
     var width: CGFloat = 400
 
-    /// Whether the mute toggle is shown inline in the transport row. The
-    /// standalone window sets this false and hosts mute in its own action
-    /// row; the popover keeps it inline since it has no second row.
-    var showsMute: Bool = true
+    /// Whether a local-output volume row is shown below the transport row.
+    /// The standalone window hosts its own volume row, so it leaves this
+    /// false; the companion popover enables it. Muting is folded into the
+    /// volume slider (0 = muted), so there is no separate mute control.
+    var showsVolume: Bool = false
 
     @State private var showTechInfo = false
     @State private var techInfoHideTask: Task<Void, Never>?
@@ -41,6 +42,12 @@ struct AudioPlayerPanel: View {
 
             transportRow
                 .padding(.top, 14)
+
+            if showsVolume {
+                AudioVolumeRow()
+                    .padding(.horizontal, 28)
+                    .padding(.top, 18)
+            }
         }
         .frame(width: width)
     }
@@ -132,7 +139,7 @@ struct AudioPlayerPanel: View {
 
     // MARK: - Transport
 
-    /// [prev] [play/pause] [next] (+ [mute] when `showsMute`)
+    /// [prev] [play/pause] [next]
     private var transportRow: some View {
         HStack(spacing: 34) {
             Button {
@@ -159,16 +166,6 @@ struct AudioPlayerPanel: View {
             }
             .disabled(!hasTransport)
             .help("Next track")
-
-            if showsMute {
-                Button {
-                    audioManager.setMuted(!audioManager.isMuted)
-                } label: {
-                    Image(systemName: audioManager.isMuted ? "speaker.slash.fill" : "speaker.wave.2")
-                }
-                .disabled(audioManager.state != .streaming)
-                .help(audioManager.isMuted ? "Unmute" : "Mute")
-            }
         }
         .buttonStyle(.borderless)
         .font(.largeTitle)
@@ -201,5 +198,33 @@ struct AudioPlayerPanel: View {
     private var dataLabel: String {
         let mb = Double(audioManager.bytesReceived) / 1_048_576
         return String(format: "%.1f MB", mb)
+    }
+}
+
+/// Local output-volume control for this device only — doesn't affect the
+/// Mac or other listeners. Muting is folded into the slider: dragging to 0
+/// engages the internal mute, raising it resumes (see
+/// `AudioStreamManager.volume`). The flanking speaker glyphs are decorative
+/// (the leading one switches to a slash at 0 to signal the muted state) and
+/// symmetric so the Liquid Glass slider stays centered. Shared by the
+/// standalone mini player and the remote-desktop companion popover so both
+/// stay in sync on the same `AudioStreamManager`.
+struct AudioVolumeRow: View {
+    @Environment(AudioStreamManager.self) private var audioManager
+
+    var body: some View {
+        @Bindable var audioManager = audioManager
+        return HStack(spacing: 16) {
+            Image(systemName: audioManager.volume <= 0 ? "speaker.slash.fill" : "speaker.fill")
+                .foregroundStyle(.secondary)
+                .accessibilityHidden(true)
+
+            Slider(value: $audioManager.volume, in: 0...1)
+
+            Image(systemName: "speaker.wave.3.fill")
+                .foregroundStyle(.secondary)
+                .accessibilityHidden(true)
+        }
+        .font(.title3)
     }
 }

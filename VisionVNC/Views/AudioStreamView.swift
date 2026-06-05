@@ -16,9 +16,9 @@ struct AudioStreamView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            AudioPlayerPanel(width: Self.playerWidth, showsMute: false)
+            AudioPlayerPanel(width: Self.playerWidth)
 
-            volumeRow
+            AudioVolumeRow()
                 .padding(.horizontal, 28)
                 .padding(.top, 22)
 
@@ -44,43 +44,10 @@ struct AudioStreamView: View {
         }
     }
 
-    /// Local output volume for this device only — doesn't affect the Mac or
-    /// other listeners. Tapping the leading speaker toggles mute; the
-    /// trailing icon is a static high-volume hint. visionOS 26's `Slider`
-    /// is already Liquid Glass by default — flanking it with `.borderless`
-    /// icon buttons (instead of glass capsules) keeps the mini-player
-    /// chrome borderless, iTunes-style.
-    private var volumeRow: some View {
-        @Bindable var audioManager = audioManager
-        return HStack(spacing: 16) {
-            Button {
-                audioManager.setMuted(!audioManager.isMuted)
-            } label: {
-                Image(systemName: audioManager.isMuted ? "speaker.slash.fill" : "speaker.fill")
-            }
-            .buttonStyle(.borderless)
-            .help(audioManager.isMuted ? "Unmute" : "Mute")
-
-            Slider(value: $audioManager.volume, in: 0...1)
-                .disabled(audioManager.isMuted)
-
-            // Decorative max-volume indicator. Wrapped in a Button so its
-            // metrics (padding, hit area) match the leading mute button —
-            // a bare Image would shift the slider off-center.
-            Button {} label: {
-                Image(systemName: "speaker.wave.3.fill")
-            }
-            .buttonStyle(.borderless)
-            .foregroundStyle(.secondary)
-            .allowsHitTesting(false)
-            .accessibilityHidden(true)
-        }
-    }
-
     /// Action row: disconnect + home + manual stream-recovery. The home
     /// button lives here instead of the bottom ornament — the ornament
     /// floats over the album art and overlaps the transport controls.
-    /// (Mute lives in the volume row above.)
+    /// (Muting is folded into the volume slider above — 0 = muted.)
     private var utilityRow: some View {
         HStack(spacing: 28) {
             Button(role: .destructive) {

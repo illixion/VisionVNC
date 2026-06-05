@@ -167,7 +167,7 @@ struct RemoteDesktopView: View {
                 }
                 .tint(audioManager.state == .streaming ? .accentColor : nil)
                 .popover(isPresented: $showAudioPanel, arrowEdge: .bottom) {
-                    AudioPlayerPanel(width: 360)
+                    AudioPlayerPanel(width: 360, showsVolume: true)
                         .padding(.vertical, 8)
                         .environment(audioManager)
                 }
