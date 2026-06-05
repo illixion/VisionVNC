@@ -25,15 +25,15 @@ final class AudioStreamServer: @unchecked Sendable {
         let connection: NWConnection
         var pendingBytes = 0
         var headerSent = false
-        /// Set once the client has presented the correct token. The header
-        /// and all stream/metadata frames are withheld until then.
-        var authenticated = false
-        /// Buffer for inbound frames (auth, then commands) from the client.
+        /// Buffer for inbound frames (commands, udpHello) from the client.
         var inbound = Data()
         /// Low-latency UDP return path, established once the client sends a
         /// valid `udpHello` datagram. When set, PCM is sent here instead of
         /// over `connection` (TCP). nil → PCM rides TCP as before.
         var udp: NWConnection?
+        /// One-shot guard so a persistent UDP send failure logs once, not
+        /// hundreds of times per second.
+        var udpErrorLogged = false
         init(connection: NWConnection) { self.connection = connection }
     }
 
@@ -43,6 +43,10 @@ final class AudioStreamServer: @unchecked Sendable {
     private let queue = DispatchQueue(label: "com.illixion.VisionVNCAudioSender.server", qos: .userInteractive)
     private nonisolated(unsafe) var listener: NWListener?
     private nonisolated(unsafe) var clients: [ObjectIdentifier: Client] = [:]
+    /// Heartbeat for the UDP/DTLS path so the receiver sees liveness during
+    /// silence (no audio → no PCM datagrams). Runs on `queue`.
+    private nonisolated(unsafe) var keepAliveTimer: DispatchSourceTimer?
+    private static let keepAliveFrame = AudioStreamProtocol.encodeFrame(.keepAlive, Data())
 
     private let log = Logger(subsystem: "com.illixion.VisionVNCAudioSender", category: "AudioStreamServer")
 
@@ -58,10 +62,8 @@ final class AudioStreamServer: @unchecked Sendable {
     }
 
     nonisolated func start() throws {
-        let tcp = NWProtocolTCP.Options()
-        tcp.noDelay = true
         let listener = try NWListener(
-            using: NWParameters(tls: nil, tcp: tcp),
+            using: AudioCrypto.tlsTCPParameters(token: token),
             on: NWEndpoint.Port(rawValue: port)!
         )
         self.listener = listener
@@ -70,10 +72,25 @@ final class AudioStreamServer: @unchecked Sendable {
             self?.accept(connection)
         }
         listener.start(queue: queue)
+
+        // Heartbeat the UDP path so a silent source still proves liveness.
+        let timer = DispatchSource.makeTimerSource(queue: queue)
+        timer.schedule(deadline: .now() + .milliseconds(500), repeating: .milliseconds(500))
+        timer.setEventHandler { [weak self] in
+            guard let self else { return }
+            for client in self.clients.values where client.headerSent {
+                guard let udp = client.udp else { continue }
+                udp.send(content: Self.keepAliveFrame, completion: .contentProcessed { _ in })
+            }
+        }
+        timer.resume()
+        keepAliveTimer = timer
     }
 
     nonisolated func stop() {
         queue.async { [self] in
+            keepAliveTimer?.cancel()
+            keepAliveTimer = nil
             listener?.cancel()
             listener = nil
             for client in clients.values {
@@ -115,12 +132,27 @@ final class AudioStreamServer: @unchecked Sendable {
         queue.async { [self] in
             guard !clients.isEmpty else { return }
             let frame = AudioStreamProtocol.encodeFrame(pcm)
+            // Built lazily only if a UDP (DTLS) client is connected.
+            var udpFrames: [Data]?
             for client in clients.values where client.headerSent {
                 if let udp = client.udp {
-                    // Low-latency path: one PCM frame per datagram, no
-                    // backpressure accounting — the OS drops if it can't keep
+                    // Low-latency path: DTLS won't fragment one application
+                    // record across datagrams, so a full ~4 KB PCM blob would
+                    // exceed the path MTU and be dropped. Split it into
+                    // datagram-sized, sample-frame-aligned `pcm` frames — the
+                    // receiver just schedules whatever samples arrive. No
+                    // backpressure accounting: the OS drops if it can't keep
                     // up, which is the desired latency-over-reliability trade.
-                    udp.send(content: frame, completion: .contentProcessed { _ in })
+                    if udpFrames == nil {
+                        udpFrames = Self.chunkPCMForDatagram(pcm, channelCount: header.channelCount)
+                    }
+                    for datagram in udpFrames! {
+                        udp.send(content: datagram, completion: .contentProcessed { [weak self, weak client] error in
+                            guard let error, let client, !client.udpErrorLogged else { return }
+                            client.udpErrorLogged = true
+                            self?.log.error("UDP datagram send failed (\(datagram.count) bytes): \(String(describing: error))")
+                        })
+                    }
                     continue
                 }
                 // Latency cap: drop frames for clients that can't keep up
@@ -131,6 +163,30 @@ final class AudioStreamServer: @unchecked Sendable {
                 })
             }
         }
+    }
+
+    /// Conservative single-datagram PCM payload budget for the DTLS path:
+    /// path MTU (~1500) minus IP/UDP and DTLS record overhead, with margin.
+    private static let maxUDPPCMPayload = 1100
+
+    /// Splits an interleaved Float32 PCM blob into `pcm` frames that each fit
+    /// one DTLS datagram. Chunks are aligned to a whole sample-frame boundary
+    /// (channelCount × 4 bytes) so each datagram is independently schedulable
+    /// PCM on the receiver — no reassembly required.
+    private nonisolated static func chunkPCMForDatagram(_ pcm: Data, channelCount: Int) -> [Data] {
+        let bytesPerSampleFrame = max(1, channelCount * MemoryLayout<Float32>.size)
+        let maxChunk = max(bytesPerSampleFrame, (maxUDPPCMPayload / bytesPerSampleFrame) * bytesPerSampleFrame)
+        if pcm.count <= maxChunk {
+            return [AudioStreamProtocol.encodeFrame(pcm)]
+        }
+        var frames: [Data] = []
+        var offset = pcm.startIndex
+        while offset < pcm.endIndex {
+            let end = min(pcm.index(offset, offsetBy: maxChunk, limitedBy: pcm.endIndex) ?? pcm.endIndex, pcm.endIndex)
+            frames.append(AudioStreamProtocol.encodeFrame(pcm.subdata(in: offset..<end)))
+            offset = end
+        }
+        return frames
     }
 
     // MARK: - Connection lifecycle (all on `queue`)
@@ -147,14 +203,21 @@ final class AudioStreamServer: @unchecked Sendable {
         let client = Client(connection: connection)
         clients[ObjectIdentifier(connection)] = client
 
+        log.info("Client connecting from \(String(describing: connection.endpoint)) — starting TLS-PSK handshake")
         connection.stateUpdateHandler = { [weak self] state in
             guard let self else { return }
             switch state {
             case .ready:
-                // Withhold the header until the client authenticates — the
-                // receive loop calls authenticate(_:) on the auth frame.
-                break
-            case .failed, .cancelled:
+                // TLS-PSK handshake succeeded → the peer holds the token.
+                // Start streaming immediately; there is no app-layer auth.
+                self.log.info("TLS-PSK handshake ready — streaming")
+                self.beginStreaming(client)
+            case .waiting(let error):
+                self.log.error("Client connection waiting: \(String(describing: error))")
+            case .failed(let error):
+                self.log.error("Client connection failed: \(String(describing: error))")
+                self.remove(connection)
+            case .cancelled:
                 self.remove(connection)
             default:
                 break
@@ -179,7 +242,7 @@ final class AudioStreamServer: @unchecked Sendable {
             log.error("udpHello: could not resolve client IP from TCP connection")
             return
         }
-        let udp = NWConnection(host: host, port: port, using: NWParameters(dtls: nil, udp: NWProtocolUDP.Options()))
+        let udp = NWConnection(host: host, port: port, using: AudioCrypto.dtlsUDPParameters(token: token))
         client.udp?.cancel()
         client.udp = udp
         udp.stateUpdateHandler = { [weak self] state in
@@ -217,10 +280,8 @@ final class AudioStreamServer: @unchecked Sendable {
         }
     }
 
-    /// Parses typed frames from the client. The first frame must be a valid
-    /// `auth` frame; until authenticated, any other frame (or a bad token)
-    /// drops the connection. Afterwards only `command` frames are
-    /// meaningful; unknown types are skipped. Runs on `queue`.
+    /// Parses typed frames from the client. Only `command` and `udpHello`
+    /// frames are meaningful; unknown types are skipped. Runs on `queue`.
     private nonisolated func processInbound(_ client: Client) {
         while let length = AudioStreamProtocol.decodeFrameLength(client.inbound) {
             guard length >= 1, length <= AudioStreamProtocol.maxFrameBytes else {
@@ -238,18 +299,6 @@ final class AudioStreamServer: @unchecked Sendable {
             )
             client.inbound.removeFirst(frameEnd)
 
-            guard client.authenticated else {
-                // First frame must authenticate; anything else is rejected.
-                guard type == AudioStreamProtocol.FrameType.auth.rawValue,
-                      let presented = String(data: payload, encoding: .utf8),
-                      constantTimeEquals(presented, token) else {
-                    rejectAuth(client)
-                    return
-                }
-                authenticate(client)
-                continue
-            }
-
             if type == AudioStreamProtocol.FrameType.command.rawValue,
                let message = MediaCommandMessage.decode(payload) {
                 onCommand?(message.command)
@@ -265,10 +314,11 @@ final class AudioStreamServer: @unchecked Sendable {
         }
     }
 
-    /// Marks the client authenticated, sends the header, and replays the
-    /// current now-playing state. Runs on `queue`.
-    private nonisolated func authenticate(_ client: Client) {
-        client.authenticated = true
+    /// Sends the header and replays the current now-playing state once the
+    /// TLS-PSK channel is ready. Guarded against the handler firing twice.
+    /// Runs on `queue`.
+    private nonisolated func beginStreaming(_ client: Client) {
+        guard !client.headerSent else { return }
         client.connection.send(content: header.encoded(), completion: .contentProcessed { _ in })
         client.headerSent = true
         // Replay current now-playing state (artwork first so the receiver
@@ -280,28 +330,6 @@ final class AudioStreamServer: @unchecked Sendable {
             client.connection.send(content: info, completion: .contentProcessed { _ in })
         }
         notifyClientCount()
-    }
-
-    /// Sends an authFailed frame explaining the rejection, then drops the
-    /// client once the frame has flushed. Runs on `queue`.
-    private nonisolated func rejectAuth(_ client: Client) {
-        let frame = AudioStreamProtocol.encodeFrame(
-            .authFailed,
-            Data("Invalid access token".utf8)
-        )
-        client.connection.send(content: frame, completion: .contentProcessed { [weak self] _ in
-            self?.remove(client.connection)
-        })
-    }
-
-    /// Length-aware, content-independent string comparison to avoid leaking
-    /// the token via response timing.
-    private nonisolated func constantTimeEquals(_ a: String, _ b: String) -> Bool {
-        let lhs = Array(a.utf8), rhs = Array(b.utf8)
-        guard lhs.count == rhs.count else { return false }
-        var diff: UInt8 = 0
-        for i in 0..<lhs.count { diff |= lhs[i] ^ rhs[i] }
-        return diff == 0
     }
 
     private nonisolated func remove(_ connection: NWConnection) {

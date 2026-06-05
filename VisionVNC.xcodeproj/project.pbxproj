@@ -80,6 +80,14 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		1D1D4D672FD30B7000952C39 /* Recovered References */ = {
+			isa = PBXGroup;
+			children = (
+				AA10AD10000000000000000C /* VisionVNC.xcconfig */,
+			);
+			name = "Recovered References";
+			sourceTree = "<group>";
+		};
 		1DC83C1E2F74524200BF0482 = {
 			isa = PBXGroup;
 			children = (
@@ -88,6 +96,7 @@
 				AA10AD100000000000000004 /* Shared */,
 				1DC83C2A2F74524200BF0482 /* Packages */,
 				1DC83C282F74524200BF0482 /* Products */,
+				1D1D4D672FD30B7000952C39 /* Recovered References */,
 			);
 			sourceTree = "<group>";
 		};

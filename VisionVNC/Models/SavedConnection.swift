@@ -193,7 +193,7 @@ final class SavedConnection {
     var audioToken: String = ""
 
     /// Opt-in low-latency mode: carries PCM over UDP with a smaller jitter
-    /// buffer instead of TCP. Needs a clean LAN / Tailscale path. Default
+    /// buffer (DTLS-encrypted) instead of TCP. Needs a clean LAN path. Default
     /// false so lightweight migration is safe and behavior is unchanged.
     var lowLatencyAudio: Bool = false
 

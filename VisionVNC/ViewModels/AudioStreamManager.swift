@@ -434,12 +434,10 @@ final class AudioStreamReceiver: @unchecked Sendable {
             return
         }
 
-        let tcp = NWProtocolTCP.Options()
-        tcp.noDelay = true
         let connection = NWConnection(
             host: NWEndpoint.Host(hostname),
             port: nwPort,
-            using: NWParameters(tls: nil, tcp: tcp)
+            using: AudioCrypto.tlsTCPParameters(token: token)
         )
         self.connection = connection
 
@@ -447,13 +445,24 @@ final class AudioStreamReceiver: @unchecked Sendable {
             guard let self else { return }
             switch state {
             case .ready:
-                // Authenticate first: the sender withholds the stream
-                // header until this token matches its configured one.
-                let authFrame = AudioStreamProtocol.encodeFrame(.auth, Data(self.token.utf8))
-                connection.send(content: authFrame, completion: .contentProcessed { _ in })
+                // TLS-PSK handshake succeeded → token matched. The sender
+                // sends the header next; just start draining.
                 self.receiveLoop()
+            case .waiting(let error):
+                // The connection can't proceed yet (refused, unreachable, or
+                // a TLS handshake stall) — NWConnection retries silently, so
+                // surface the underlying error instead of hanging on
+                // "Connecting…".
+                AppLog.audioStream.line("⚠️ Connection waiting: \(error.localizedDescription)")
             case .failed(let error):
-                self.fail("Connection failed: \(error.localizedDescription)")
+                // A TLS failure before the header almost always means the
+                // PSK (token) didn't match — surface it as terminal so we
+                // don't retry-loop with the same bad token.
+                if case .tls = error, self.header == nil {
+                    self.authFailed("Secure pairing failed — re-pair with a fresh token from the Mac.")
+                } else {
+                    self.fail("Connection failed: \(error.localizedDescription)")
+                }
             case .cancelled:
                 break
             default:
@@ -596,15 +605,6 @@ final class AudioStreamReceiver: @unchecked Sendable {
     private nonisolated func processPending() {
         // Header first
         if header == nil {
-            // Before the header, the only thing the sender may send instead
-            // is an authFailed frame (token rejected). The header begins with
-            // the magic; an authFailed frame begins with its length prefix —
-            // so a non-magic prefix means auth was rejected.
-            if pending.count >= AudioStreamProtocol.frameLengthPrefixSize,
-               Array(pending.prefix(4)) != AudioStreamProtocol.magic {
-                handlePreHeaderFrame()
-                return
-            }
             guard pending.count >= AudioStreamProtocol.headerSize else { return }
             guard let parsed = AudioStreamHeader(parsing: pending) else {
                 fail("Invalid stream header — is the sender the VisionVNC Audio Sender?")
@@ -646,7 +646,7 @@ final class AudioStreamReceiver: @unchecked Sendable {
                 }
             case .artwork:
                 onEvent?(.artwork(payload))
-            case .command, .auth, .authFailed, .udpHello, nil:
+            case .command, .udpHello, .keepAlive, nil:
                 break // not receiver-bound / unknown — skip
             }
         }
@@ -663,7 +663,7 @@ final class AudioStreamReceiver: @unchecked Sendable {
         udpFramesReceived = 0
         let listener: NWListener
         do {
-            listener = try NWListener(using: NWParameters(dtls: nil, udp: NWProtocolUDP.Options()))
+            listener = try NWListener(using: AudioCrypto.dtlsUDPParameters(token: token))
         } catch {
             AppLog.audioStream.line("Low-latency UDP listener failed to open: \(error.localizedDescription) — staying on TCP")
             onEvent?(.lowLatencyUnavailable)
@@ -692,6 +692,11 @@ final class AudioStreamReceiver: @unchecked Sendable {
             // Single sender; a fresh inbound flow displaces any prior.
             self.udpConnection?.cancel()
             self.udpConnection = connection
+            connection.stateUpdateHandler = { state in
+                if case .failed(let error) = state {
+                    AppLog.audioStream.line("⚠️ UDP DTLS failed: \(error.localizedDescription)")
+                }
+            }
             connection.start(queue: self.queue)
             self.udpReceiveLoop(connection)
         }
@@ -714,14 +719,22 @@ final class AudioStreamReceiver: @unchecked Sendable {
         connection.receiveMessage { [weak self] data, _, _, error in
             guard let self, !self.stopped else { return }
             if let data, !data.isEmpty {
-                if self.udpFramesReceived == 0 {
-                    AppLog.audioStream.line("First low-latency UDP PCM datagram received (\(data.count) bytes)")
+                // Count *any* datagram (PCM or keepalive) for liveness — a
+                // silent source sends only keepalives, and the grace window
+                // must still see the path as live.
+                self.udpFramesReceived += 1
+                if self.udpFramesReceived == 1 {
+                    AppLog.audioStream.line("First low-latency UDP datagram received (\(data.count) bytes) — engaging")
                     self.onEvent?(.lowLatencyEngaged)
                 }
                 self.totalBytes += data.count
                 self.processUDPDatagram(data)
             }
-            if error == nil { self.udpReceiveLoop(connection) }
+            if let error {
+                AppLog.audioStream.line("⚠️ UDP receive error: \(String(describing: error))")
+            } else {
+                self.udpReceiveLoop(connection)
+            }
         }
     }
 
@@ -734,34 +747,11 @@ final class AudioStreamReceiver: @unchecked Sendable {
         let frameEnd = AudioStreamProtocol.frameLengthPrefixSize + Int(length)
         guard data.count >= frameEnd else { return }
         let type = data[data.startIndex.advanced(by: AudioStreamProtocol.frameLengthPrefixSize)]
+        // Non-PCM datagrams (e.g. keepAlive) count for liveness in the
+        // receive loop but carry no audio — nothing to schedule.
         guard type == AudioStreamProtocol.FrameType.pcm.rawValue else { return }
         let payload = data.subdata(in: data.startIndex.advanced(by: AudioStreamProtocol.frameLengthPrefixSize + 1)..<data.startIndex.advanced(by: frameEnd))
-        udpFramesReceived += 1
         schedule(payload)
-    }
-
-    /// Parses a frame received before the stream header. The sender only
-    /// emits one here: an authFailed frame when the token is rejected.
-    /// Waits for the full frame, then surfaces the reason as a terminal
-    /// error (retrying with the same token won't help).
-    private nonisolated func handlePreHeaderFrame() {
-        guard let length = AudioStreamProtocol.decodeFrameLength(pending) else { return }
-        guard length >= 1, length <= AudioStreamProtocol.maxFrameBytes else {
-            fail("Malformed stream from sender")
-            return
-        }
-        let frameEnd = AudioStreamProtocol.frameLengthPrefixSize + Int(length)
-        guard pending.count >= frameEnd else { return } // await the rest
-
-        let type = pending[pending.startIndex.advanced(by: AudioStreamProtocol.frameLengthPrefixSize)]
-        let payload = pending.subdata(in: pending.startIndex.advanced(by: AudioStreamProtocol.frameLengthPrefixSize + 1)..<pending.startIndex.advanced(by: frameEnd))
-
-        if type == AudioStreamProtocol.FrameType.authFailed.rawValue {
-            let reason = String(data: payload, encoding: .utf8) ?? "Authentication failed"
-            authFailed(reason)
-        } else {
-            fail("Unexpected response from sender")
-        }
     }
 
     /// Sends a media transport command to the Mac sender.

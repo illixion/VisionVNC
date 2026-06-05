@@ -123,7 +123,7 @@ struct AudioSenderMenuView: View {
                     .help("Send the token to your Vision Pro via AirDrop")
                 }
 
-                Text("Enter this token in VisionVNC, or AirDrop it to auto-fill. The connection itself is unencrypted — use Tailscale (or another VPN) to encrypt traffic between your Mac and Vision Pro.")
+                Text("Enter this token in VisionVNC, or AirDrop it to auto-fill. The token both authorizes the connection and encrypts it (TLS) — no VPN needed. Keep it secret; regenerate to revoke access.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)

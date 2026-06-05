@@ -6,24 +6,27 @@ import Security
 /// now-playing metadata (sender → receiver) and media transport commands
 /// (receiver → sender) for controlling Music.app on the Mac.
 ///
-/// Transport: TCP. On connect the receiver authenticates by sending an
-/// `auth` frame carrying the static token; only then does the sender write
-/// the fixed 16-byte header, followed by typed, length-prefixed frames in
-/// both directions. All integers are little-endian.
+/// Transport: TLS 1.3-PSK over TCP. The pairing token is the pre-shared key
+/// (see `AudioCrypto`), so the handshake both authenticates the peer and
+/// encrypts the channel — only a holder of the token can connect. Once the
+/// secure channel is up the sender writes the fixed 16-byte header, followed
+/// by typed, length-prefixed frames in both directions. All integers are
+/// little-endian. There is no app-layer auth frame: a wrong token fails the
+/// TLS handshake before any frame is exchanged.
 ///
-/// Low-latency mode adds a parallel UDP flow that carries *only* PCM frames.
-/// After authenticating over TCP, the receiver opens a UDP *listener* on an
-/// ephemeral port and sends a `udpHello` frame **over the TCP channel**
-/// carrying that port number. The sender reads the receiver's address from the
-/// TCP connection, opens an outbound UDP connection to (receiver IP, that
-/// port), and routes subsequent PCM there (one PCM frame per datagram) instead
-/// of over TCP. Receiver-listens / sender-connects avoids connected-UDP source
-/// filtering, and the handshake riding TCP means no separate UDP auth. The TCP
-/// channel still carries auth, the header, metadata, artwork, and commands.
+/// Low-latency mode adds a parallel DTLS-PSK-over-UDP flow that carries *only*
+/// PCM frames. After the TCP channel is established, the receiver opens a UDP
+/// *listener* on an ephemeral port and sends a `udpHello` frame **over the TCP
+/// channel** carrying that port number. The sender reads the receiver's
+/// address from the TCP connection, opens an outbound DTLS connection to
+/// (receiver IP, that port), and routes subsequent PCM there (one PCM frame
+/// per datagram) instead of over TCP. Receiver-listens / sender-connects
+/// avoids connected-UDP source filtering; DTLS's replay window plus the shared
+/// PSK make spoofed/injected datagrams unforgeable. The TCP channel still
+/// carries the header, metadata, artwork, and commands.
 ///
-/// The transport itself is unencrypted — pair it with Tailscale (or another
-/// WireGuard tunnel) for confidentiality on untrusted networks. The token
-/// gates *who* may connect; the tunnel protects the bytes on the wire.
+/// Both channels are encrypted and mutually authenticated from the token — no
+/// external Tailscale/WireGuard tunnel is required.
 ///
 /// Header layout (16 bytes):
 ///   0-3   magic "VVAS"
@@ -41,7 +44,7 @@ import Security
 /// header parse (no older-version compatibility path).
 nonisolated enum AudioStreamProtocol {
     static let magic: [UInt8] = Array("VVAS".utf8)
-    static let version: UInt8 = 4
+    static let version: UInt8 = 5
     static let headerSize = 16
     static let frameLengthPrefixSize = 4
     static let defaultPort: UInt16 = 4855
@@ -58,21 +61,20 @@ nonisolated enum AudioStreamProtocol {
         case artwork = 0x02
         /// MediaCommandMessage JSON (receiver → sender).
         case command = 0x03
-        /// Static auth token, UTF-8 (receiver → sender). Must be the first
-        /// frame the receiver sends; the sender withholds the header until
-        /// it matches the configured token, then ignores further auth frames.
-        case auth = 0x04
-        /// Auth rejection reason, UTF-8 (sender → receiver). Sent in place
-        /// of the header when the token doesn't match, just before the
-        /// sender closes the connection — lets the receiver show a precise
-        /// error instead of a generic "stream closed".
-        case authFailed = 0x05
+        // 0x04 / 0x05 were the legacy plaintext auth / authFailed frames,
+        // removed in v5 — TLS-PSK now authenticates at the transport layer.
         /// Low-latency UDP setup, sent by the receiver over the TCP channel
-        /// once authenticated (receiver → sender). Payload is the receiver's
+        /// once the secure channel is up (receiver → sender). Payload is the receiver's
         /// UDP listener port as a little-endian UInt16. The sender opens an
         /// outbound UDP connection to the receiver at that port and routes PCM
         /// there. Sent only over TCP — never as a datagram.
         case udpHello = 0x06
+        /// Empty heartbeat sent periodically over the UDP/DTLS path
+        /// (sender → receiver). Lets the receiver confirm the low-latency
+        /// path is live even when no audio is playing — without it, silence
+        /// produces no PCM datagrams and the receiver's grace window would
+        /// wrongly fall back to TCP. Carries no payload; ignored for audio.
+        case keepAlive = 0x07
     }
 
     /// Wraps a payload in a typed, length-prefixed frame.
@@ -153,9 +155,9 @@ nonisolated struct MediaCommandMessage: Codable, Sendable {
 // MARK: - Static Auth Token
 
 /// Persistent shared secret gating the audio stream. The macOS sender
-/// generates one (`generate()`), the visionOS receiver presents it in the
-/// `auth` frame on connect. Transport stays unencrypted — see the protocol
-/// note about pairing this with Tailscale.
+/// generates one (`generate()`); both ends derive the TLS-PSK from it (see
+/// `AudioCrypto`), so it both authorizes *who* may connect and keys the
+/// encryption. Delivered out-of-band via AirDrop or clipboard (`AudioTokenURL`).
 nonisolated enum AudioToken {
     /// Generates a 256-bit URL-safe token (base64url, no padding).
     static func generate() -> String {

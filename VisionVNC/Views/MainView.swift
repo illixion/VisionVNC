@@ -8,8 +8,8 @@ struct MainView: View {
     enum Tab: String, CaseIterable {
         case connections = "Connections"
         case sessions = "Sessions"
-        case settings = "Settings"
         case console = "Console"
+        case settings = "Settings"
 
         var systemImage: String {
             switch self {

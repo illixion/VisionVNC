@@ -229,7 +229,7 @@ struct ConnectionFormView: View {
                 .contentShape(.rect)
                 .onTapGesture { focusedField = .audioToken }
 
-            Text("Copy the token from the Audio Sender menu bar app, or AirDrop it to auto-fill this field. The connection is unencrypted — use Tailscale (or another VPN) to encrypt traffic between your devices.")
+            Text("Copy the token from the Audio Sender menu bar app, or AirDrop it to auto-fill this field. The token both authorizes and encrypts the connection (TLS) — no VPN needed.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
@@ -237,7 +237,7 @@ struct ConnectionFormView: View {
         Section("Latency") {
             Toggle("Low-Latency Mode (UDP)", isOn: $lowLatencyAudio)
 
-            Text("Sends audio over UDP with a smaller jitter buffer for lower latency. Needs a clean local network or Tailscale path — falls back to the standard stream if UDP can't get through.")
+            Text("Sends audio over UDP (DTLS-encrypted) with a smaller jitter buffer for lower latency. Needs a clean local network — falls back to the standard stream if UDP can't get through.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
