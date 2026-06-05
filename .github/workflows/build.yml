@@ -5,9 +5,11 @@ on:
     branches: [main]
   workflow_dispatch:
 
-# Pinned dependency versions
+# Pinned dependency versions (keep in sync with scripts/setup-deps.sh)
 env:
   ROYALVNC_REF: '337197a'
+  MOONLIGHT_COMMON_C_REF: '7b026e77be62175104640e7e722b758df6d3d0d7'
+  OPUS_REF: '788cc89ce4f2c42025d8c70ec1b4457dc89cd50f'
 
 jobs:
   build-and-release:
@@ -126,6 +128,23 @@ jobs:
         with:
           tag_name: ${{ steps.version.outputs.version }}
           release_name: ${{ steps.version.outputs.version }}
+          body: |
+            Built from `${{ steps.version.outputs.version }}`.
+
+            **Assets**
+            - `VisionVNC-…-unsigned.ipa` — VNC + Audio only (Moonlight disabled). All MIT-compatible.
+            - `VisionVNCAudioSender-…-unsigned.zip` — macOS Audio Sender companion app.
+            - `VisionVNC-…-moonlight-unsigned.ipa` — *if present*, a Moonlight-enabled build.
+
+            ⚠️ **Licensing note:** the Moonlight-enabled IPA links
+            [moonlight-common-c](https://github.com/moonlight-stream/moonlight-common-c),
+            which is **GPLv3**. That artifact is therefore distributed under the GPLv3,
+            not the project's MIT terms. The VNC-only IPA and Audio Sender contain no
+            GPL code. See [LICENSE](LICENSE.txt) for details.
+
+            The Moonlight build is attempted on a best-effort basis (the GitHub runner
+            image cannot always compile its native dependencies) — it may be missing
+            from this release if the build failed.
           draft: false
           prerelease: false
 
@@ -150,3 +169,69 @@ jobs:
           asset_path: ${{ steps.artifacts.outputs.mac_file }}
           asset_name: ${{ steps.artifacts.outputs.mac_file }}
           asset_content_type: application/zip
+
+  # Best-effort Moonlight-enabled build. enet (a moonlight-common-c bundled
+  # dependency) doesn't reliably compile on the GitHub runner image yet, so the
+  # whole job is continue-on-error: a failure here must NOT fail the workflow or
+  # block the VNC-only release above. If it succeeds, the GPLv3 Moonlight IPA is
+  # attached to the release the build-and-release job already created.
+  build-moonlight:
+    runs-on: macos-26
+    needs: build-and-release
+    if: github.ref == 'refs/heads/main'
+    continue-on-error: true
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_26.4.app/Contents/Developer
+
+      # Real dependencies this time (no stubs): clone + patch RoyalVNC,
+      # moonlight-common-c (+ enet, CommonCrypto/FEC patches) and Opus. This is
+      # the same setup scripts/setup-deps.sh performs for local Moonlight builds.
+      - name: Set up Moonlight dependencies
+        run: ./scripts/setup-deps.sh
+
+      - name: Set build info (commit hash shown in Settings)
+        run: ./scripts/set-build-info.sh "${GITHUB_SHA::7}"
+
+      - name: Resolve packages
+        run: |
+          xcodebuild -resolvePackageDependencies \
+            -project VisionVNC.xcodeproj \
+            -scheme VisionVNC
+
+      - name: Build archive (VNC + Audio + Moonlight)
+        run: |
+          xcodebuild archive \
+            -project VisionVNC.xcodeproj \
+            -scheme VisionVNC \
+            -destination 'generic/platform=visionOS' \
+            -archivePath $RUNNER_TEMP/VisionVNC-moonlight.xcarchive \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            SWIFT_ACTIVE_COMPILATION_CONDITIONS='$(inherited) MOONLIGHT_ENABLED'
+
+      - name: Create unsigned Moonlight IPA
+        run: |
+          cd $RUNNER_TEMP/VisionVNC-moonlight.xcarchive/Products/Applications
+          mkdir -p $RUNNER_TEMP/MoonlightPayload/Payload
+          cp -R VisionVNC.app $RUNNER_TEMP/MoonlightPayload/Payload/
+          cd $RUNNER_TEMP/MoonlightPayload
+          zip -r $RUNNER_TEMP/VisionVNC-moonlight-unsigned.ipa Payload
+
+      - name: Attach Moonlight IPA to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="0.1.0-${GITHUB_SHA::8}"
+          IPA_NAME="VisionVNC-${VERSION}-moonlight-unsigned.ipa"
+          cp $RUNNER_TEMP/VisionVNC-moonlight-unsigned.ipa "$IPA_NAME"
+          # The build-and-release job already created this release; attach to it.
+          # GPLv3 — see the release notes' licensing note.
+          gh release upload "$VERSION" --clobber "$IPA_NAME"
