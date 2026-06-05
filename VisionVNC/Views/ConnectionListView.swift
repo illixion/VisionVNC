@@ -207,6 +207,21 @@ struct ConnectionListView: View {
             }
         }
 
+        // If a saved audio connection targets the same host, start its
+        // stream alongside the VNC session, synced to the VNC lifecycle.
+        // Trackpad-only sessions are input-only (no video), so don't pull
+        // in companion audio there.
+        let audioCompanion = connection.quality == .trackpadOnly ? nil : savedConnections.first {
+            $0.connectionType == .audio && $0.hostname == connection.hostname
+        }.map {
+            VNCConnectionManager.AudioCompanion(
+                hostname: $0.hostname,
+                port: UInt16($0.port),
+                token: $0.audioToken,
+                title: $0.displayName
+            )
+        }
+
         connectionManager.pendingSavedConnection = connection
         connectionManager.connect(
             hostname: connection.hostname,
@@ -218,7 +233,8 @@ struct ConnectionListView: View {
             compressionLevel: connection.quality.compressionLevel,
             touchMode: connection.vncTouchMode,
             trackpadOnly: connection.quality == .trackpadOnly,
-            title: connection.displayName
+            title: connection.displayName,
+            audioCompanion: audioCompanion
         )
 
         // Push so the connection manager goes into the back stack and

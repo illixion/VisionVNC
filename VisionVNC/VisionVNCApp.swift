@@ -17,6 +17,11 @@ struct VisionVNCApp: App {
                 #if MOONLIGHT_ENABLED
                 .environment(moonlightManager)
                 #endif
+                .task {
+                    // Let the VNC manager drive a companion audio stream in
+                    // lockstep with its connection lifecycle.
+                    connectionManager.audioManager = audioManager
+                }
         }
         .modelContainer(for: SavedConnection.self)
 
@@ -39,6 +44,7 @@ struct VisionVNCApp: App {
             RemoteDesktopView()
                 .homeOrnament()
                 .environment(connectionManager)
+                .environment(audioManager)
         }
         .defaultSize(width: 1280, height: 800)
         .windowResizability(.contentMinSize)

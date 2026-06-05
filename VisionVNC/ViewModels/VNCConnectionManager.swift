@@ -63,6 +63,33 @@ final class VNCConnectionManager: NSObject, VNCConnectionDelegate {
     // used by the credential prompt's "Remember Password" toggle.
     var pendingSavedConnection: SavedConnection?
 
+    // MARK: - Companion Audio
+
+    /// Settings for an audio stream to start alongside this VNC session,
+    /// resolved from a saved audio connection to the same host. Resolved
+    /// by `ConnectionListView` and handed to `connect(...)`.
+    struct AudioCompanion {
+        let hostname: String
+        let port: UInt16
+        let token: String
+        let title: String
+    }
+
+    /// Audio stream manager, wired up at app launch. When a VNC session has
+    /// a resolved `AudioCompanion`, this is driven in lockstep with the VNC
+    /// connection lifecycle.
+    weak var audioManager: AudioStreamManager?
+
+    private var audioCompanion: AudioCompanion?
+    /// True only when *we* started the companion audio stream. An audio
+    /// session the user already had open separately is never touched.
+    private var startedCompanionAudio = false
+
+    /// True when this VNC session has a resolved audio companion (a saved
+    /// audio connection to the same host). Drives the audio button in the
+    /// remote desktop toolbar.
+    var hasCompanionAudio: Bool { audioCompanion != nil }
+
     // MARK: - Private State
 
     private var connection: VNCConnection?
@@ -78,8 +105,12 @@ final class VNCConnectionManager: NSObject, VNCConnectionDelegate {
 
     // MARK: - Connection Lifecycle
 
-    func connect(hostname: String, port: UInt16, username: String? = nil, password: String? = nil, colorDepth: VNCConnection.Settings.ColorDepth = .depth24Bit, jpegQualityLevel: Int = 6, compressionLevel: Int = 6, touchMode: TouchMode = .absolute, trackpadOnly: Bool = false, title: String? = nil) {
+    func connect(hostname: String, port: UInt16, username: String? = nil, password: String? = nil, colorDepth: VNCConnection.Settings.ColorDepth = .depth24Bit, jpegQualityLevel: Int = 6, compressionLevel: Int = 6, touchMode: TouchMode = .absolute, trackpadOnly: Bool = false, title: String? = nil, audioCompanion: AudioCompanion? = nil) {
         disconnect()
+        // Tear down any companion audio from a previous session before
+        // taking on the new one (no-op if we never owned one).
+        stopCompanionAudioIfStarted()
+        self.audioCompanion = audioCompanion
 
         self.touchMode = touchMode
         self.isTrackpadOnly = trackpadOnly
@@ -156,6 +187,7 @@ final class VNCConnectionManager: NSObject, VNCConnectionDelegate {
                 self.connectionState = .connecting
             case .connected:
                 self.connectionState = .connected
+                self.startCompanionAudioIfNeeded()
             case .disconnecting:
                 self.connectionState = .disconnecting
             case .disconnected:
@@ -166,8 +198,43 @@ final class VNCConnectionManager: NSObject, VNCConnectionDelegate {
                 self.framebuffer = nil
                 self.framebufferImage = nil
                 self.isTrackpadOnly = false
+                self.stopCompanionAudioIfStarted()
             }
         }
+    }
+
+    // MARK: - Companion Audio Lifecycle
+
+    /// Starts the resolved companion audio stream alongside the VNC session.
+    /// Only acts when the audio manager is idle — if the user already has an
+    /// audio session open (to this host or any other), it's left untouched
+    /// and we don't take over its lifecycle.
+    private func startCompanionAudioIfNeeded() {
+        guard !startedCompanionAudio,
+              let audioManager,
+              let companion = audioCompanion else { return }
+
+        switch audioManager.state {
+        case .idle, .error:
+            audioManager.connect(
+                hostname: companion.hostname,
+                port: companion.port,
+                token: companion.token,
+                title: companion.title
+            )
+            startedCompanionAudio = true
+        case .connecting, .streaming:
+            // A separately-opened audio session is already live — don't
+            // displace it, and don't manage its lifecycle.
+            break
+        }
+    }
+
+    /// Tears down the companion audio stream, but only if we started it.
+    private func stopCompanionAudioIfStarted() {
+        guard startedCompanionAudio else { return }
+        startedCompanionAudio = false
+        audioManager?.userDisconnect()
     }
 
     nonisolated func connection(_ connection: VNCConnection,

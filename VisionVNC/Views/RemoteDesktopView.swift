@@ -3,12 +3,14 @@ import RoyalVNCKit
 
 struct RemoteDesktopView: View {
     @Environment(VNCConnectionManager.self) private var connectionManager
+    @Environment(AudioStreamManager.self) private var audioManager
     @Environment(\.openWindow) private var openWindow
     @Environment(\.dismissWindow) private var dismissWindow
 
     @State private var viewSize: CGSize = .zero
     @State private var isDragging = false
     @State private var previousDragTranslation: CGSize = .zero
+    @State private var showAudioPanel = false
 
     var body: some View {
         Group {
@@ -153,6 +155,22 @@ struct RemoteDesktopView: View {
 
             Button(action: { openWindow(id: "keyboard") }) {
                 Label("Keyboard", systemImage: "keyboard")
+            }
+
+            if connectionManager.hasCompanionAudio {
+                Button(action: { showAudioPanel.toggle() }) {
+                    Label(
+                        "Audio",
+                        systemImage: audioManager.state == .streaming
+                            ? "speaker.wave.2.fill" : "speaker.wave.2"
+                    )
+                }
+                .tint(audioManager.state == .streaming ? .accentColor : nil)
+                .popover(isPresented: $showAudioPanel, arrowEdge: .bottom) {
+                    AudioPlayerPanel(width: 360)
+                        .padding(.vertical, 8)
+                        .environment(audioManager)
+                }
             }
 
             Button(action: sendCtrlAltDel) {
