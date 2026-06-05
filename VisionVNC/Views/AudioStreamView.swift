@@ -45,30 +45,36 @@ struct AudioStreamView: View {
     }
 
     /// Local output volume for this device only — doesn't affect the Mac or
-    /// other listeners. Tapping the leading speaker toggles mute.
+    /// other listeners. Tapping the leading speaker toggles mute; the
+    /// trailing icon is a static high-volume hint. visionOS 26's `Slider`
+    /// is already Liquid Glass by default — flanking it with `.borderless`
+    /// icon buttons (instead of glass capsules) keeps the mini-player
+    /// chrome borderless, iTunes-style.
     private var volumeRow: some View {
         @Bindable var audioManager = audioManager
-        // Equal fixed-width ends keep the slider centered — the leading mute
-        // glass button and the trailing icon reserve the same footprint.
-        let endWidth: CGFloat = 44
         return HStack(spacing: 16) {
             Button {
                 audioManager.setMuted(!audioManager.isMuted)
             } label: {
                 Image(systemName: audioManager.isMuted ? "speaker.slash.fill" : "speaker.fill")
-                    .frame(maxWidth: .infinity)
             }
-            .frame(width: endWidth)
+            .buttonStyle(.borderless)
             .help(audioManager.isMuted ? "Unmute" : "Mute")
 
             Slider(value: $audioManager.volume, in: 0...1)
                 .disabled(audioManager.isMuted)
 
-            Image(systemName: "speaker.wave.3.fill")
-                .foregroundStyle(.secondary)
-                .frame(width: endWidth)
+            // Decorative max-volume indicator. Wrapped in a Button so its
+            // metrics (padding, hit area) match the leading mute button —
+            // a bare Image would shift the slider off-center.
+            Button {} label: {
+                Image(systemName: "speaker.wave.3.fill")
+            }
+            .buttonStyle(.borderless)
+            .foregroundStyle(.secondary)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
         }
-        .font(.body)
     }
 
     /// Action row: disconnect + home + manual stream-recovery. The home
@@ -107,6 +113,7 @@ struct AudioStreamView: View {
             .disabled(audioManager.state == .connecting)
             .help("Reconnect the audio stream")
         }
+        .buttonStyle(.borderless)
         .font(.title3)
     }
 }
