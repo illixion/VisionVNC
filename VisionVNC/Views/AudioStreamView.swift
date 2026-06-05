@@ -48,22 +48,27 @@ struct AudioStreamView: View {
     /// other listeners. Tapping the leading speaker toggles mute.
     private var volumeRow: some View {
         @Bindable var audioManager = audioManager
-        return HStack(spacing: 12) {
+        // Equal fixed-width ends keep the slider centered — the leading mute
+        // glass button and the trailing icon reserve the same footprint.
+        let endWidth: CGFloat = 44
+        return HStack(spacing: 16) {
             Button {
                 audioManager.setMuted(!audioManager.isMuted)
             } label: {
                 Image(systemName: audioManager.isMuted ? "speaker.slash.fill" : "speaker.fill")
+                    .frame(maxWidth: .infinity)
             }
-            .buttonStyle(.borderless)
+            .frame(width: endWidth)
             .help(audioManager.isMuted ? "Unmute" : "Mute")
 
             Slider(value: $audioManager.volume, in: 0...1)
                 .disabled(audioManager.isMuted)
 
             Image(systemName: "speaker.wave.3.fill")
+                .foregroundStyle(.secondary)
+                .frame(width: endWidth)
         }
         .font(.body)
-        .foregroundStyle(.secondary)
     }
 
     /// Action row: disconnect + home + manual stream-recovery. The home
@@ -102,8 +107,6 @@ struct AudioStreamView: View {
             .disabled(audioManager.state == .connecting)
             .help("Reconnect the audio stream")
         }
-        .buttonStyle(.borderless)
         .font(.title3)
-        .foregroundStyle(.secondary)
     }
 }
