@@ -15,6 +15,7 @@ enum AppLog {
     static let moonlightStream = Logger(subsystem: subsystem, category: "MoonlightStream")
     static let moonlightVideo = Logger(subsystem: subsystem, category: "MoonlightVideo")
     static let nvHTTPClient = Logger(subsystem: subsystem, category: "NvHTTPClient")
+    static let app = Logger(subsystem: subsystem, category: "App")
 }
 
 extension Logger {

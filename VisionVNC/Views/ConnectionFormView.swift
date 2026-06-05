@@ -25,6 +25,7 @@ struct ConnectionFormView: View {
 
     // Audio
     @State private var audioToken: String = ""
+    @State private var lowLatencyAudio: Bool = false
 
     private enum Field: Hashable {
         case hostname, port, username, password, label, audioToken
@@ -232,6 +233,14 @@ struct ConnectionFormView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
+
+        Section("Latency") {
+            Toggle("Low-Latency Mode (UDP)", isOn: $lowLatencyAudio)
+
+            Text("Sends audio over UDP with a smaller jitter buffer for lower latency. Needs a clean local network or Tailscale path — falls back to the standard stream if UDP can't get through.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
     }
 
     #if MOONLIGHT_ENABLED
@@ -369,6 +378,7 @@ struct ConnectionFormView: View {
         password = saved.savedPassword
         vncTouchMode = saved.vncTouchMode
         audioToken = saved.audioToken
+        lowLatencyAudio = saved.lowLatencyAudio
 
         #if MOONLIGHT_ENABLED
         // Moonlight fields
@@ -444,6 +454,7 @@ struct ConnectionFormView: View {
 
         case .audio:
             connection.audioToken = audioToken.trimmingCharacters(in: .whitespacesAndNewlines)
+            connection.lowLatencyAudio = lowLatencyAudio
         }
     }
 

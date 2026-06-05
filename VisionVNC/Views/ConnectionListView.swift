@@ -218,7 +218,8 @@ struct ConnectionListView: View {
                 hostname: $0.hostname,
                 port: UInt16($0.port),
                 token: $0.audioToken,
-                title: $0.displayName
+                title: $0.displayName,
+                lowLatency: $0.lowLatencyAudio
             )
         }
 
@@ -255,7 +256,8 @@ struct ConnectionListView: View {
             hostname: connection.hostname,
             port: UInt16(connection.port),
             token: connection.audioToken,
-            title: connection.displayName
+            title: connection.displayName,
+            lowLatency: connection.lowLatencyAudio
         )
         audioManager.openedViaPush = true
         pushWindow(id: "audio-stream")

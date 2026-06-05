@@ -11,13 +11,23 @@ import Security
 /// the fixed 16-byte header, followed by typed, length-prefixed frames in
 /// both directions. All integers are little-endian.
 ///
+/// Low-latency mode adds a parallel UDP flow that carries *only* PCM frames.
+/// After authenticating over TCP, the receiver opens a UDP *listener* on an
+/// ephemeral port and sends a `udpHello` frame **over the TCP channel**
+/// carrying that port number. The sender reads the receiver's address from the
+/// TCP connection, opens an outbound UDP connection to (receiver IP, that
+/// port), and routes subsequent PCM there (one PCM frame per datagram) instead
+/// of over TCP. Receiver-listens / sender-connects avoids connected-UDP source
+/// filtering, and the handshake riding TCP means no separate UDP auth. The TCP
+/// channel still carries auth, the header, metadata, artwork, and commands.
+///
 /// The transport itself is unencrypted — pair it with Tailscale (or another
 /// WireGuard tunnel) for confidentiality on untrusted networks. The token
 /// gates *who* may connect; the tunnel protects the bytes on the wire.
 ///
 /// Header layout (16 bytes):
 ///   0-3   magic "VVAS"
-///   4     protocol version (3)
+///   4     protocol version (4)
 ///   5     channel count
 ///   6-7   reserved (0)
 ///   8-15  sample rate, Float64 bit pattern
@@ -31,7 +41,7 @@ import Security
 /// header parse (no older-version compatibility path).
 nonisolated enum AudioStreamProtocol {
     static let magic: [UInt8] = Array("VVAS".utf8)
-    static let version: UInt8 = 3
+    static let version: UInt8 = 4
     static let headerSize = 16
     static let frameLengthPrefixSize = 4
     static let defaultPort: UInt16 = 4855
@@ -57,6 +67,12 @@ nonisolated enum AudioStreamProtocol {
         /// sender closes the connection — lets the receiver show a precise
         /// error instead of a generic "stream closed".
         case authFailed = 0x05
+        /// Low-latency UDP setup, sent by the receiver over the TCP channel
+        /// once authenticated (receiver → sender). Payload is the receiver's
+        /// UDP listener port as a little-endian UInt16. The sender opens an
+        /// outbound UDP connection to the receiver at that port and routes PCM
+        /// there. Sent only over TCP — never as a datagram.
+        case udpHello = 0x06
     }
 
     /// Wraps a payload in a typed, length-prefixed frame.

@@ -39,6 +39,22 @@ final class AudioStreamManager {
     var channelCount: Int = 0
     var bytesReceived: Int = 0
 
+    /// Low-latency (UDP) mode was requested for the current connection.
+    private(set) var lowLatencyRequested = false
+    /// PCM is actually flowing over the UDP path.
+    private(set) var lowLatencyActive = false
+    /// Low-latency was requested but UDP couldn't deliver, so the session
+    /// fell back to TCP. Sticky for the session — surfaced in the UI.
+    private(set) var lowLatencyDegraded = false
+
+    /// One-line transport summary for the UI.
+    var transportLabel: String {
+        if lowLatencyActive { return "UDP · low-latency" }
+        if lowLatencyDegraded { return "TCP · low-latency unavailable" }
+        if lowLatencyRequested { return "TCP · negotiating low-latency…" }
+        return "TCP"
+    }
+
     var formatLabel: String {
         guard sampleRate > 0 else { return "—" }
         let channels = channelCount == 1 ? "Mono" : channelCount == 2 ? "Stereo" : "\(channelCount)ch"
@@ -80,7 +96,13 @@ final class AudioStreamManager {
         static let port = "lastAudioPort"
         static let title = "lastAudioTitle"
         static let token = "lastAudioToken"
+        static let lowLatency = "lastAudioLowLatency"
     }
+
+    /// Forces TCP for the *next* reconnect without overwriting the user's
+    /// saved low-latency preference — set when the UDP path fails to deliver
+    /// (one-way block), cleared on the next explicit `connect(...)`.
+    private var lowLatencyOverride: Bool?
 
     /// True while streaming and data has arrived recently. The receiver
     /// reports byte counts every ~0.5 s, so a few seconds of silence means
@@ -90,8 +112,9 @@ final class AudioStreamManager {
         return Date().timeIntervalSince(lastActivityAt) < 2.5
     }
 
-    func connect(hostname: String, port: UInt16, token: String, title: String) {
+    func connect(hostname: String, port: UInt16, token: String, title: String, lowLatency: Bool = false) {
         disconnect()
+        lowLatencyOverride = nil
         connectionTitle = title
         state = .connecting
         bytesReceived = 0
@@ -102,6 +125,12 @@ final class AudioStreamManager {
         artworkImage = nil
         pendingArtwork = nil
         isMuted = false
+        lowLatencyRequested = lowLatency
+        lowLatencyActive = false
+        // Reset the sticky degraded flag only on a genuine low-latency
+        // attempt — not on the automatic TCP fallback reconnect, which must
+        // preserve the warning for the UI.
+        if lowLatency { lowLatencyDegraded = false }
 
         // Remember the target so the stream can resume after the app is
         // relaunched by visionOS space restoration of a snapped window.
@@ -110,8 +139,9 @@ final class AudioStreamManager {
         defaults.set(Int(port), forKey: DefaultsKeys.port)
         defaults.set(title, forKey: DefaultsKeys.title)
         defaults.set(token, forKey: DefaultsKeys.token)
+        defaults.set(lowLatency, forKey: DefaultsKeys.lowLatency)
 
-        let receiver = AudioStreamReceiver(hostname: hostname, port: port, token: token)
+        let receiver = AudioStreamReceiver(hostname: hostname, port: port, token: token, lowLatency: lowLatency)
         receiver.onEvent = { [weak self] event in
             Task { @MainActor in
                 self?.handle(event)
@@ -139,6 +169,7 @@ final class AudioStreamManager {
         defaults.removeObject(forKey: DefaultsKeys.port)
         defaults.removeObject(forKey: DefaultsKeys.title)
         defaults.removeObject(forKey: DefaultsKeys.token)
+        defaults.removeObject(forKey: DefaultsKeys.lowLatency)
         disconnect()
     }
 
@@ -148,11 +179,15 @@ final class AudioStreamManager {
         guard let host = defaults.string(forKey: DefaultsKeys.host),
               let port = UInt16(exactly: defaults.integer(forKey: DefaultsKeys.port)),
               port > 0 else { return }
+        // A pending fallback override (UDP failed) forces TCP for this
+        // reconnect without disturbing the saved preference.
+        let lowLatency = lowLatencyOverride ?? defaults.bool(forKey: DefaultsKeys.lowLatency)
         connect(
             hostname: host,
             port: port,
             token: defaults.string(forKey: DefaultsKeys.token) ?? "",
-            title: defaults.string(forKey: DefaultsKeys.title) ?? ""
+            title: defaults.string(forKey: DefaultsKeys.title) ?? "",
+            lowLatency: lowLatency
         )
     }
 
@@ -250,6 +285,21 @@ final class AudioStreamManager {
             retryTask = nil
             state = .error(reason)
             AppLog.audioStream.line("Authentication failed: \(reason)")
+        case .lowLatencyEngaged:
+            lowLatencyActive = true
+            lowLatencyDegraded = false
+            AppLog.audioStream.line("Low-latency UDP engaged")
+        case .lowLatencyUnavailable:
+            // UDP couldn't deliver — reconnect once over plain TCP. Keep the
+            // saved preference intact (override only this session) so it
+            // retries low-latency next time the user connects fresh.
+            guard receiver != nil else { return }
+            receiver = nil
+            lowLatencyActive = false
+            lowLatencyDegraded = true
+            lowLatencyOverride = false
+            AppLog.audioStream.line("Low-latency UDP unavailable — reconnecting over TCP")
+            reconnectLast()
         case .disconnected(let reason):
             // Ignore events from a receiver we already tore down
             guard receiver != nil else { return }
@@ -300,6 +350,12 @@ final class AudioStreamReceiver: @unchecked Sendable {
         /// The sender rejected our token. Terminal — auto-retry with the
         /// same token would just loop, so the manager surfaces it and stops.
         case authFailed(String)
+        /// First PCM datagram arrived over the low-latency UDP path.
+        case lowLatencyEngaged
+        /// Low-latency UDP was requested but no PCM arrived over it (one-way
+        /// block / firewall). The manager reconnects once over plain TCP
+        /// without disturbing the saved preference.
+        case lowLatencyUnavailable
         case disconnected(String?)
     }
 
@@ -308,9 +364,20 @@ final class AudioStreamReceiver: @unchecked Sendable {
     private let hostname: String
     private let port: UInt16
     private let token: String
+    /// When true, PCM is carried over a parallel UDP socket with a smaller
+    /// jitter buffer; the TCP connection still handles auth/header/metadata.
+    private let lowLatency: Bool
     private let queue = DispatchQueue(label: "com.illixion.VisionVNC.audio-stream", qos: .userInteractive)
 
     private nonisolated(unsafe) var connection: NWConnection?
+    /// Low-latency PCM path. The receiver *listens* on an ephemeral UDP port
+    /// (advertised to the sender via a `udpHello` over TCP); the sender
+    /// connects out and pushes `pcm` frames (one per datagram). Listening,
+    /// rather than connecting, avoids connected-UDP source-port filtering.
+    private nonisolated(unsafe) var udpListener: NWListener?
+    private nonisolated(unsafe) var udpConnection: NWConnection?
+    /// Count of PCM datagrams received over UDP — gates the fallback timer.
+    private nonisolated(unsafe) var udpFramesReceived = 0
     private nonisolated(unsafe) var pending = Data()
     private nonisolated(unsafe) var header: AudioStreamHeader?
     private nonisolated(unsafe) var stopped = false
@@ -320,8 +387,9 @@ final class AudioStreamReceiver: @unchecked Sendable {
     private nonisolated(unsafe) var audioFormat: AVAudioFormat?
 
     /// Frames scheduled before starting playback, to absorb network jitter.
-    /// At a typical ~10 ms device IO cadence this is ~40 ms of buffer.
-    private static let prebufferFrameCount = 4
+    /// At a typical ~10 ms device IO cadence the standard buffer is ~40 ms;
+    /// low-latency mode trades robustness for a ~20 ms buffer.
+    private let prebufferFrameCount: Int
     private nonisolated(unsafe) var scheduledFrames = 0
     private nonisolated(unsafe) var totalBytes = 0
     /// While true, incoming PCM is dropped instead of scheduled (local
@@ -332,10 +400,12 @@ final class AudioStreamReceiver: @unchecked Sendable {
     private nonisolated(unsafe) var engineObserver: (any NSObjectProtocol)?
     private nonisolated(unsafe) var sessionObservers: [any NSObjectProtocol] = []
 
-    nonisolated init(hostname: String, port: UInt16, token: String) {
+    nonisolated init(hostname: String, port: UInt16, token: String, lowLatency: Bool = false) {
         self.hostname = hostname
         self.port = port
         self.token = token
+        self.lowLatency = lowLatency
+        self.prebufferFrameCount = lowLatency ? 2 : 4
     }
 
     nonisolated func start() {
@@ -450,6 +520,10 @@ final class AudioStreamReceiver: @unchecked Sendable {
             stopped = true
             connection?.cancel()
             connection = nil
+            udpListener?.cancel()
+            udpListener = nil
+            udpConnection?.cancel()
+            udpConnection = nil
             for observer in sessionObservers {
                 NotificationCenter.default.removeObserver(observer)
             }
@@ -465,6 +539,10 @@ final class AudioStreamReceiver: @unchecked Sendable {
             onEvent = nil
             connection?.cancel()
             connection = nil
+            udpListener?.cancel()
+            udpListener = nil
+            udpConnection?.cancel()
+            udpConnection = nil
             for observer in sessionObservers {
                 NotificationCenter.default.removeObserver(observer)
             }
@@ -519,6 +597,7 @@ final class AudioStreamReceiver: @unchecked Sendable {
                 return
             }
             onEvent?(.connected(sampleRate: parsed.sampleRate, channels: parsed.channelCount))
+            if lowLatency { openUDP() }
         }
 
         // Then typed, length-prefixed frames
@@ -547,10 +626,98 @@ final class AudioStreamReceiver: @unchecked Sendable {
                 }
             case .artwork:
                 onEvent?(.artwork(payload))
-            case .command, .auth, .authFailed, nil:
+            case .command, .auth, .authFailed, .udpHello, nil:
                 break // not receiver-bound / unknown — skip
             }
         }
+    }
+
+    // MARK: - Low-latency UDP path
+
+    /// Opens a UDP listener on an ephemeral port and advertises it to the
+    /// sender via a `udpHello` over TCP. The sender then connects out and
+    /// pushes PCM datagrams here. Runs on `queue`. Falls back to TCP if no
+    /// PCM arrives within the grace window.
+    private nonisolated func openUDP() {
+        guard !stopped, udpListener == nil else { return }
+        udpFramesReceived = 0
+        let listener: NWListener
+        do {
+            listener = try NWListener(using: NWParameters(dtls: nil, udp: NWProtocolUDP.Options()))
+        } catch {
+            AppLog.audioStream.line("Low-latency UDP listener failed to open: \(error.localizedDescription) — staying on TCP")
+            onEvent?(.lowLatencyUnavailable)
+            return
+        }
+        udpListener = listener
+        listener.stateUpdateHandler = { [weak self] state in
+            guard let self else { return }
+            switch state {
+            case .ready:
+                guard let udpPort = listener.port?.rawValue else { return }
+                AppLog.audioStream.line("Low-latency UDP listening on port \(udpPort) — advertising to sender")
+                var payload = Data(count: 2)
+                payload[0] = UInt8(udpPort & 0xff)
+                payload[1] = UInt8(udpPort >> 8)
+                let hello = AudioStreamProtocol.encodeFrame(.udpHello, payload)
+                self.connection?.send(content: hello, completion: .contentProcessed { _ in })
+            case .failed(let error):
+                AppLog.audioStream.line("Low-latency UDP listener failed: \(error.localizedDescription)")
+            default:
+                break
+            }
+        }
+        listener.newConnectionHandler = { [weak self] connection in
+            guard let self else { return }
+            // Single sender; a fresh inbound flow displaces any prior.
+            self.udpConnection?.cancel()
+            self.udpConnection = connection
+            connection.start(queue: self.queue)
+            self.udpReceiveLoop(connection)
+        }
+        listener.start(queue: queue)
+
+        // Fallback: if PCM never arrives (one-way UDP block / firewall), drop
+        // to plain TCP for this session and surface it loudly.
+        queue.asyncAfter(deadline: .now() + 2.0) { [weak self] in
+            guard let self, !self.stopped, self.udpFramesReceived == 0 else { return }
+            AppLog.audioStream.line("⚠️ No UDP PCM within 2 s — low-latency unavailable, falling back to TCP")
+            self.udpListener?.cancel()
+            self.udpListener = nil
+            self.udpConnection?.cancel()
+            self.udpConnection = nil
+            self.onEvent?(.lowLatencyUnavailable)
+        }
+    }
+
+    private nonisolated func udpReceiveLoop(_ connection: NWConnection) {
+        connection.receiveMessage { [weak self] data, _, _, error in
+            guard let self, !self.stopped else { return }
+            if let data, !data.isEmpty {
+                if self.udpFramesReceived == 0 {
+                    AppLog.audioStream.line("First low-latency UDP PCM datagram received (\(data.count) bytes)")
+                    self.onEvent?(.lowLatencyEngaged)
+                }
+                self.totalBytes += data.count
+                self.processUDPDatagram(data)
+            }
+            if error == nil { self.udpReceiveLoop(connection) }
+        }
+    }
+
+    /// One UDP datagram == one `pcm` frame (datagram boundaries preserve
+    /// framing). Decoded directly — kept off the TCP `pending` byte-stream
+    /// buffer to avoid interleaving a whole datagram into a partial TCP frame.
+    private nonisolated func processUDPDatagram(_ data: Data) {
+        guard let length = AudioStreamProtocol.decodeFrameLength(data),
+              length >= 1, length <= AudioStreamProtocol.maxFrameBytes else { return }
+        let frameEnd = AudioStreamProtocol.frameLengthPrefixSize + Int(length)
+        guard data.count >= frameEnd else { return }
+        let type = data[data.startIndex.advanced(by: AudioStreamProtocol.frameLengthPrefixSize)]
+        guard type == AudioStreamProtocol.FrameType.pcm.rawValue else { return }
+        let payload = data.subdata(in: data.startIndex.advanced(by: AudioStreamProtocol.frameLengthPrefixSize + 1)..<data.startIndex.advanced(by: frameEnd))
+        udpFramesReceived += 1
+        schedule(payload)
     }
 
     /// Parses a frame received before the stream header. The sender only
@@ -609,6 +776,10 @@ final class AudioStreamReceiver: @unchecked Sendable {
         stopped = true
         connection?.cancel()
         connection = nil
+        udpListener?.cancel()
+        udpListener = nil
+        udpConnection?.cancel()
+        udpConnection = nil
         for observer in sessionObservers {
             NotificationCenter.default.removeObserver(observer)
         }
@@ -624,6 +795,10 @@ final class AudioStreamReceiver: @unchecked Sendable {
         stopped = true
         connection?.cancel()
         connection = nil
+        udpListener?.cancel()
+        udpListener = nil
+        udpConnection?.cancel()
+        udpConnection = nil
         for observer in sessionObservers {
             NotificationCenter.default.removeObserver(observer)
         }
@@ -791,7 +966,7 @@ final class AudioStreamReceiver: @unchecked Sendable {
         scheduledFrames += 1
 
         // Hold playback until a small jitter buffer has accumulated
-        if scheduledFrames == Self.prebufferFrameCount {
+        if scheduledFrames == prebufferFrameCount {
             playerNode.play()
         }
 

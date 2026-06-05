@@ -192,6 +192,11 @@ final class SavedConnection {
     /// empty so lightweight migration of existing stores is safe.
     var audioToken: String = ""
 
+    /// Opt-in low-latency mode: carries PCM over UDP with a smaller jitter
+    /// buffer instead of TCP. Needs a clean LAN / Tailscale path. Default
+    /// false so lightweight migration is safe and behavior is unchanged.
+    var lowLatencyAudio: Bool = false
+
     var quality: ConnectionQuality {
         get { ConnectionQuality(rawValue: qualityRawValue) ?? .high }
         set { qualityRawValue = newValue.rawValue }

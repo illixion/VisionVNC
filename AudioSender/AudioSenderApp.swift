@@ -1,4 +1,5 @@
 import SwiftUI
+import os
 
 /// Menu bar companion app for VisionVNC: captures system audio via a
 /// Core Audio process tap and streams it as uncompressed PCM to the
@@ -9,6 +10,15 @@ import SwiftUI
 @main
 struct AudioSenderApp: App {
     @State private var controller = AudioStreamerController()
+
+    init() {
+        // Surface the Local Network permission prompt at launch rather than
+        // waiting for the first stream — reading hostName performs a
+        // local-network lookup, which is enough to trigger the dialog.
+        let hostName = ProcessInfo.processInfo.hostName
+        Logger(subsystem: "com.illixion.VisionVNCAudioSender", category: "App")
+            .info("Local network access prompt triggered (host: \(hostName, privacy: .private))")
+    }
 
     var body: some Scene {
         MenuBarExtra {
@@ -142,6 +152,18 @@ final class AudioStreamerController {
 
     let port: UInt16 = AudioStreamProtocol.defaultPort
 
+    /// Remembers whether the user had streaming on, so the menu bar app
+    /// resumes it automatically on the next launch (e.g. after login).
+    private static let autoStartKey = "autoStartStreaming"
+
+    init() {
+        if UserDefaults.standard.bool(forKey: Self.autoStartKey) {
+            // Defer past App init so it runs on the main actor's run loop —
+            // starting the tap/server synchronously during init is too early.
+            Task { @MainActor in self.start() }
+        }
+    }
+
     /// Persistent static auth token — clients must present it to connect.
     /// Loaded from (or generated into) UserDefaults on init; the didSet
     /// keeps the store in sync when regenerated.
@@ -183,6 +205,7 @@ final class AudioStreamerController {
         get { tap != nil }
         set {
             guard newValue != isRunning else { return }
+            UserDefaults.standard.set(newValue, forKey: Self.autoStartKey)
             newValue ? start() : stop()
         }
     }

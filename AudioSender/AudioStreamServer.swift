@@ -1,5 +1,6 @@
 import Foundation
 import Network
+import os
 
 /// TCP server that streams interleaved Float32 PCM to the connected
 /// VisionVNC client. Sends the AudioStreamHeader on accept, then
@@ -29,6 +30,10 @@ final class AudioStreamServer: @unchecked Sendable {
         var authenticated = false
         /// Buffer for inbound frames (auth, then commands) from the client.
         var inbound = Data()
+        /// Low-latency UDP return path, established once the client sends a
+        /// valid `udpHello` datagram. When set, PCM is sent here instead of
+        /// over `connection` (TCP). nil → PCM rides TCP as before.
+        var udp: NWConnection?
         init(connection: NWConnection) { self.connection = connection }
     }
 
@@ -38,6 +43,8 @@ final class AudioStreamServer: @unchecked Sendable {
     private let queue = DispatchQueue(label: "com.illixion.VisionVNCAudioSender.server", qos: .userInteractive)
     private nonisolated(unsafe) var listener: NWListener?
     private nonisolated(unsafe) var clients: [ObjectIdentifier: Client] = [:]
+
+    private let log = Logger(subsystem: "com.illixion.VisionVNCAudioSender", category: "AudioStreamServer")
 
     /// Latest pre-encoded metadata frames, replayed to newly connected
     /// clients right after the header. Mutated only on `queue`.
@@ -71,6 +78,7 @@ final class AudioStreamServer: @unchecked Sendable {
             listener = nil
             for client in clients.values {
                 client.connection.cancel()
+                client.udp?.cancel()
             }
             clients.removeAll()
             notifyClientCount()
@@ -108,6 +116,13 @@ final class AudioStreamServer: @unchecked Sendable {
             guard !clients.isEmpty else { return }
             let frame = AudioStreamProtocol.encodeFrame(pcm)
             for client in clients.values where client.headerSent {
+                if let udp = client.udp {
+                    // Low-latency path: one PCM frame per datagram, no
+                    // backpressure accounting — the OS drops if it can't keep
+                    // up, which is the desired latency-over-reliability trade.
+                    udp.send(content: frame, completion: .contentProcessed { _ in })
+                    continue
+                }
                 // Latency cap: drop frames for clients that can't keep up
                 guard client.pendingBytes < Self.maxPendingBytes else { continue }
                 client.pendingBytes += frame.count
@@ -149,6 +164,42 @@ final class AudioStreamServer: @unchecked Sendable {
         // Receive loop: parses inbound command frames and detects remote close
         receiveLoop(client)
         connection.start(queue: queue)
+    }
+
+    /// Opens the outbound low-latency UDP path to a client that advertised a
+    /// listener port via a `udpHello` frame (over TCP). The receiver's IP is
+    /// taken from its TCP connection; PCM then flows to (that IP, `udpPort`).
+    /// Runs on `queue`.
+    private nonisolated func attachUDP(_ client: Client, udpPort: UInt16) {
+        guard let port = NWEndpoint.Port(rawValue: udpPort) else {
+            log.error("udpHello: invalid UDP port \(udpPort)")
+            return
+        }
+        guard let host = remoteHost(of: client.connection) else {
+            log.error("udpHello: could not resolve client IP from TCP connection")
+            return
+        }
+        let udp = NWConnection(host: host, port: port, using: NWParameters(dtls: nil, udp: NWProtocolUDP.Options()))
+        client.udp?.cancel()
+        client.udp = udp
+        udp.stateUpdateHandler = { [weak self] state in
+            switch state {
+            case .ready:
+                self?.log.info("Low-latency UDP attached → \(String(describing: host)):\(udpPort)")
+            case .failed(let error):
+                self?.log.error("UDP path failed: \(error.localizedDescription)")
+            default:
+                break
+            }
+        }
+        udp.start(queue: queue)
+    }
+
+    /// Extracts the peer IP host from a connection's remote endpoint.
+    private nonisolated func remoteHost(of connection: NWConnection) -> NWEndpoint.Host? {
+        let endpoint = connection.currentPath?.remoteEndpoint ?? connection.endpoint
+        if case let .hostPort(host, _) = endpoint { return host }
+        return nil
     }
 
     private nonisolated func receiveLoop(_ client: Client) {
@@ -202,6 +253,14 @@ final class AudioStreamServer: @unchecked Sendable {
             if type == AudioStreamProtocol.FrameType.command.rawValue,
                let message = MediaCommandMessage.decode(payload) {
                 onCommand?(message.command)
+            } else if type == AudioStreamProtocol.FrameType.udpHello.rawValue {
+                guard payload.count == 2 else {
+                    log.error("udpHello: bad payload (\(payload.count) bytes)")
+                    continue
+                }
+                let udpPort = UInt16(payload[payload.startIndex]) | (UInt16(payload[payload.startIndex + 1]) << 8)
+                log.info("udpHello: client requests low-latency UDP on port \(udpPort)")
+                attachUDP(client, udpPort: udpPort)
             }
         }
     }
@@ -246,7 +305,9 @@ final class AudioStreamServer: @unchecked Sendable {
     }
 
     private nonisolated func remove(_ connection: NWConnection) {
-        guard clients.removeValue(forKey: ObjectIdentifier(connection)) != nil else { return }
+        guard let client = clients.removeValue(forKey: ObjectIdentifier(connection)) else { return }
+        client.udp?.cancel()
+        client.udp = nil
         connection.cancel()
         notifyClientCount()
     }

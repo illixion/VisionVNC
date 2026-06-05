@@ -73,6 +73,7 @@ final class VNCConnectionManager: NSObject, VNCConnectionDelegate {
         let port: UInt16
         let token: String
         let title: String
+        let lowLatency: Bool
     }
 
     /// Audio stream manager, wired up at app launch. When a VNC session has
@@ -220,7 +221,8 @@ final class VNCConnectionManager: NSObject, VNCConnectionDelegate {
                 hostname: companion.hostname,
                 port: companion.port,
                 token: companion.token,
-                title: companion.title
+                title: companion.title,
+                lowLatency: companion.lowLatency
             )
             startedCompanionAudio = true
         case .connecting, .streaming:

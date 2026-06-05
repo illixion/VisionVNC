@@ -77,6 +77,10 @@ struct AudioPlayerPanel: View {
                     Text(audioManager.formatLabel)
                     Text(dataLabel)
                         .monospacedDigit()
+                    if audioManager.lowLatencyRequested || audioManager.lowLatencyDegraded {
+                        Text(audioManager.transportLabel)
+                            .foregroundStyle(audioManager.lowLatencyDegraded ? .orange : .secondary)
+                    }
                 }
                 .font(.caption2)
                 .foregroundStyle(.secondary)

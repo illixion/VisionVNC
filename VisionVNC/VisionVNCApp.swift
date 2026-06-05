@@ -3,6 +3,7 @@ import SwiftData
 
 @main
 struct VisionVNCApp: App {
+    @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @State private var connectionManager = VNCConnectionManager()
     @State private var audioManager = AudioStreamManager()
     #if MOONLIGHT_ENABLED
