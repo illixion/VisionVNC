@@ -7,12 +7,14 @@ struct MainView: View {
 
     enum Tab: String, CaseIterable {
         case connections = "Connections"
+        case sessions = "Sessions"
         case settings = "Settings"
         case console = "Console"
 
         var systemImage: String {
             switch self {
             case .connections: "rectangle.connected.to.line.below"
+            case .sessions: "macwindow.on.rectangle"
             case .settings: "gear"
             case .console: "terminal"
             }
@@ -27,6 +29,8 @@ struct MainView: View {
             switch selectedTab {
             case .connections:
                 ConnectionListView()
+            case .sessions:
+                SessionsView()
             case .settings:
                 SettingsView()
             case .console:

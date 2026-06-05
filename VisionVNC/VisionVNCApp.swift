@@ -29,6 +29,7 @@ struct VisionVNCApp: App {
         WindowGroup("Console", id: "console") {
             ConsoleView(isPopout: true)
                 .homeOrnament()
+                .trackWindowSession(id: "console")
         }
         .defaultSize(width: 760, height: 480)
         .defaultLaunchBehavior(.suppressed)
@@ -36,6 +37,7 @@ struct VisionVNCApp: App {
         WindowGroup("Audio Stream", id: "audio-stream") {
             AudioStreamView()
                 .environment(audioManager)
+                .trackWindowSession(id: "audio-stream")
         }
         .defaultSize(width: 400, height: 600)
         .windowResizability(.contentSize)
@@ -46,6 +48,7 @@ struct VisionVNCApp: App {
                 .homeOrnament()
                 .environment(connectionManager)
                 .environment(audioManager)
+                .trackWindowSession(id: "remote-desktop")
         }
         .defaultSize(width: 1280, height: 800)
         .windowResizability(.contentMinSize)
@@ -57,6 +60,7 @@ struct VisionVNCApp: App {
             MoonlightStreamView()
                 .homeOrnament()
                 .environment(moonlightManager)
+                .trackWindowSession(id: "moonlight-stream")
         }
         .defaultSize(width: 1920, height: 1080)
         .windowResizability(.contentMinSize)
@@ -67,6 +71,7 @@ struct VisionVNCApp: App {
             KeyboardInputView()
                 .homeOrnament()
                 .environment(connectionManager)
+                .trackWindowSession(id: "keyboard")
         }
         .defaultSize(width: 500, height: 400)
         .windowResizability(.contentSize)
@@ -77,6 +82,7 @@ struct VisionVNCApp: App {
             MoonlightKeyboardView()
                 .homeOrnament()
                 .environment(moonlightManager)
+                .trackWindowSession(id: "moonlight-keyboard")
         }
         .defaultSize(width: 500, height: 450)
         .windowResizability(.contentSize)
