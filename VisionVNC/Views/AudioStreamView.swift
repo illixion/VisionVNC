@@ -18,8 +18,12 @@ struct AudioStreamView: View {
         VStack(spacing: 0) {
             AudioPlayerPanel(width: Self.playerWidth, showsMute: false)
 
+            volumeRow
+                .padding(.horizontal, 28)
+                .padding(.top, 22)
+
             utilityRow
-                .padding(.top, 28)
+                .padding(.top, 22)
                 .padding(.bottom, 22)
         }
         .frame(width: Self.playerWidth)
@@ -40,19 +44,34 @@ struct AudioStreamView: View {
         }
     }
 
-    /// Action row: mute + disconnect + home + manual stream-recovery. The
-    /// home button lives here instead of the bottom ornament — the ornament
-    /// floats over the album art and overlaps the transport controls.
-    private var utilityRow: some View {
-        HStack(spacing: 28) {
+    /// Local output volume for this device only — doesn't affect the Mac or
+    /// other listeners. Tapping the leading speaker toggles mute.
+    private var volumeRow: some View {
+        @Bindable var audioManager = audioManager
+        return HStack(spacing: 12) {
             Button {
                 audioManager.setMuted(!audioManager.isMuted)
             } label: {
-                Image(systemName: audioManager.isMuted ? "speaker.slash.fill" : "speaker.wave.2")
+                Image(systemName: audioManager.isMuted ? "speaker.slash.fill" : "speaker.fill")
             }
-            .disabled(audioManager.state != .streaming)
+            .buttonStyle(.borderless)
             .help(audioManager.isMuted ? "Unmute" : "Mute")
 
+            Slider(value: $audioManager.volume, in: 0...1)
+                .disabled(audioManager.isMuted)
+
+            Image(systemName: "speaker.wave.3.fill")
+        }
+        .font(.body)
+        .foregroundStyle(.secondary)
+    }
+
+    /// Action row: disconnect + home + manual stream-recovery. The home
+    /// button lives here instead of the bottom ornament — the ornament
+    /// floats over the album art and overlaps the transport controls.
+    /// (Mute lives in the volume row above.)
+    private var utilityRow: some View {
+        HStack(spacing: 28) {
             Button(role: .destructive) {
                 audioManager.userDisconnect()
                 // Pushed windows restore the connection manager on

@@ -31,6 +31,15 @@ final class AudioStreamManager {
     /// Local mute: drops the stream's audio on this end without
     /// disconnecting or affecting Mac playback.
     private(set) var isMuted = false
+
+    /// Local output volume (0…1), applied to the player node on this end
+    /// only. Persisted so it carries across reconnects and relaunches.
+    var volume: Double = UserDefaults.standard.object(forKey: "audioVolume") as? Double ?? 1.0 {
+        didSet {
+            UserDefaults.standard.set(volume, forKey: "audioVolume")
+            receiver?.setVolume(Float(volume))
+        }
+    }
     /// True when the audio window was opened via pushWindow from the
     /// connection manager — dismissing it then restores the manager
     /// automatically. False after a space-restoration relaunch (standalone).
@@ -141,7 +150,7 @@ final class AudioStreamManager {
         defaults.set(token, forKey: DefaultsKeys.token)
         defaults.set(lowLatency, forKey: DefaultsKeys.lowLatency)
 
-        let receiver = AudioStreamReceiver(hostname: hostname, port: port, token: token, lowLatency: lowLatency)
+        let receiver = AudioStreamReceiver(hostname: hostname, port: port, token: token, lowLatency: lowLatency, volume: Float(volume))
         receiver.onEvent = { [weak self] event in
             Task { @MainActor in
                 self?.handle(event)
@@ -399,13 +408,24 @@ final class AudioStreamReceiver: @unchecked Sendable {
     private nonisolated(unsafe) var sessionConfigured = false
     private nonisolated(unsafe) var engineObserver: (any NSObjectProtocol)?
     private nonisolated(unsafe) var sessionObservers: [any NSObjectProtocol] = []
+    /// Output gain (0…1) applied to the player node; survives engine rebuilds.
+    private nonisolated(unsafe) var volume: Float
 
-    nonisolated init(hostname: String, port: UInt16, token: String, lowLatency: Bool = false) {
+    nonisolated init(hostname: String, port: UInt16, token: String, lowLatency: Bool = false, volume: Float = 1.0) {
         self.hostname = hostname
         self.port = port
         self.token = token
         self.lowLatency = lowLatency
         self.prebufferFrameCount = lowLatency ? 2 : 4
+        self.volume = volume
+    }
+
+    /// Adjusts output gain live (and for subsequent engine rebuilds).
+    nonisolated func setVolume(_ newValue: Float) {
+        queue.async { [self] in
+            volume = newValue
+            playerNode?.volume = newValue
+        }
     }
 
     nonisolated func start() {
@@ -865,6 +885,7 @@ final class AudioStreamReceiver: @unchecked Sendable {
 
         let engine = AVAudioEngine()
         let player = AVAudioPlayerNode()
+        player.volume = volume
         engine.attach(player)
         engine.connect(player, to: engine.mainMixerNode, format: format)
 
