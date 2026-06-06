@@ -30,7 +30,7 @@ import Security
 ///
 /// Header layout (16 bytes):
 ///   0-3   magic "VVAS"
-///   4     protocol version (4)
+///   4     protocol version (6)
 ///   5     channel count
 ///   6-7   reserved (0)
 ///   8-15  sample rate, Float64 bit pattern
@@ -40,19 +40,29 @@ import Security
 ///   4     frame type (FrameType)
 ///   5-    payload
 ///
+/// PCM payloads carry interleaved **signed 24-bit little-endian** samples
+/// (3 bytes each) as of v6 — a 25% bandwidth cut over the old Float32 wire
+/// format with no audible loss for the already-mixed [-1, 1] signal. Float ↔
+/// int24 conversion lives in `PCM24`. The receiver still feeds AVAudioEngine
+/// deinterleaved Float32 (its required graph format) — the conversion happens
+/// at the wire boundary on both ends.
+///
 /// Both apps are released together; version mismatches hard-fail at the
 /// header parse (no older-version compatibility path).
 nonisolated enum AudioStreamProtocol {
     static let magic: [UInt8] = Array("VVAS".utf8)
-    static let version: UInt8 = 5
+    static let version: UInt8 = 6
     static let headerSize = 16
     static let frameLengthPrefixSize = 4
     static let defaultPort: UInt16 = 4855
-    /// Sanity cap for a single frame (1 MB ≈ 1.3 s of 48 kHz stereo Float32)
+    /// Bytes per PCM sample on the wire: signed 24-bit, packed little-endian.
+    static let bytesPerSample = 3
+    /// Sanity cap for a single frame (1 MB ≈ 1.75 s of 48 kHz stereo int24)
     static let maxFrameBytes: UInt32 = 1 << 20
 
     enum FrameType: UInt8, Sendable {
-        /// Interleaved Float32 PCM samples (sender → receiver).
+        /// Interleaved signed 24-bit little-endian PCM samples (sender →
+        /// receiver). See `PCM24` for the packing.
         case pcm = 0x00
         /// NowPlayingInfo JSON (sender → receiver).
         case nowPlaying = 0x01
@@ -101,6 +111,52 @@ nonisolated enum AudioStreamProtocol {
             value |= UInt32(data[data.startIndex + i]) << (8 * i)
         }
         return value
+    }
+}
+
+// MARK: - 24-bit PCM packing
+
+/// Signed 24-bit PCM packing used on the wire for `pcm` frames. Samples are
+/// interleaved, 3 bytes each, little-endian. Both ends share this so the
+/// float ↔ int24 scaling is guaranteed identical.
+///
+/// A normalized [-1, 1] float maps onto the full signed-24-bit range
+/// [-2²³, 2²³−1]. 24 bits gives ~144 dB of dynamic range — inaudibly close
+/// to the Float32 source for an already-mixed stereo signal — while shaving
+/// 25% off the byte count versus 4-byte floats.
+nonisolated enum PCM24 {
+    static let scale: Float = 8_388_608      // 2²³
+    static let inverseScale: Float = 1 / 8_388_608
+    static let maxSample: Int32 = 8_388_607  // 2²³ − 1
+    static let minSample: Int32 = -8_388_608 // −2²³
+
+    /// Packs interleaved normalized Float32 samples into little-endian int24.
+    /// Runs on a realtime audio thread on the sender — allocation-light.
+    static func encode(_ floats: UnsafeBufferPointer<Float32>) -> Data {
+        var out = Data(count: floats.count * 3)
+        out.withUnsafeMutableBytes { raw in
+            let dst = raw.bindMemory(to: UInt8.self)
+            var j = 0
+            for f in floats {
+                var s = Int32((max(-1, min(1, f)) * scale).rounded())
+                if s > maxSample { s = maxSample } else if s < minSample { s = minSample }
+                let u = UInt32(bitPattern: s)
+                dst[j] = UInt8(u & 0xff)
+                dst[j &+ 1] = UInt8((u >> 8) & 0xff)
+                dst[j &+ 2] = UInt8((u >> 16) & 0xff)
+                j &+= 3
+            }
+        }
+        return out
+    }
+
+    /// Reads one little-endian int24 sample at byte offset `i` and returns it
+    /// as a normalized Float32. The caller guarantees `i + 2` is in bounds.
+    @inline(__always)
+    static func sample(_ bytes: UnsafeBufferPointer<UInt8>, at i: Int) -> Float {
+        var u = UInt32(bytes[i]) | (UInt32(bytes[i &+ 1]) << 8) | (UInt32(bytes[i &+ 2]) << 16)
+        if u & 0x80_0000 != 0 { u |= 0xFF00_0000 } // sign-extend bit 23
+        return Float(Int32(bitPattern: u)) * inverseScale
     }
 }
 

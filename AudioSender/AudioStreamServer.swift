@@ -2,7 +2,7 @@ import Foundation
 import Network
 import os
 
-/// TCP server that streams interleaved Float32 PCM to the connected
+/// TCP server that streams interleaved signed int24 PCM to the connected
 /// VisionVNC client. Sends the AudioStreamHeader on accept, then
 /// length-prefixed frames (see AudioStreamProtocol).
 ///
@@ -13,7 +13,7 @@ import os
 /// dropped (latency cap) rather than queueing unbounded.
 final class AudioStreamServer: @unchecked Sendable {
 
-    /// ~0.5 s of 48 kHz stereo Float32 — beyond this a client is lagging
+    /// ~0.7 s of 48 kHz stereo int24 — beyond this a client is lagging
     /// badly and queueing more would only grow its latency.
     private static let maxPendingBytes = 200_000
 
@@ -169,12 +169,12 @@ final class AudioStreamServer: @unchecked Sendable {
     /// path MTU (~1500) minus IP/UDP and DTLS record overhead, with margin.
     private static let maxUDPPCMPayload = 1100
 
-    /// Splits an interleaved Float32 PCM blob into `pcm` frames that each fit
+    /// Splits an interleaved int24 PCM blob into `pcm` frames that each fit
     /// one DTLS datagram. Chunks are aligned to a whole sample-frame boundary
-    /// (channelCount × 4 bytes) so each datagram is independently schedulable
+    /// (channelCount × 3 bytes) so each datagram is independently schedulable
     /// PCM on the receiver — no reassembly required.
     private nonisolated static func chunkPCMForDatagram(_ pcm: Data, channelCount: Int) -> [Data] {
-        let bytesPerSampleFrame = max(1, channelCount * MemoryLayout<Float32>.size)
+        let bytesPerSampleFrame = max(1, channelCount * AudioStreamProtocol.bytesPerSample)
         let maxChunk = max(bytesPerSampleFrame, (maxUDPPCMPayload / bytesPerSampleFrame) * bytesPerSampleFrame)
         if pcm.count <= maxChunk {
             return [AudioStreamProtocol.encodeFrame(pcm)]

@@ -260,7 +260,7 @@ final class AudioStreamerController {
 
     var formatText: String {
         guard let format = streamFormat else { return "—" }
-        return "\(format.channelCount)ch \(Int(format.sampleRate)) Hz Float32"
+        return "\(format.channelCount)ch \(Int(format.sampleRate)) Hz int24"
     }
 
     func start() {

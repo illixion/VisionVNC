@@ -79,7 +79,7 @@ final class AudioStreamManager {
     var formatLabel: String {
         guard sampleRate > 0 else { return "—" }
         let channels = channelCount == 1 ? "Mono" : channelCount == 2 ? "Stereo" : "\(channelCount)ch"
-        return "\(channels) · \(Int(sampleRate)) Hz · Float32 PCM"
+        return "\(channels) · \(Int(sampleRate)) Hz · int24 PCM"
     }
 
     private var receiver: AudioStreamReceiver?
@@ -870,11 +870,10 @@ final class AudioStreamReceiver: @unchecked Sendable {
             .joined(separator: ",")
         AppLog.audioStream.line("Session activated — outputs=[\(outs)] silenceHint=\(session.secondaryAudioShouldBeSilencedHint) otherAudio=\(session.isOtherAudioPlaying)")
 
-        // The wire format is interleaved, but AVAudioEngine throws an
-        // NSException ("SetFormat") when connecting a player node to the
-        // mixer with an interleaved Float32 format — the engine graph
-        // requires the standard (deinterleaved) format. We deinterleave
-        // in schedule() instead.
+        // The wire format is interleaved int24, but AVAudioEngine requires
+        // the standard (deinterleaved Float32) format on its graph — it
+        // throws an NSException ("SetFormat") for an interleaved/non-float
+        // format. We decode int24 → Float32 and deinterleave in schedule().
         guard let format = AVAudioFormat(
             standardFormatWithSampleRate: header.sampleRate,
             channels: AVAudioChannelCount(header.channelCount)
@@ -961,21 +960,22 @@ final class AudioStreamReceiver: @unchecked Sendable {
         }
 
         let channels = Int(format.channelCount)
-        let bytesPerWireFrame = channels * MemoryLayout<Float32>.size
+        let bytesPerWireFrame = channels * AudioStreamProtocol.bytesPerSample
         guard payload.count % bytesPerWireFrame == 0 else { return }
         let frameCount = AVAudioFrameCount(payload.count / bytesPerWireFrame)
         guard frameCount > 0,
               let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameCount) else { return }
         buffer.frameLength = frameCount
 
-        // Deinterleave wire Float32 into the engine's per-channel buffers
+        // Decode interleaved wire int24 → Float32, deinterleaving into the
+        // engine's per-channel buffers.
         payload.withUnsafeBytes { raw in
             guard let channelData = buffer.floatChannelData else { return }
-            let samples = raw.bindMemory(to: Float32.self)
+            let bytes = raw.bindMemory(to: UInt8.self)
             for channel in 0..<channels {
                 let out = channelData[channel]
                 for frame in 0..<Int(frameCount) {
-                    out[frame] = samples[frame * channels + channel]
+                    out[frame] = PCM24.sample(bytes, at: (frame * channels + channel) * AudioStreamProtocol.bytesPerSample)
                 }
             }
         }

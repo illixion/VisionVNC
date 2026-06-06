@@ -11,7 +11,8 @@ import AudioToolbox
 /// only audible copy is the one streamed to the receiver.
 ///
 /// Audio flows: process tap → private aggregate device → IOProc block,
-/// which delivers interleaved Float32 PCM chunks via `onAudio` on a
+/// which converts the tap's interleaved Float32 to interleaved signed int24
+/// (the wire format, see `PCM24`) and delivers it via `onAudio` on a
 /// realtime Core Audio thread.
 final class SystemAudioTap: @unchecked Sendable {
 
@@ -34,7 +35,8 @@ final class SystemAudioTap: @unchecked Sendable {
         }
     }
 
-    /// Called on a Core Audio realtime thread with interleaved Float32 PCM.
+    /// Called on a Core Audio realtime thread with interleaved signed int24
+    /// PCM (the wire format), converted from the tap's Float32 samples.
     nonisolated(unsafe) var onAudio: (@Sendable (Data) -> Void)?
 
     private nonisolated(unsafe) var tapID = AudioObjectID(kAudioObjectUnknown)
@@ -152,7 +154,8 @@ final class SystemAudioTap: @unchecked Sendable {
         format = nil
     }
 
-    /// Copies an AudioBufferList into a contiguous interleaved Float32 blob.
+    /// Converts an AudioBufferList of Float32 samples into a contiguous
+    /// interleaved signed int24 blob (the wire format — see `PCM24`).
     private nonisolated static func extractPCM(
         from bufferList: UnsafePointer<AudioBufferList>,
         isNonInterleaved: Bool,
@@ -167,7 +170,12 @@ final class SystemAudioTap: @unchecked Sendable {
             // Already interleaved (the stereo mixdown tap's usual format)
             let buffer = buffers[0]
             guard let base = buffer.mData, buffer.mDataByteSize > 0 else { return Data() }
-            return Data(bytes: base, count: Int(buffer.mDataByteSize))
+            let count = Int(buffer.mDataByteSize) / MemoryLayout<Float32>.size
+            let floats = UnsafeBufferPointer(
+                start: base.assumingMemoryBound(to: Float32.self),
+                count: count
+            )
+            return PCM24.encode(floats)
         }
 
         // Non-interleaved: one buffer per channel — interleave manually
@@ -180,6 +188,6 @@ final class SystemAudioTap: @unchecked Sendable {
                 interleaved[frame * channelCount + channel] = base[frame]
             }
         }
-        return interleaved.withUnsafeBufferPointer { Data(buffer: $0) }
+        return interleaved.withUnsafeBufferPointer { PCM24.encode($0) }
     }
 }
