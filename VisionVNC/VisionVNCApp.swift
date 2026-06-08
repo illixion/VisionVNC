@@ -6,6 +6,7 @@ struct VisionVNCApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @State private var connectionManager = VNCConnectionManager()
     @State private var audioManager = AudioStreamManager()
+    @State private var sshManager = SSHTerminalManager()
     #if MOONLIGHT_ENABLED
     @State private var moonlightManager = MoonlightConnectionManager()
     #endif
@@ -15,6 +16,7 @@ struct VisionVNCApp: App {
             MainView()
                 .environment(connectionManager)
                 .environment(audioManager)
+                .environment(sshManager)
                 #if MOONLIGHT_ENABLED
                 .environment(moonlightManager)
                 #endif
@@ -41,6 +43,19 @@ struct VisionVNCApp: App {
         }
         .defaultSize(width: 400, height: 600)
         .windowResizability(.contentSize)
+        .defaultLaunchBehavior(.suppressed)
+
+        WindowGroup("Terminal", id: "ssh-terminal", for: SSHSessionID.self) { $sessionID in
+            if let sessionID {
+                SSHTerminalView(sessionID: sessionID)
+                    .homeOrnament()
+                    .environment(sshManager)
+                    .trackWindowSession(id: "ssh-terminal")
+            }
+        }
+        .defaultSize(width: 900, height: 640)
+        .windowResizability(.contentMinSize)
+        .windowStyle(.plain)
         .defaultLaunchBehavior(.suppressed)
 
         WindowGroup("Remote Desktop", id: "remote-desktop") {

@@ -36,6 +36,7 @@ enum ConnectionDefaults {
         let stored: Int
         switch type {
         case .vnc: stored = defaults.integer(forKey: Keys.vncPort)
+        case .ssh: stored = 0  // no Settings override; falls back to port 22
         #if MOONLIGHT_ENABLED
         case .moonlight: stored = defaults.integer(forKey: Keys.moonlightPort)
         #endif
