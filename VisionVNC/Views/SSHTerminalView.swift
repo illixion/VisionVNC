@@ -135,7 +135,8 @@ struct SSHTerminalView: View {
         HStack(spacing: 12) {
             TextField("Message Claude…", text: $composer, axis: .vertical)
                 .textFieldStyle(.roundedBorder)
-                .lineLimit(1...5)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
                 .focused($composerFocused)
                 .onSubmit { send(session) }
             Button {
