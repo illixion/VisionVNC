@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 import os
 
 /// Menu bar companion app for VisionVNC: captures system audio via a
@@ -136,6 +137,59 @@ struct AudioSenderMenuView: View {
 
             Divider()
 
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Remote Control (SSH)")
+                    .font(.subheadline.weight(.semibold))
+
+                if let fingerprint = controller.macHostFingerprint {
+                    Text("This Mac: \(fingerprint)")
+                        .font(.system(.caption2, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+
+                Button("Add Vision Pro Key from Clipboard") {
+                    controller.addKeyFromClipboard()
+                }
+                .controlSize(.small)
+
+                if let status = controller.keyActionStatus {
+                    Text(status)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                ForEach(controller.installedVisionKeys) { key in
+                    HStack(spacing: 6) {
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(key.comment.isEmpty ? key.type : key.comment)
+                                .font(.caption)
+                            Text(key.fingerprint)
+                                .font(.system(.caption2, design: .monospaced))
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                        }
+                        Spacer()
+                        Button(role: .destructive) {
+                            controller.removeKey(key)
+                        } label: {
+                            Image(systemName: "trash")
+                        }
+                        .controlSize(.small)
+                    }
+                }
+
+                Text("Copy the key from VisionVNC (Projects → Copy Public Key), then add it here. Enable Remote Login in System Settings → General → Sharing for SSH to work.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Divider()
+
             Button("Quit") {
                 controller.stop()
                 NSApplication.shared.terminate(nil)
@@ -143,6 +197,7 @@ struct AudioSenderMenuView: View {
         }
         .padding(12)
         .frame(width: 280)
+        .onAppear { controller.refreshKeys() }
     }
 }
 
@@ -190,6 +245,66 @@ final class AudioStreamerController {
     func regenerateToken() {
         token = AudioToken.generate()
         if isRunning { start() } // restart server with the new token
+    }
+
+    // MARK: - SSH authorized keys (remote control)
+
+    /// VisionVNC-added keys currently in ~/.ssh/authorized_keys.
+    var installedVisionKeys: [AuthorizedKey] = []
+    var keyActionStatus: String?
+    var macHostFingerprint: String?
+
+    func refreshKeys() {
+        installedVisionKeys = AuthorizedKeysManager.read().filter { $0.comment.contains("visionvnc") }
+        if macHostFingerprint == nil {
+            macHostFingerprint = AuthorizedKeysManager.macHostFingerprint()
+        }
+    }
+
+    /// Reads a public key from the clipboard (Universal Clipboard from the
+    /// Vision Pro), prompts for explicit approval, then installs it.
+    func addKeyFromClipboard() {
+        guard let raw = NSPasteboard.general.string(forType: .string)?
+                .trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty else {
+            keyActionStatus = "Clipboard is empty."
+            return
+        }
+        guard let key = AuthorizedKeysManager.parse(raw) else {
+            keyActionStatus = "Clipboard isn't an SSH public key."
+            return
+        }
+        let alert = NSAlert()
+        alert.messageText = "Authorize this Vision Pro for SSH?"
+        alert.informativeText = """
+        \(key.type)
+        \(key.fingerprint)\(key.comment.isEmpty ? "" : "\n\(key.comment)")
+
+        Allowing adds it to ~/.ssh/authorized_keys, letting that device log in over SSH (key-based).
+        """
+        alert.addButton(withTitle: "Allow")
+        alert.addButton(withTitle: "Cancel")
+        NSApp.activate(ignoringOtherApps: true)
+        guard alert.runModal() == .alertFirstButtonReturn else {
+            keyActionStatus = "Cancelled."
+            return
+        }
+        do {
+            try AuthorizedKeysManager.add(line: raw)
+            refreshKeys()
+            keyActionStatus = "Authorized \(key.fingerprint)."
+        } catch {
+            keyActionStatus = "Failed: \(error.localizedDescription)"
+        }
+    }
+
+    func removeKey(_ key: AuthorizedKey) {
+        do {
+            try AuthorizedKeysManager.remove(base64: key.base64)
+            refreshKeys()
+            keyActionStatus = "Removed \(key.fingerprint)."
+        } catch {
+            keyActionStatus = "Failed: \(error.localizedDescription)"
+        }
     }
 
     var clientCount = 0
@@ -280,7 +395,7 @@ final class AudioStreamerController {
                 header: AudioStreamHeader(sampleRate: format.sampleRate, channelCount: format.channelCount)
             )
             server.onClientCountChange = { [weak self] count in
-                Task { @MainActor in
+                Task { @MainActor [weak self] in
                     self?.handleClientCountChange(count)
                 }
             }
@@ -296,7 +411,7 @@ final class AudioStreamerController {
                 self?.handleNowPlaying(info, artwork: artwork)
             }
             server.onCommand = { [weak bridge] command in
-                Task { @MainActor in
+                Task { @MainActor [weak bridge] in
                     bridge?.send(command)
                 }
             }
