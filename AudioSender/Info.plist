@@ -2,12 +2,14 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>CFBundleDisplayName</key>
+	<string>VisionVNC Companion</string>
 	<key>LSUIElement</key>
 	<true/>
 	<key>NSAppleEventsUsageDescription</key>
-	<string>VisionVNC Audio Sender controls Music and reads the current track so you can see and control playback from your Apple Vision Pro.</string>
+	<string>VisionVNC Companion controls Music and reads the current track so you can see and control playback from your Apple Vision Pro.</string>
 	<key>NSAudioCaptureUsageDescription</key>
-	<string>VisionVNC Audio Sender captures system audio to stream it to the VisionVNC app on your Apple Vision Pro.</string>
+	<string>VisionVNC Companion captures system audio to stream it to the VisionVNC app on your Apple Vision Pro.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>This app serves an audio stream to VisionVNC clients on your local network.</string>
 </dict>

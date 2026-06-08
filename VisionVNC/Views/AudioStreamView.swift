@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// Standalone mini-player window for an active audio-only stream from the
-/// VisionVNC Audio Sender Mac menu bar app. Wraps the shared
+/// VisionVNC Companion Mac menu bar app. Wraps the shared
 /// `AudioPlayerPanel` (album art + labels + transport) with window-level
 /// chrome: lifecycle handling and a disconnect / home / reconnect row.
 struct AudioStreamView: View {

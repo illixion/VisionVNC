@@ -6,7 +6,7 @@ VisionVNC is a remote desktop and game streaming app for **visionOS** built in S
 
 1. **VNC** — Traditional remote desktop via [RoyalVNCKit](https://github.com/royalapplications/royalvnc) (MIT, pure Swift, local SPM dependency)
 2. **Moonlight** — Low-latency game streaming via [moonlight-common-c](https://github.com/moonlight-stream/moonlight-common-c) (GPLv3, C protocol library) with hardware-accelerated H.264/HEVC/AV1 decoding, HDR10 support, and Opus audio
-3. **Audio** — Uncompressed system-audio streaming from a companion macOS menu bar app (`VisionVNCAudioSender` target). Works around macOS forcing Spatial Audio on for Mac Virtual Display: audio played by this app honors the per-app Spatial Audio setting. Also carries Music.app now-playing metadata (title/artist/artwork) to the Vision Pro and transport commands (play/pause/next/prev) back to the Mac; the visionOS side is an iTunes-style mini player.
+3. **Audio** — Uncompressed system-audio streaming from a companion macOS menu bar app (`VisionVNCCompanion` target). Works around macOS forcing Spatial Audio on for Mac Virtual Display: audio played by this app honors the per-app Spatial Audio setting. Also carries Music.app now-playing metadata (title/artist/artwork) to the Vision Pro and transport commands (play/pause/next/prev) back to the Mac; the visionOS side is an iTunes-style mini player.
 4. **SSH / Remote Claude** — A built-in SSH terminal client ([SwiftTerm](https://github.com/migueldeicaza/SwiftTerm) MIT + [swift-nio-ssh](https://github.com/apple/swift-nio-ssh) Apache-2.0, pure Swift) for any host, plus a **Projects** tab that drives Claude Code (or another configurable CLI) on a Mac over SSH — tmux-backed for persistence, with a gaze/dictation composer + quick-key row. The device identity is a Secure Enclave P-256 key; only its public key is installed on the host. Because the macOS Keychain is unreachable over SSH, Claude auth uses a `CLAUDE_CODE_OAUTH_TOKEN` (from `claude setup-token`) stored in the Vision Pro keychain and injected inline per session — no `sshd_config` edit. The companion macOS app also gained **text-only keyboard injection** (CGEvent Unicode + backspace, no modifiers — DuckyScript-safe) so the VNC soft keyboard can route typing through the Mac when a companion is linked.
 
 Moonlight is an **optional build-time feature** controlled by the `MOONLIGHT_ENABLED` Swift compilation condition. When disabled, the app is a pure VNC viewer with zero Moonlight code compiled in.
@@ -25,7 +25,7 @@ Moonlight is an **optional build-time feature** controlled by the `MOONLIGHT_ENA
 
 ### Dependency Setup (CI + local)
 
-**CI builds with Moonlight DISABLED** — enet doesn't compile on the GitHub runner image. The workflow (`.github/workflows/build.yml`, triggers on push to main + manual dispatch) stubs out the moonlight-common-c and opus packages with empty SPM packages (same product names, nothing compiled), clones+patches RoyalVNC only, and archives without `MOONLIGHT_ENABLED`. It releases the unsigned visionOS IPA and an unsigned macOS Audio Sender zip.
+**CI builds with Moonlight DISABLED** — enet doesn't compile on the GitHub runner image. The workflow (`.github/workflows/build.yml`, triggers on push to main + manual dispatch) stubs out the moonlight-common-c and opus packages with empty SPM packages (same product names, nothing compiled), clones+patches RoyalVNC only, and archives without `MOONLIGHT_ENABLED`. It releases the unsigned visionOS IPA and an unsigned macOS Companion zip.
 
 **Local Moonlight-enabled builds** use `scripts/setup-deps.sh` (idempotent, `--force` to redo), which recreates the full dependency setup in gitignored `repos/`:
 - `royalvnc-visionvnc.patch` — Static linking + VisionVNC API additions (see Build Configuration above)
@@ -236,7 +236,7 @@ VisionVNC/
 Shared/                                 — compiled into BOTH targets (visionOS app + macOS sender)
 └── AudioStreamProtocol.swift           — Wire protocol v6 (int24 PCM via PCM24), NowPlayingInfo, MediaCommand
 
-AudioSender/                            — macOS menu bar sender target (VisionVNCAudioSender)
+AudioSender/                            — macOS menu bar sender target (VisionVNCCompanion)
 ├── AudioSenderApp.swift                — MenuBarExtra UI + AudioStreamerController
 ├── AudioStreamServer.swift             — Single-client TCP server, metadata replay, command rx
 ├── SystemAudioTap.swift                — Core Audio process tap

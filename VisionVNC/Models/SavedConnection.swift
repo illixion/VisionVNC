@@ -192,7 +192,7 @@ final class SavedConnection {
 
     // MARK: Audio-specific
 
-    /// Static auth token presented to the VisionVNC Audio Sender. Default
+    /// Static auth token presented to the VisionVNC Companion. Default
     /// empty so lightweight migration of existing stores is safe.
     var audioToken: String = ""
 

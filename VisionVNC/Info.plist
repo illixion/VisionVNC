@@ -25,7 +25,7 @@
 		</dict>
 	</array>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>VisionVNC connects to remote desktops, game streaming hosts, and the Audio Sender on your local network.</string>
+	<string>VisionVNC connects to remote desktops, game streaming hosts, and the Companion on your local network.</string>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsArbitraryLoads</key>

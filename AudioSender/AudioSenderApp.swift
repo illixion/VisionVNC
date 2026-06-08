@@ -17,7 +17,7 @@ struct AudioSenderApp: App {
         // waiting for the first stream — reading hostName performs a
         // local-network lookup, which is enough to trigger the dialog.
         let hostName = ProcessInfo.processInfo.hostName
-        Logger(subsystem: "com.illixion.VisionVNCAudioSender", category: "App")
+        Logger(subsystem: "com.illixion.VisionVNCCompanion", category: "App")
             .info("Local network access prompt triggered (host: \(hostName, privacy: .private))")
     }
 
@@ -62,7 +62,7 @@ struct AudioSenderMenuView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("VisionVNC Audio Sender")
+            Text("VisionVNC Companion")
                 .font(.headline)
 
             Toggle("Stream system audio", isOn: $controller.isRunning)

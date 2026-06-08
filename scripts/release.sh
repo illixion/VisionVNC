@@ -82,7 +82,7 @@ fi
 
 # --- GitHub Release ---
 # CI (on push to main) creates release $VERSION with the VNC-only IPA and
-# the macOS Audio Sender. If it exists, attach the Moonlight IPA to it;
+# the macOS Companion. If it exists, attach the Moonlight IPA to it;
 # otherwise (CI hasn't run / commit not pushed) create the release here.
 if gh release view "$VERSION" &>/dev/null; then
     echo "==> Attaching Moonlight IPA to existing release $VERSION..."
