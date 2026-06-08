@@ -37,7 +37,10 @@ struct MoonlightKeyboardView: View {
                     .textFieldStyle(.roundedBorder)
                     .focused($isTextFieldFocused)
                     .onChange(of: textInput) { oldValue, newValue in
-                        sendNewCharacters(old: oldValue, new: newValue)
+                        sendDelta(old: oldValue, new: newValue)
+                    }
+                    .onSubmit {
+                        sendKeyPress(0x0D) // VK_RETURN
                     }
                     .padding(.horizontal)
 
@@ -100,23 +103,32 @@ struct MoonlightKeyboardView: View {
 
     // MARK: - Character Sending
 
-    private func sendNewCharacters(old: String, new: String) {
-        guard new.count > old.count else { return }
-        let newChars = new.suffix(new.count - old.count)
-        for char in newChars {
-            if char.isNewline {
-                sendKeyPress(0x0D) // VK_RETURN
-            } else if let vk = MoonlightKeyCodes.windowsKeyCode(for: char) {
-                // Check if the character needs shift (uppercase or shifted punctuation)
-                let needsShift = char.isUppercase || isShiftedPunctuation(char)
-                if needsShift && !shiftActive {
-                    LiSendKeyboardEvent(0xA0, Int8(KEY_ACTION_DOWN), modifierMask | Int8(MODIFIER_SHIFT))
-                    LiSendKeyboardEvent(vk, Int8(KEY_ACTION_DOWN), modifierMask | Int8(MODIFIER_SHIFT))
-                    LiSendKeyboardEvent(vk, Int8(KEY_ACTION_UP), modifierMask | Int8(MODIFIER_SHIFT))
-                    LiSendKeyboardEvent(0xA0, Int8(KEY_ACTION_UP), modifierMask)
-                } else {
-                    sendKeyPress(vk)
-                }
+    /// Mirror the text field's edits to the remote PC as a common-prefix delta:
+    /// VK_BACK for the removed tail, then the new tail typed. Fixes backspace
+    /// (deletions are now sent) and dictation's mid-string rewrites.
+    private func sendDelta(old: String, new: String) {
+        let delta = TextDiff.delta(old: old, new: new)
+        for _ in 0..<delta.deleteCount {
+            sendKeyPress(0x08) // VK_BACK
+        }
+        for char in delta.insert {
+            sendCharacter(char)
+        }
+    }
+
+    private func sendCharacter(_ char: Character) {
+        if char.isNewline {
+            sendKeyPress(0x0D) // VK_RETURN
+        } else if let vk = MoonlightKeyCodes.windowsKeyCode(for: char) {
+            // Check if the character needs shift (uppercase or shifted punctuation)
+            let needsShift = char.isUppercase || isShiftedPunctuation(char)
+            if needsShift && !shiftActive {
+                LiSendKeyboardEvent(0xA0, Int8(KEY_ACTION_DOWN), modifierMask | Int8(MODIFIER_SHIFT))
+                LiSendKeyboardEvent(vk, Int8(KEY_ACTION_DOWN), modifierMask | Int8(MODIFIER_SHIFT))
+                LiSendKeyboardEvent(vk, Int8(KEY_ACTION_UP), modifierMask | Int8(MODIFIER_SHIFT))
+                LiSendKeyboardEvent(0xA0, Int8(KEY_ACTION_UP), modifierMask)
+            } else {
+                sendKeyPress(vk)
             }
         }
     }

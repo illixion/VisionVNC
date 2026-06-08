@@ -365,6 +365,38 @@ final class VNCConnectionManager: NSObject, VNCConnectionDelegate {
         connection?.keyUp(key)
     }
 
+    // MARK: - Keyboard Text Routing
+
+    /// Type literal text into the VNC session, one character at a time.
+    /// Newlines map to Return; non-printable characters are dropped by
+    /// `VNCKeyCode.withCharacter`. Special keys and modifiers are sent via the
+    /// dedicated buttons, never here. (A companion text-injection route is
+    /// layered on top of this in a later step.)
+    func routeInsertText(_ text: String) {
+        for char in text {
+            if char.isNewline {
+                sendKeyDown(.return)
+                sendKeyUp(.return)
+            } else {
+                for code in VNCKeyCode.withCharacter(char) {
+                    sendKeyDown(code)
+                    sendKeyUp(code)
+                }
+            }
+        }
+    }
+
+    /// Emit `count` backspaces. Note the RoyalVNCKit naming trap:
+    /// `VNCKeyCode.delete` is `XK_BackSpace` (backspace), while
+    /// `.forwardDelete` is the forward Delete key.
+    func routeDeleteBackward(_ count: Int) {
+        guard count > 0 else { return }
+        for _ in 0..<count {
+            sendKeyDown(.delete)
+            sendKeyUp(.delete)
+        }
+    }
+
     // MARK: - Virtual Cursor (Relative/Touchpad Mode)
 
     /// Lazily initializes the virtual cursor to the center of the framebuffer.
