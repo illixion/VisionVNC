@@ -60,7 +60,6 @@ struct VisionVNCApp: App {
 
         WindowGroup("Remote Desktop", id: "remote-desktop") {
             RemoteDesktopView()
-                .homeOrnament()
                 .environment(connectionManager)
                 .environment(audioManager)
                 .trackWindowSession(id: "remote-desktop")
@@ -73,7 +72,6 @@ struct VisionVNCApp: App {
         #if MOONLIGHT_ENABLED
         WindowGroup("Moonlight Stream", id: "moonlight-stream") {
             MoonlightStreamView()
-                .homeOrnament()
                 .environment(moonlightManager)
                 .trackWindowSession(id: "moonlight-stream")
         }

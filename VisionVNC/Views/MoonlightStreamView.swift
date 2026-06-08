@@ -235,6 +235,16 @@ struct MoonlightStreamView: View {
     private var controlsBar: some View {
         HStack(spacing: 16) {
             Button {
+                manager.touchMode = manager.touchMode == .absolute ? .relative : .absolute
+            } label: {
+                Label(
+                    manager.touchMode == .absolute ? "Direct" : "Touchpad",
+                    systemImage: manager.touchMode == .absolute
+                        ? "hand.tap" : "rectangle.and.hand.point.up.left"
+                )
+            }
+
+            Button {
                 openWindow(id: "moonlight-keyboard")
             } label: {
                 Label("Keyboard", systemImage: "keyboard")
@@ -247,11 +257,21 @@ struct MoonlightStreamView: View {
             }
             .tint(showStats ? .accentColor : nil)
 
+            Button {
+                openWindow(id: "main")
+            } label: {
+                Label("Connections", systemImage: "house")
+            }
+            .labelStyle(.iconOnly)
+            .help("Open the connection manager")
+
             Button(role: .destructive) {
                 showDisconnectAlert = true
             } label: {
                 Label("Disconnect", systemImage: "xmark.circle.fill")
             }
+            .labelStyle(.iconOnly)
+            .help("Disconnect")
         }
         .buttonStyle(.bordered)
         .padding(12)

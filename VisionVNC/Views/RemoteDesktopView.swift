@@ -177,6 +177,12 @@ struct RemoteDesktopView: View {
                 Label("Ctrl+Alt+Del", systemImage: "power")
             }
 
+            Button(action: { openWindow(id: "main") }) {
+                Label("Connections", systemImage: "house")
+            }
+            .labelStyle(.iconOnly)
+            .help("Open the connection manager")
+
             Button(action: {
                 connectionManager.disconnect()
                 if !connectionManager.openedViaPush {
@@ -187,6 +193,8 @@ struct RemoteDesktopView: View {
             }) {
                 Label("Disconnect", systemImage: "xmark.circle")
             }
+            .labelStyle(.iconOnly)
+            .help("Disconnect")
         }
         .buttonStyle(.bordered)
         .padding(.horizontal, 24)
