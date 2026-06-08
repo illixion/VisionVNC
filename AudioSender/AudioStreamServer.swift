@@ -40,7 +40,7 @@ final class AudioStreamServer: @unchecked Sendable {
     private let port: UInt16
     private let token: String
     private let header: AudioStreamHeader
-    private let queue = DispatchQueue(label: "com.illixion.VisionVNCAudioSender.server", qos: .userInteractive)
+    private let queue = DispatchQueue(label: "com.illixion.VisionVNCCompanion.server", qos: .userInteractive)
     private nonisolated(unsafe) var listener: NWListener?
     private nonisolated(unsafe) var clients: [ObjectIdentifier: Client] = [:]
     /// Heartbeat for the UDP/DTLS path so the receiver sees liveness during
@@ -48,7 +48,7 @@ final class AudioStreamServer: @unchecked Sendable {
     private nonisolated(unsafe) var keepAliveTimer: DispatchSourceTimer?
     private static let keepAliveFrame = AudioStreamProtocol.encodeFrame(.keepAlive, Data())
 
-    private let log = Logger(subsystem: "com.illixion.VisionVNCAudioSender", category: "AudioStreamServer")
+    private let log = Logger(subsystem: "com.illixion.VisionVNCCompanion", category: "AudioStreamServer")
 
     /// Latest pre-encoded metadata frames, replayed to newly connected
     /// clients right after the header. Mutated only on `queue`.

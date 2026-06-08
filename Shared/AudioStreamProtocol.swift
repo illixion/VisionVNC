@@ -2,7 +2,7 @@ import Foundation
 import Security
 
 /// Wire protocol for streaming uncompressed system audio from the macOS
-/// sender (VisionVNC Audio Sender) to the visionOS receiver, plus
+/// sender (VisionVNC Companion) to the visionOS receiver, plus
 /// now-playing metadata (sender → receiver) and media transport commands
 /// (receiver → sender) for controlling Music.app on the Mac.
 ///

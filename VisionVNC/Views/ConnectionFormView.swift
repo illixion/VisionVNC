@@ -249,7 +249,7 @@ struct ConnectionFormView: View {
     @ViewBuilder
     private var audioSections: some View {
         Section("Audio Stream") {
-            Text("Streams uncompressed system audio from the VisionVNC Audio Sender menu bar app on your Mac. Unlike Mac Virtual Display audio, playback respects this app's Spatial Audio setting.")
+            Text("Streams uncompressed system audio from the VisionVNC Companion menu bar app on your Mac. Unlike Mac Virtual Display audio, playback respects this app's Spatial Audio setting.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
@@ -264,7 +264,7 @@ struct ConnectionFormView: View {
                 .contentShape(.rect)
                 .onTapGesture { focusedField = .audioToken }
 
-            Text("Copy the token from the Audio Sender menu bar app, or AirDrop it to auto-fill this field. The token both authorizes and encrypts the connection (TLS) — no VPN needed.")
+            Text("Copy the token from the Companion menu bar app, or AirDrop it to auto-fill this field. The token both authorizes and encrypts the connection (TLS) — no VPN needed.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }

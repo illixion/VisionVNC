@@ -19,7 +19,7 @@
 
 /* Begin PBXFileReference section */
 		1DC83C272F74524200BF0482 /* VisionVNC.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = VisionVNC.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		AA10AD100000000000000001 /* VisionVNCAudioSender.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = VisionVNCAudioSender.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		AA10AD100000000000000001 /* VisionVNCCompanion.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = VisionVNCCompanion.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		AA10AD10000000000000000C /* VisionVNC.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; name = VisionVNC.xcconfig; path = Configuration/VisionVNC.xcconfig; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -31,12 +31,12 @@
 			);
 			target = 1DC83C262F74524200BF0482 /* VisionVNC */;
 		};
-		AA10AD100000000000000003 /* Exceptions for "AudioSender" folder in "VisionVNCAudioSender" target */ = {
+		AA10AD100000000000000003 /* Exceptions for "AudioSender" folder in "VisionVNCCompanion" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Info.plist,
 			);
-			target = AA10AD100000000000000005 /* VisionVNCAudioSender */;
+			target = AA10AD100000000000000005 /* VisionVNCCompanion */;
 		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
@@ -52,7 +52,7 @@
 		AA10AD100000000000000002 /* AudioSender */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
-				AA10AD100000000000000003 /* Exceptions for "AudioSender" folder in "VisionVNCAudioSender" target */,
+				AA10AD100000000000000003 /* Exceptions for "AudioSender" folder in "VisionVNCCompanion" target */,
 			);
 			path = AudioSender;
 			sourceTree = "<group>";
@@ -114,7 +114,7 @@
 			isa = PBXGroup;
 			children = (
 				1DC83C272F74524200BF0482 /* VisionVNC.app */,
-				AA10AD100000000000000001 /* VisionVNCAudioSender.app */,
+				AA10AD100000000000000001 /* VisionVNCCompanion.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -162,9 +162,9 @@
 			productReference = 1DC83C272F74524200BF0482 /* VisionVNC.app */;
 			productType = "com.apple.product-type.application";
 		};
-		AA10AD100000000000000005 /* VisionVNCAudioSender */ = {
+		AA10AD100000000000000005 /* VisionVNCCompanion */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = AA10AD100000000000000009 /* Build configuration list for PBXNativeTarget "VisionVNCAudioSender" */;
+			buildConfigurationList = AA10AD100000000000000009 /* Build configuration list for PBXNativeTarget "VisionVNCCompanion" */;
 			buildPhases = (
 				AA10AD100000000000000006 /* Sources */,
 				AA10AD100000000000000007 /* Frameworks */,
@@ -178,11 +178,11 @@
 				AA10AD100000000000000002 /* AudioSender */,
 				AA10AD100000000000000004 /* Shared */,
 			);
-			name = VisionVNCAudioSender;
+			name = VisionVNCCompanion;
 			packageProductDependencies = (
 			);
-			productName = VisionVNCAudioSender;
-			productReference = AA10AD100000000000000001 /* VisionVNCAudioSender.app */;
+			productName = VisionVNCCompanion;
+			productReference = AA10AD100000000000000001 /* VisionVNCCompanion.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
@@ -228,7 +228,7 @@
 			projectRoot = "";
 			targets = (
 				1DC83C262F74524200BF0482 /* VisionVNC */,
-				AA10AD100000000000000005 /* VisionVNCAudioSender */,
+				AA10AD100000000000000005 /* VisionVNCCompanion */,
 			);
 		};
 /* End PBXProject section */
@@ -502,7 +502,7 @@
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.2;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.illixion.VisionVNCAudioSender;
+				PRODUCT_BUNDLE_IDENTIFIER = com.illixion.VisionVNCCompanion;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = macosx;
 				SUPPORTED_PLATFORMS = macosx;
@@ -531,7 +531,7 @@
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.2;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.illixion.VisionVNCAudioSender;
+				PRODUCT_BUNDLE_IDENTIFIER = com.illixion.VisionVNCCompanion;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = macosx;
 				SUPPORTED_PLATFORMS = macosx;
@@ -564,7 +564,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		AA10AD100000000000000009 /* Build configuration list for PBXNativeTarget "VisionVNCAudioSender" */ = {
+		AA10AD100000000000000009 /* Build configuration list for PBXNativeTarget "VisionVNCCompanion" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				AA10AD10000000000000000A /* Debug */,

@@ -86,8 +86,8 @@ final class SystemAudioTap: @unchecked Sendable {
 
         // 3. Private aggregate device hosting the tap
         let aggregateDescription: [String: Any] = [
-            kAudioAggregateDeviceNameKey: "VisionVNC Audio Sender",
-            kAudioAggregateDeviceUIDKey: "com.illixion.VisionVNCAudioSender.aggregate",
+            kAudioAggregateDeviceNameKey: "VisionVNC Companion",
+            kAudioAggregateDeviceUIDKey: "com.illixion.VisionVNCCompanion.aggregate",
             kAudioAggregateDeviceIsPrivateKey: true,
             kAudioAggregateDeviceTapAutoStartKey: true,
             kAudioAggregateDeviceTapListKey: [

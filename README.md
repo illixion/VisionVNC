@@ -28,7 +28,7 @@ VisionVNC combines a full-featured **VNC viewer** with a **Moonlight game stream
 - Session management — disconnect locally or quit the app on the server
 
 ### Audio Streaming
-- Stream bit-exact, uncompressed system audio from your Mac via the bundled **VisionVNC Audio Sender** menu bar app (separate macOS target in this project)
+- Stream bit-exact, uncompressed system audio from your Mac via the bundled **VisionVNC Companion** menu bar app (separate macOS target in this project)
 - Works around macOS forcing Spatial Audio on for Mac Virtual Display audio — playback through VisionVNC honors the per-app Spatial Audio setting
 - Captures system audio with a Core Audio process tap — no virtual audio driver (BlackHole etc.) required
 - Optional "Mute Mac output while streaming" so audio plays only through the Vision Pro
@@ -114,22 +114,22 @@ Open `VisionVNC.xcodeproj` in Xcode, then add the local packages as described ab
 
 The project is **arm64-only** (`ARCHS = arm64` at the project level) — Apple deprecated x86_64 with macOS Tahoe. When building for the simulator from the command line, use a concrete destination (e.g. `-destination 'platform=visionOS Simulator,name=Apple Vision Pro'`) rather than a generic one.
 
-### Building the Audio Sender (macOS)
+### Building the Companion (macOS)
 
-The **VisionVNCAudioSender** scheme builds the macOS menu bar app that streams system audio to VisionVNC. It has no external dependencies, so it builds even without the `repos/` setup above. Select the `VisionVNCAudioSender` scheme in Xcode and run, or from the command line:
+The **VisionVNCCompanion** scheme builds the macOS menu bar app that streams system audio to VisionVNC. It has no external dependencies, so it builds even without the `repos/` setup above. Select the `VisionVNCCompanion` scheme in Xcode and run, or from the command line:
 
 ```bash
-xcodebuild -project VisionVNC.xcodeproj -scheme VisionVNCAudioSender -configuration Release build
+xcodebuild -project VisionVNC.xcodeproj -scheme VisionVNCCompanion -configuration Release build
 # Built product:
-# ~/Library/Developer/Xcode/DerivedData/VisionVNC-*/Build/Products/Release/VisionVNCAudioSender.app
+# ~/Library/Developer/Xcode/DerivedData/VisionVNC-*/Build/Products/Release/VisionVNCCompanion.app
 ```
 
-(Add `-derivedDataPath build/dd` to get the app at `build/dd/Build/Products/Release/VisionVNCAudioSender.app` instead.)
+(Add `-derivedDataPath build/dd` to get the app at `build/dd/Build/Products/Release/VisionVNCCompanion.app` instead.)
 
 Requires macOS 14.2+. On first start of streaming, grant the **System Audio Recording** permission prompt (System Settings → Privacy & Security → Screen & System Audio Recording).
 
 **Usage:**
-1. Launch VisionVNCAudioSender on the Mac (speaker icon in the menu bar) and enable **Stream system audio**
+1. Launch VisionVNCCompanion on the Mac (speaker icon in the menu bar) and enable **Stream system audio**
 2. In VisionVNC on the Vision Pro, add an **Audio** connection pointing at your Mac's IP, port 4855
 3. Spatialized Stereo will be off by default, since the Mac Virtual Display's audio stream is always forced into Spatialized Stereo, so if you ever need to stream 5.1/7.1 surround just use Mac VD audio streaming instead.
 
@@ -166,7 +166,7 @@ VisionVNCApp
     ├── ConnectionListView        — Unified server list, routes by type
     └── ConnectionFormView        — Per-connection settings form
 
-VisionVNCAudioSender (macOS menu bar app)
+VisionVNCCompanion (macOS menu bar app)
 ├── SystemAudioTap                — Core Audio process tap + aggregate device
 ├── AudioStreamServer             — TCP server, Float32 PCM frames
 └── AudioSenderApp                — MenuBarExtra UI

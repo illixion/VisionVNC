@@ -17,7 +17,7 @@ enum AudioMode: String, Sendable, CaseIterable {
     case speaker, music
 }
 
-/// Receives an uncompressed PCM audio stream from the VisionVNC Audio Sender
+/// Receives an uncompressed PCM audio stream from the VisionVNC Companion
 /// Mac menu bar app and plays it through AVAudioEngine.
 ///
 /// Because audio rendered by a regular visionOS app honors the per-app
@@ -766,7 +766,7 @@ final class AudioStreamReceiver: @unchecked Sendable {
         if header == nil {
             guard pending.count >= AudioStreamProtocol.headerSize else { return }
             guard let parsed = AudioStreamHeader(parsing: pending) else {
-                fail("Invalid stream header — is the sender the VisionVNC Audio Sender?")
+                fail("Invalid stream header — is the sender the VisionVNC Companion?")
                 return
             }
             pending.removeFirst(AudioStreamProtocol.headerSize)
