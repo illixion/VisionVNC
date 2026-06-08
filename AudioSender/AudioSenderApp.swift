@@ -422,6 +422,13 @@ final class AudioStreamerController {
     private var tap: SystemAudioTap?
     private var server: AudioStreamServer?
     private var musicBridge: MusicAppBridge?
+    /// Whether the tap is currently muting local Mac output.
+    private var tapMuted = false
+    /// Delays un-muting after the last client leaves, so a Vision Pro
+    /// reconnect (e.g. an audio-mode switch, which drops and reopens the
+    /// connection) doesn't leak a blip of Mac audio out the local output
+    /// during the gap.
+    private var pendingUnmuteTask: Task<Void, Never>?
 
     var isRunning: Bool {
         get { tap != nil }
@@ -494,6 +501,7 @@ final class AudioStreamerController {
         let tap = SystemAudioTap()
         do {
             let format = try tap.start(muteSystemOutput: false)
+            tapMuted = false
             streamFormat = format
 
             let server = AudioStreamServer(
@@ -538,11 +546,23 @@ final class AudioStreamerController {
         let previous = clientCount
         clientCount = count
         guard muteWhileStreaming, isRunning else { return }
-        // Mute local output only while someone is listening
+        // Mute local output only while someone is listening.
         if previous == 0, count > 0 {
-            restartTap(muted: true)
+            // (Re)connected — cancel a pending unmute; mute now if we aren't
+            // already (a mute held across a reconnect needs no tap restart).
+            pendingUnmuteTask?.cancel()
+            pendingUnmuteTask = nil
+            if !tapMuted { restartTap(muted: true) }
         } else if previous > 0, count == 0 {
-            restartTap(muted: false)
+            // Hold the mute briefly — only unmute if no client returns. This
+            // covers the Vision Pro's reconnect during an audio-mode switch.
+            pendingUnmuteTask?.cancel()
+            pendingUnmuteTask = Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .seconds(3))
+                guard let self, !Task.isCancelled,
+                      self.isRunning, self.clientCount == 0 else { return }
+                self.restartTap(muted: false)
+            }
         }
     }
 
@@ -570,6 +590,7 @@ final class AudioStreamerController {
                 server?.broadcast(pcm)
             }
             tap = newTap
+            tapMuted = muted
         } catch {
             lastError = error.localizedDescription
             stop()
@@ -577,6 +598,9 @@ final class AudioStreamerController {
     }
 
     func stop() {
+        pendingUnmuteTask?.cancel()
+        pendingUnmuteTask = nil
+        tapMuted = false
         tap?.onAudio = nil
         tap?.stop()
         tap = nil
