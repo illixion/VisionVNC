@@ -34,8 +34,15 @@ struct ConnectionFormView: View {
     @State private var audioToken: String = ""
     @State private var lowLatencyAudio: Bool = false
 
+    // SSH
+    @State private var sshUsername: String = ""
+    @State private var sshLaunchCommand: String = ""
+    @State private var sshClientCommand: String = ""
+    @State private var sshEnvVars: String = ""
+
     private enum Field: Hashable {
-        case hostname, port, username, password, label, audioToken
+        case hostname, port, username, password, label, audioToken, sshUsername, sshLaunchCommand
+        case sshClientCommand, sshEnvVars
     }
     @FocusState private var focusedField: Field?
 
@@ -80,6 +87,8 @@ struct ConnectionFormView: View {
             switch connectionType {
             case .vnc:
                 vncSections
+            case .ssh:
+                sshSections
             #if MOONLIGHT_ENABLED
             case .moonlight:
                 moonlightSections
@@ -269,6 +278,70 @@ struct ConnectionFormView: View {
         }
     }
 
+    // MARK: - SSH Sections
+
+    @ViewBuilder
+    private var sshSections: some View {
+        Section("SSH") {
+            TextField("Username", text: $sshUsername)
+                .textContentType(.username)
+                .autocorrectionDisabled()
+                .textInputAutocapitalization(.never)
+                .focused($focusedField, equals: .sshUsername)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(.rect)
+                .onTapGesture { focusedField = .sshUsername }
+
+            Text("Key-based login. Add this device's SSH key (Projects tab → Copy Public Key) to ~/.ssh/authorized_keys on the host. The private key never leaves the Secure Enclave.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+
+        Section("Command") {
+            TextField("Login shell (default)", text: $sshLaunchCommand)
+                .font(.system(.body, design: .monospaced))
+                .autocorrectionDisabled()
+                .textInputAutocapitalization(.never)
+                .focused($focusedField, equals: .sshLaunchCommand)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(.rect)
+                .onTapGesture { focusedField = .sshLaunchCommand }
+
+            Text("Optional command to run on connect. Empty = an interactive login shell. To run Claude in a project folder, use the Projects tab instead.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+
+        Section("Managed Session (Projects tab)") {
+            TextField("claude", text: $sshClientCommand)
+                .font(.system(.body, design: .monospaced))
+                .autocorrectionDisabled()
+                .textInputAutocapitalization(.never)
+                .focused($focusedField, equals: .sshClientCommand)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(.rect)
+                .onTapGesture { focusedField = .sshClientCommand }
+
+            Text("Client command launched in the project folder via tmux from the Projects tab. Default: claude. Swap in another CLI to reuse the same workflow.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+
+        Section("Environment") {
+            TextField("KEY=VALUE (one per line)", text: $sshEnvVars, axis: .vertical)
+                .font(.system(.body, design: .monospaced))
+                .lineLimit(2...6)
+                .autocorrectionDisabled()
+                .textInputAutocapitalization(.never)
+                .focused($focusedField, equals: .sshEnvVars)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            Text("Injected before the command runs (inline; readable by your own processes on the Mac, so keep these non-secret). The Claude login token is set separately — Projects tab → Set up Claude — and kept in this device's keychain.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+
     #if MOONLIGHT_ENABLED
     // MARK: - Moonlight Sections
 
@@ -406,6 +479,10 @@ struct ConnectionFormView: View {
         linkedAudioConnectionID = saved.linkedAudioConnectionID
         audioToken = saved.audioToken
         lowLatencyAudio = saved.lowLatencyAudio
+        sshUsername = saved.sshUsername
+        sshLaunchCommand = saved.sshLaunchCommand
+        sshClientCommand = saved.sshClientCommand
+        sshEnvVars = saved.sshEnvVars
 
         #if MOONLIGHT_ENABLED
         // Moonlight fields
@@ -483,6 +560,12 @@ struct ConnectionFormView: View {
         case .audio:
             connection.audioToken = audioToken.trimmingCharacters(in: .whitespacesAndNewlines)
             connection.lowLatencyAudio = lowLatencyAudio
+
+        case .ssh:
+            connection.sshUsername = sshUsername.trimmingCharacters(in: .whitespaces)
+            connection.sshLaunchCommand = sshLaunchCommand.trimmingCharacters(in: .whitespacesAndNewlines)
+            connection.sshClientCommand = sshClientCommand.trimmingCharacters(in: .whitespacesAndNewlines)
+            connection.sshEnvVars = sshEnvVars.trimmingCharacters(in: .whitespacesAndNewlines)
         }
     }
 

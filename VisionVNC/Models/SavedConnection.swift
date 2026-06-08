@@ -6,6 +6,7 @@ import RoyalVNCKit
 
 enum ConnectionType: String, CaseIterable, Codable {
     case vnc
+    case ssh
     #if MOONLIGHT_ENABLED
     case moonlight
     #endif
@@ -14,6 +15,7 @@ enum ConnectionType: String, CaseIterable, Codable {
     var label: String {
         switch self {
         case .vnc: "VNC"
+        case .ssh: "SSH"
         #if MOONLIGHT_ENABLED
         case .moonlight: "Moonlight"
         #endif
@@ -24,6 +26,7 @@ enum ConnectionType: String, CaseIterable, Codable {
     var systemImage: String {
         switch self {
         case .vnc: "display"
+        case .ssh: "terminal"
         #if MOONLIGHT_ENABLED
         case .moonlight: "gamecontroller"
         #endif
@@ -34,6 +37,7 @@ enum ConnectionType: String, CaseIterable, Codable {
     var defaultPort: Int {
         switch self {
         case .vnc: 5900
+        case .ssh: 22
         #if MOONLIGHT_ENABLED
         case .moonlight: 47989
         #endif
@@ -205,6 +209,38 @@ final class SavedConnection {
     /// lightweight migration is safe.
     var linkedAudioConnectionID: UUID?
 
+    // MARK: SSH-specific
+
+    /// Username for SSH login. Auth is key-based — the device's Secure Enclave
+    /// key is the credential. Default empty so lightweight migration is safe.
+    var sshUsername: String = ""
+
+    /// Remote command to run under the PTY. Empty → an interactive login shell
+    /// (generic terminal). The Projects tab overrides this per launch to run
+    /// `claude` in a chosen folder via tmux.
+    var sshLaunchCommand: String = ""
+
+    /// Managed-session client command (Projects tab). Empty → `claude`. Lets
+    /// the same tmux-backed workflow drive a different CLI. Default empty so
+    /// lightweight migration is safe.
+    var sshClientCommand: String = ""
+
+    /// Extra non-secret environment variables to inject over the (encrypted)
+    /// SSH channel, `KEY=VALUE` one per line. Each name must be listed in the
+    /// Mac's sshd `AcceptEnv`. The Claude auth token is handled separately
+    /// (stored in the Keychain, not here). Default empty for safe migration.
+    var sshEnvVars: String = ""
+
+    /// Env var name the stored auth token is injected as. Empty →
+    /// `CLAUDE_CODE_OAUTH_TOKEN` (Claude Code's headless credential — it's read
+    /// before the macOS Keychain, which is unreachable in an SSH session).
+    var sshAuthEnvName: String = ""
+
+    /// Whether an auth token is stored in the Keychain for this connection.
+    /// The token *value* lives in `KeychainStore` (keyed by `id`), never in
+    /// SwiftData; this is only a UI flag. Default false for safe migration.
+    var sshHasAuthToken: Bool = false
+
     var quality: ConnectionQuality {
         get { ConnectionQuality(rawValue: qualityRawValue) ?? .high }
         set { qualityRawValue = newValue.rawValue }
@@ -213,6 +249,70 @@ final class SavedConnection {
     var vncTouchMode: TouchMode {
         get { TouchMode(rawValue: vncTouchModeRawValue) ?? .relative }
         set { vncTouchModeRawValue = newValue.rawValue }
+    }
+
+    // MARK: SSH helpers
+
+    private static let sshAuthTokenService = "com.illixion.VisionVNC.sshAuthToken"
+
+    /// Client command for managed (Projects-tab) sessions — `claude` by default.
+    var effectiveSSHClientCommand: String {
+        sshClientCommand.isEmpty ? "claude" : sshClientCommand
+    }
+
+    /// Env var name the auth token is injected as.
+    var effectiveSSHAuthEnvName: String {
+        sshAuthEnvName.isEmpty ? "CLAUDE_CODE_OAUTH_TOKEN" : sshAuthEnvName
+    }
+
+    /// The per-connection auth token, stored in the Keychain (not SwiftData).
+    /// Setting it also updates the `sshHasAuthToken` flag; an empty/nil value
+    /// clears the stored secret.
+    var sshAuthToken: String? {
+        get { KeychainStore.get(service: Self.sshAuthTokenService, account: id.uuidString) }
+        set {
+            let v = (newValue ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            KeychainStore.set(service: Self.sshAuthTokenService, account: id.uuidString, value: v)
+            sshHasAuthToken = !v.isEmpty
+        }
+    }
+
+    /// Non-secret environment from the `sshEnvVars` lines (validated names).
+    /// Used for generic terminal sessions; the auth token is **not** included
+    /// here (it's a managed-Claude credential — see `resolvedSSHEnvironment`).
+    func sshEnvironmentVariables() -> [(name: String, value: String)] {
+        var env: [(name: String, value: String)] = []
+        for raw in sshEnvVars.split(whereSeparator: { $0 == "\n" || $0 == "\r" }) {
+            let line = raw.trimmingCharacters(in: .whitespaces)
+            guard !line.isEmpty, !line.hasPrefix("#"),
+                  let eq = line.firstIndex(of: "=") else { continue }
+            let name = String(line[..<eq]).trimmingCharacters(in: .whitespaces)
+            guard Self.isValidEnvName(name) else { continue }
+            let value = String(line[line.index(after: eq)...])
+            env.removeAll { $0.name == name }
+            env.append((name: name, value: value))
+        }
+        return env
+    }
+
+    /// Full environment for a managed (Claude) session: the non-secret vars
+    /// plus the stored auth token under its env name (token wins on conflict).
+    func resolvedSSHEnvironment() -> [(name: String, value: String)] {
+        var env = sshEnvironmentVariables()
+        if sshHasAuthToken, let token = sshAuthToken, !token.isEmpty {
+            let name = effectiveSSHAuthEnvName
+            guard Self.isValidEnvName(name) else { return env }
+            env.removeAll { $0.name == name }
+            env.append((name: name, value: token))
+        }
+        return env
+    }
+
+    /// POSIX environment-variable name (`[A-Za-z_][A-Za-z0-9_]*`). Guards the
+    /// shell `NAME=value` assignment built in `SSHTerminalManager`.
+    static func isValidEnvName(_ s: String) -> Bool {
+        guard let first = s.first, first == "_" || (first.isASCII && first.isLetter) else { return false }
+        return s.dropFirst().allSatisfy { $0 == "_" || ($0.isASCII && ($0.isLetter || $0.isNumber)) }
     }
 
     // MARK: Moonlight stored properties

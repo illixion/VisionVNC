@@ -7,6 +7,7 @@ struct ConnectionListView: View {
     @Environment(\.pushWindow) private var pushWindow
     @Environment(VNCConnectionManager.self) private var connectionManager
     @Environment(AudioStreamManager.self) private var audioManager
+    @Environment(SSHTerminalManager.self) private var sshManager
     #if MOONLIGHT_ENABLED
     @Environment(MoonlightConnectionManager.self) private var moonlightManager
     #endif
@@ -185,12 +186,31 @@ struct ConnectionListView: View {
         switch connection.connectionType {
         case .vnc:
             connectVNC(connection)
+        case .ssh:
+            connectSSH(connection)
         #if MOONLIGHT_ENABLED
         case .moonlight:
             connectMoonlight(connection)
         #endif
         case .audio:
             connectAudio(connection)
+        }
+    }
+
+    private func connectSSH(_ connection: SavedConnection) {
+        do {
+            let id = try sshManager.newShellSession(
+                host: connection.hostname,
+                port: connection.port,
+                username: connection.sshUsername,
+                displayName: connection.displayName,
+                command: connection.sshLaunchCommand,
+                environment: connection.sshEnvironmentVariables()
+            )
+            openWindow(id: "ssh-terminal", value: id)
+        } catch {
+            // Device-key generation failure is rare; the terminal window
+            // surfaces connection-level errors itself once opened.
         }
     }
 
