@@ -25,7 +25,11 @@ struct KeyboardInputView: View {
                 .textFieldStyle(.roundedBorder)
                 .focused($isTextFieldFocused)
                 .onChange(of: textInput) { oldValue, newValue in
-                    sendNewCharacters(old: oldValue, new: newValue)
+                    sendDelta(old: oldValue, new: newValue)
+                }
+                .onSubmit {
+                    connectionManager.sendKeyDown(.return)
+                    connectionManager.sendKeyUp(.return)
                 }
                 .padding(.horizontal)
 
@@ -42,7 +46,8 @@ struct KeyboardInputView: View {
                 specialKeyButton("Esc", keyCode: .escape)
                 specialKeyButton("Tab", keyCode: .tab)
                 specialKeyButton("Enter", keyCode: .return)
-                specialKeyButton("Del", keyCode: .delete)
+                specialKeyButton("⌫", keyCode: .delete)
+                specialKeyButton("⌦", keyCode: .forwardDelete)
             }
 
             // Arrow keys
@@ -80,20 +85,18 @@ struct KeyboardInputView: View {
 
     // MARK: - Character Sending
 
-    private func sendNewCharacters(old: String, new: String) {
-        guard new.count > old.count else { return }
-        let newChars = new.suffix(new.count - old.count)
-        for char in newChars {
-            if char.isNewline {
-                connectionManager.sendKeyDown(.return)
-                connectionManager.sendKeyUp(.return)
-            } else {
-                let keyCodes = VNCKeyCode.withCharacter(char)
-                for keyCode in keyCodes {
-                    connectionManager.sendKeyDown(keyCode)
-                    connectionManager.sendKeyUp(keyCode)
-                }
-            }
+    /// Mirror the text field's edits to the remote as a common-prefix delta:
+    /// backspaces for the removed tail, then the new tail typed. Unlike the old
+    /// append-only diff this sends deletions (fixes backspace) and reconciles
+    /// dictation's mid-string rewrites. The field is a live mirror — never
+    /// cleared — so the diff only ever transmits the changed tail.
+    private func sendDelta(old: String, new: String) {
+        let delta = TextDiff.delta(old: old, new: new)
+        if delta.deleteCount > 0 {
+            connectionManager.routeDeleteBackward(delta.deleteCount)
+        }
+        if !delta.insert.isEmpty {
+            connectionManager.routeInsertText(delta.insert)
         }
     }
 
