@@ -4,6 +4,18 @@ import Network
 import AVFoundation
 import Observation
 import UIKit
+import MediaPlayer
+
+/// How the receiver coexists with the rest of the system.
+/// - `.speaker` (default): a **mixable** session (`.mixWithOthers`) that plays
+///   alongside everything else and silently auto-recovers when another app
+///   (e.g. a VoIP call) grabs the audio config. No Control Center integration.
+/// - `.music`: an **exclusive** session that takes audio focus, surfaces in
+///   Now Playing / Control Center (transport maps to the Mac's Music.app), and
+///   on interruption pauses the Mac source instead of fighting to stay alive.
+enum AudioMode: String, Sendable, CaseIterable {
+    case speaker, music
+}
 
 /// Receives an uncompressed PCM audio stream from the VisionVNC Audio Sender
 /// Mac menu bar app and plays it through AVAudioEngine.
@@ -23,6 +35,29 @@ final class AudioStreamManager {
 
     var state: ConnectionState = .idle
     var connectionTitle: String = ""
+
+    /// Player mode (Speaker vs Music). Persisted. Changing it mid-stream
+    /// rebuilds the receiver (the session config differs) and re-syncs the
+    /// Now Playing / Control Center integration.
+    var audioMode: AudioMode = AudioMode(rawValue: UserDefaults.standard.string(forKey: "audioMode") ?? "") ?? .speaker {
+        didSet {
+            guard audioMode != oldValue else { return }
+            UserDefaults.standard.set(audioMode.rawValue, forKey: "audioMode")
+            if state == .streaming || state == .connecting {
+                reconnectLast() // rebuild with the new session category
+            }
+            refreshNowPlayingIntegration()
+        }
+    }
+
+    /// Flips between the two modes (mini-player button).
+    func toggleAudioMode() {
+        audioMode = (audioMode == .music) ? .speaker : .music
+    }
+
+    /// Whether Control Center remote-command targets have been installed yet
+    /// (added once, then just enabled/disabled per mode).
+    private var remoteCommandsConfigured = false
 
     /// Now-playing state mirrored from the Mac's Music.app (nil when
     /// nothing is playing or Music is closed).
@@ -162,7 +197,7 @@ final class AudioStreamManager {
         defaults.set(token, forKey: DefaultsKeys.token)
         defaults.set(lowLatency, forKey: DefaultsKeys.lowLatency)
 
-        let receiver = AudioStreamReceiver(hostname: hostname, port: port, token: token, lowLatency: lowLatency, volume: Float(volume))
+        let receiver = AudioStreamReceiver(hostname: hostname, port: port, token: token, lowLatency: lowLatency, volume: Float(volume), mode: audioMode)
         receiver.onEvent = { [weak self] event in
             Task { @MainActor in
                 self?.handle(event)
@@ -181,6 +216,7 @@ final class AudioStreamManager {
         receiver?.stop()
         receiver = nil
         state = .idle
+        clearNowPlayingIntegration()
     }
 
     /// Explicit user disconnect: also forget the last connection so the
@@ -257,6 +293,7 @@ final class AudioStreamManager {
             state = .streaming
             lastActivityAt = Date()
             retryDelay = 2
+            refreshNowPlayingIntegration()
             AppLog.audioStream.line("Connected: \(channels)ch @ \(Int(rate)) Hz")
         case .bytesReceived(let total):
             bytesReceived = total
@@ -269,6 +306,7 @@ final class AudioStreamManager {
                 artworkImage = UIImage(data: pendingArtwork)
             } // same artworkID as before and no new artwork frame: keep current image
             pendingArtwork = nil
+            if audioMode == .music { updateNowPlayingInfo() }
         case .artwork(let data):
             pendingArtwork = data
         case .reloadRequested(let reason):
@@ -348,6 +386,71 @@ final class AudioStreamManager {
             self?.reconnectLast()
         }
     }
+
+    // MARK: - Now Playing / Control Center (Music Mode)
+
+    /// Aligns the Now Playing / Control Center integration with the current
+    /// mode: Music Mode enables the remote commands and populates the info
+    /// center; Speaker Mode tears it down (a mixable session is ineligible for
+    /// Now Playing anyway — see the audio-session notes in CLAUDE.md).
+    private func refreshNowPlayingIntegration() {
+        if audioMode == .music, state == .streaming {
+            configureRemoteCommands()
+            setRemoteCommandsEnabled(true)
+            updateNowPlayingInfo()
+        } else {
+            setRemoteCommandsEnabled(false)
+            MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
+        }
+    }
+
+    private func clearNowPlayingIntegration() {
+        setRemoteCommandsEnabled(false)
+        MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
+    }
+
+    /// Installs the Control Center transport handlers once; each maps to a
+    /// MediaCommand sent to the Mac's Music.app over the stream.
+    private func configureRemoteCommands() {
+        guard !remoteCommandsConfigured else { return }
+        remoteCommandsConfigured = true
+        let center = MPRemoteCommandCenter.shared()
+        center.playCommand.addTarget { [weak self] _ in self?.sendCommand(.play); return .success }
+        center.pauseCommand.addTarget { [weak self] _ in self?.sendCommand(.pause); return .success }
+        center.togglePlayPauseCommand.addTarget { [weak self] _ in self?.sendCommand(.toggle); return .success }
+        center.nextTrackCommand.addTarget { [weak self] _ in self?.sendCommand(.next); return .success }
+        center.previousTrackCommand.addTarget { [weak self] _ in self?.sendCommand(.previous); return .success }
+    }
+
+    private func setRemoteCommandsEnabled(_ enabled: Bool) {
+        guard remoteCommandsConfigured else { return }
+        let center = MPRemoteCommandCenter.shared()
+        for command in [center.playCommand, center.pauseCommand, center.togglePlayPauseCommand,
+                        center.nextTrackCommand, center.previousTrackCommand] {
+            command.isEnabled = enabled
+        }
+    }
+
+    /// Pushes the current track metadata into the system Now Playing info
+    /// center (Music Mode only) so it surfaces in Control Center.
+    private func updateNowPlayingInfo() {
+        guard audioMode == .music else { return }
+        var info: [String: Any] = [:]
+        if let np = nowPlaying {
+            if let title = np.title { info[MPMediaItemPropertyTitle] = title }
+            if let artist = np.artist { info[MPMediaItemPropertyArtist] = artist }
+            if let album = np.album { info[MPMediaItemPropertyAlbumTitle] = album }
+            if let duration = np.durationSeconds { info[MPMediaItemPropertyPlaybackDuration] = duration }
+            if let elapsed = np.elapsedSeconds { info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = elapsed }
+            info[MPNowPlayingInfoPropertyPlaybackRate] = np.isPlaying ? 1.0 : 0.0
+            if let image = artworkImage {
+                info[MPMediaItemPropertyArtwork] = MPMediaItemArtwork(boundsSize: image.size) { _ in image }
+            }
+        }
+        let center = MPNowPlayingInfoCenter.default()
+        center.nowPlayingInfo = info
+        center.playbackState = (nowPlaying?.isPlaying == true) ? .playing : .paused
+    }
 }
 
 /// Network + audio pipeline. All work happens on its serial queue and the
@@ -383,6 +486,8 @@ final class AudioStreamReceiver: @unchecked Sendable {
     /// When true, PCM is carried over a parallel UDP socket with a smaller
     /// jitter buffer; the TCP connection still handles auth/header/metadata.
     private let lowLatency: Bool
+    /// Speaker (mixable, auto-recover) vs Music (exclusive, pause-on-interrupt).
+    private let mode: AudioMode
     private let queue = DispatchQueue(label: "com.illixion.VisionVNC.audio-stream", qos: .userInteractive)
 
     private nonisolated(unsafe) var connection: NWConnection?
@@ -418,11 +523,12 @@ final class AudioStreamReceiver: @unchecked Sendable {
     /// Output gain (0…1) applied to the player node; survives engine rebuilds.
     private nonisolated(unsafe) var volume: Float
 
-    nonisolated init(hostname: String, port: UInt16, token: String, lowLatency: Bool = false, volume: Float = 1.0) {
+    nonisolated init(hostname: String, port: UInt16, token: String, lowLatency: Bool = false, volume: Float = 1.0, mode: AudioMode = .speaker) {
         self.hostname = hostname
         self.port = port
         self.token = token
         self.lowLatency = lowLatency
+        self.mode = mode
         self.prebufferFrameCount = lowLatency ? 2 : 4
         self.volume = volume
     }
@@ -493,14 +599,27 @@ final class AudioStreamReceiver: @unchecked Sendable {
             object: AVAudioSession.sharedInstance(),
             queue: nil
         ) { [weak self] notification in
+            guard let self else { return }
             let rawType = notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt
             switch rawType {
             case AVAudioSession.InterruptionType.began.rawValue:
                 AppLog.audioStream.line("Audio session interrupted (began)")
-                self?.requestReload("audio session interrupted")
+                if self.mode == .music {
+                    // Pause the source instead of reloading — exclusive Music
+                    // mode should yield gracefully to a call, not fight it.
+                    self.handleInterruptionBegan()
+                } else {
+                    self.requestReload("audio session interrupted")
+                }
             case AVAudioSession.InterruptionType.ended.rawValue:
                 AppLog.audioStream.line("Audio session interruption ended")
-                self?.requestReload("interruption ended")
+                if self.mode == .music {
+                    let raw = notification.userInfo?[AVAudioSessionInterruptionOptionKey] as? UInt ?? 0
+                    let shouldResume = AVAudioSession.InterruptionOptions(rawValue: raw).contains(.shouldResume)
+                    self.handleInterruptionEnded(shouldResume: shouldResume)
+                } else {
+                    self.requestReload("interruption ended")
+                }
             default:
                 break
             }
@@ -538,10 +657,15 @@ final class AudioStreamReceiver: @unchecked Sendable {
             object: AVAudioSession.sharedInstance(),
             queue: nil
         ) { [weak self] notification in
+            guard let self else { return }
             let raw = notification.userInfo?[AVAudioSessionSilenceSecondaryAudioHintTypeKey] as? UInt ?? 0
             let type = AVAudioSession.SilenceSecondaryAudioHintType(rawValue: raw)
             AppLog.audioStream.line("Silence-secondary-audio hint: \(type.map(String.init(describing:)) ?? "?")")
-            self?.requestReload("silence-secondary-audio hint flipped")
+            // Mixable (Speaker) only: this hint signals the People-channel
+            // reroute, which doesn't apply to an exclusive Music-mode session.
+            if self.mode == .speaker {
+                self.requestReload("silence-secondary-audio hint flipped")
+            }
         })
     }
 
@@ -584,6 +708,34 @@ final class AudioStreamReceiver: @unchecked Sendable {
             }
             sessionObservers.removeAll()
             teardownAudio()
+            if mode == .music {
+                // Release exclusive focus so other apps resume.
+                try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+            }
+        }
+    }
+
+    // MARK: - Music-mode interruption handling
+
+    /// A call/other interruption began. Pause the Mac source (so it stops
+    /// producing audio into a now-deactivated session) and stop local
+    /// playback. The connection stays up — interruptions are transient.
+    private nonisolated func handleInterruptionBegan() {
+        queue.async { [self] in
+            guard !stopped else { return }
+            playerNode?.pause()
+        }
+        send(.pause)
+    }
+
+    /// The interruption ended. Rebuild the engine and re-activate the session
+    /// (the interruption deactivated it), and resume the Mac if the system
+    /// indicated we should. If not, we stay ready so a Control Center play
+    /// works immediately.
+    private nonisolated func handleInterruptionEnded(shouldResume: Bool) {
+        scheduleAudioRebuild(delay: .milliseconds(150))
+        if shouldResume {
+            send(.play)
         }
     }
 
@@ -840,15 +992,20 @@ final class AudioStreamReceiver: @unchecked Sendable {
             // would double-process it. AVAudioEngine isn't a Now Playing candidate
             // so the per-app Spatialize Stereo toggle doesn't apply — bypass at
             // the session level instead.
-            // .mixWithOthers: coexist with other visionOS apps and VoIP calls
-            // instead of taking exclusive audio focus. Deliberate trade-off:
-            // a mixable session is ineligible for Now Playing / Control Center.
+            // Speaker mode uses .mixWithOthers to coexist with other apps and
+            // VoIP calls (ineligible for Now Playing as a trade-off). Music
+            // mode takes exclusive focus (no mix) so it *is* a Now Playing /
+            // Control Center app (see AudioStreamManager's MP integration).
             do {
-                try session.setCategory(.playback, mode: .default, options: [.mixWithOthers])
+                let options: AVAudioSession.CategoryOptions = mode == .music ? [] : [.mixWithOthers]
+                try session.setCategory(.playback, mode: .default, options: options)
                 try session.setIntendedSpatialExperience(.bypassed)
-                // Become a Now Playing candidate so visionOS keeps playback running
-                // (and doesn't duck the audio) when the user looks at other windows.
-                try session.setIsNowPlayingCandidate(true)
+                if mode == .speaker {
+                    // Keep a mixable session running (un-ducked) when the user
+                    // looks at other windows. Music mode is a real Now Playing
+                    // app via MPNowPlayingInfoCenter, so this isn't needed.
+                    try session.setIsNowPlayingCandidate(true)
+                }
             } catch {
                 AppLog.audioStream.line("Failed to configure audio session: \(error)")
             }
@@ -906,8 +1063,14 @@ final class AudioStreamReceiver: @unchecked Sendable {
             object: engine,
             queue: nil
         ) { [weak self] _ in
+            guard let self else { return }
             AppLog.audioStream.line("Audio engine configuration changed")
-            self?.requestReload("engine configuration changed")
+            if self.mode == .music {
+                // Keep the exclusive session; just rebuild the engine graph.
+                self.scheduleAudioRebuild(delay: .milliseconds(100))
+            } else {
+                self.requestReload("engine configuration changed")
+            }
         }
 
         return true
