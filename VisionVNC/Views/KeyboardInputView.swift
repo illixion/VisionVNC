@@ -21,8 +21,12 @@ struct KeyboardInputView: View {
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
 
+            routeControl
+
             TextField("Type here…", text: $textInput)
                 .textFieldStyle(.roundedBorder)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
                 .focused($isTextFieldFocused)
                 .onChange(of: textInput) { oldValue, newValue in
                     sendDelta(old: oldValue, new: newValue)
@@ -81,6 +85,42 @@ struct KeyboardInputView: View {
             releaseAllModifiers()
         }
         } // NavigationStack
+    }
+
+    // MARK: - Typing Route
+
+    /// Lets the user pick how text is typed when a companion is paired, and
+    /// surfaces a fallback notice if the companion route is selected but down.
+    /// Hidden entirely when there's no companion (plain VNC keyboard).
+    @ViewBuilder
+    private var routeControl: some View {
+        @Bindable var manager = connectionManager
+        if manager.hasCompanionInput {
+            VStack(spacing: 6) {
+                Picker("Typing route", selection: $manager.keyboardRoute) {
+                    ForEach(VNCConnectionManager.KeyboardRoute.allCases) { route in
+                        Text(route.label).tag(route)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .frame(maxWidth: 320)
+
+                if manager.keyboardRoute == .companion {
+                    if manager.companionInputAvailable {
+                        Label("Typed via the Mac companion — modifiers and special keys still use VNC.",
+                              systemImage: "keyboard.badge.ellipsis")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Label("Companion unavailable — falling back to VNC keys. Enable “Allow keyboard control” on the Mac.",
+                              systemImage: "exclamationmark.triangle")
+                            .font(.caption)
+                            .foregroundStyle(.orange)
+                    }
+                }
+            }
+            .padding(.horizontal)
+        }
     }
 
     // MARK: - Character Sending

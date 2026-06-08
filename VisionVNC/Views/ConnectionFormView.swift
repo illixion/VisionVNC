@@ -237,7 +237,7 @@ struct ConnectionFormView: View {
                     }
                 }
 
-                Text("Starts the selected Audio connection automatically when this desktop opens. Use it to stream audio over the LAN while the desktop runs over Tailscale (or another tunnel). When unset, audio on the same host as this server is used if one exists.")
+                Text("Pairs this desktop with a companion (the Mac menu-bar app). It starts the audio stream automatically and enables the keyboard bypass — typed text and dictation route through the Mac instead of VNC key codes (modifier-safe). When unset, a companion on the same host is used if one exists.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -476,7 +476,7 @@ struct ConnectionFormView: View {
         username = saved.savedUsername
         password = saved.savedPassword
         vncTouchMode = saved.vncTouchMode
-        linkedAudioConnectionID = saved.linkedAudioConnectionID
+        linkedAudioConnectionID = saved.linkedCompanionConnectionID
         audioToken = saved.audioToken
         lowLatencyAudio = saved.lowLatencyAudio
         sshUsername = saved.sshUsername
@@ -536,7 +536,7 @@ struct ConnectionFormView: View {
             connection.savedUsername = autoLogin ? username : ""
             connection.savedPassword = autoLogin ? password : ""
             connection.vncTouchMode = vncTouchMode
-            connection.linkedAudioConnectionID = linkedAudioConnectionID
+            connection.linkedCompanionConnectionID = linkedAudioConnectionID
 
         #if MOONLIGHT_ENABLED
         case .moonlight:

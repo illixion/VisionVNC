@@ -25,7 +25,10 @@ struct AudioSenderApp: App {
         MenuBarExtra {
             AudioSenderMenuView(controller: controller)
         } label: {
-            if let track = controller.menuBarTrackText {
+            // Priority: injecting > now-playing track > audio idle/active.
+            if controller.isInjecting {
+                Image(systemName: "keyboard.fill")
+            } else if let track = controller.menuBarTrackText {
                 Text("\(track) ♪")
             } else {
                 Image(systemName: controller.isRunning ? "speaker.wave.2.fill" : "speaker.slash")
@@ -190,6 +193,36 @@ struct AudioSenderMenuView: View {
 
             Divider()
 
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Keyboard Control")
+                    .font(.subheadline.weight(.semibold))
+
+                Toggle("Allow keyboard control", isOn: $controller.injectionEnabled)
+                    .toggleStyle(.switch)
+                    .help("Lets a paired Vision Pro type text into the frontmost Mac app over an encrypted channel. Text and backspace only — never shortcuts or modifier keys.")
+
+                if controller.injectionEnabled && !controller.injection.accessibilityTrusted {
+                    Text("Needs Accessibility permission to type.")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                    Button("Grant Accessibility…") {
+                        controller.grantAccessibility()
+                    }
+                    .controlSize(.small)
+                } else if controller.injectionEnabled {
+                    Text("Ready — remote typing routes through this Mac.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Text("Text-only injection (no modifier keys) keeps remote typing from triggering shortcuts. In VisionVNC, link this companion to a VNC connection to use it.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Divider()
+
             Button("Quit") {
                 controller.stop()
                 NSApplication.shared.terminate(nil)
@@ -197,7 +230,10 @@ struct AudioSenderMenuView: View {
         }
         .padding(12)
         .frame(width: 280)
-        .onAppear { controller.refreshKeys() }
+        .onAppear {
+            controller.refreshKeys()
+            controller.injection.refreshAccessibility()
+        }
     }
 }
 
@@ -217,6 +253,10 @@ final class AudioStreamerController {
             // starting the tap/server synchronously during init is too early.
             Task { @MainActor in self.start() }
         }
+        // Bring the inject server up if the user previously enabled it
+        // (independent of audio streaming).
+        injection.onInject = { [weak self] in self?.flashInjection() }
+        Task { @MainActor in self.updateInjectionServer() }
     }
 
     /// Persistent static auth token — clients must present it to connect.
@@ -244,7 +284,8 @@ final class AudioStreamerController {
     /// client is dropped (its old token no longer matches) and must re-pair.
     func regenerateToken() {
         token = AudioToken.generate()
-        if isRunning { start() } // restart server with the new token
+        if isRunning { start() } // restart audio server with the new token
+        if injection.injectionEnabled { startInjectServer() } // re-key inject channel
     }
 
     // MARK: - SSH authorized keys (remote control)
@@ -305,6 +346,72 @@ final class AudioStreamerController {
         } catch {
             keyActionStatus = "Failed: \(error.localizedDescription)"
         }
+    }
+
+    // MARK: - Companion keyboard injection
+
+    let injection = InjectionService()
+    private var injectServer: CompanionInjectServer?
+
+    /// Transient flag for the menu-bar activity glyph — true for ~2 s after the
+    /// most recent injection so the user sees remote typing happening.
+    private(set) var isInjecting = false
+    private var injectResetTask: Task<Void, Never>?
+
+    private func flashInjection() {
+        isInjecting = true
+        injectResetTask?.cancel()
+        injectResetTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(2))
+            guard let self, !Task.isCancelled else { return }
+            self.isInjecting = false
+        }
+    }
+
+    /// Master toggle, bridging `InjectionService` and (re)starting the inject
+    /// server as it flips. Independent of audio streaming.
+    var injectionEnabled: Bool {
+        get { injection.injectionEnabled }
+        set {
+            injection.injectionEnabled = newValue
+            updateInjectionServer()
+        }
+    }
+
+    /// Re-checks Accessibility and starts/stops the inject server to match the
+    /// master toggle. Safe to call repeatedly.
+    func updateInjectionServer() {
+        injection.refreshAccessibility()
+        if injection.injectionEnabled {
+            startInjectServer()
+        } else {
+            injectServer?.stop()
+            injectServer = nil
+        }
+    }
+
+    private func startInjectServer() {
+        injectServer?.stop()
+        let server = CompanionInjectServer(port: CompanionInjectProtocol.defaultPort, token: token)
+        server.onInjectText = { [weak self] text in
+            Task { @MainActor [weak self] in self?.injection.insertText(text) }
+        }
+        server.onInjectBackspace = { [weak self] count in
+            Task { @MainActor [weak self] in self?.injection.deleteBackward(count) }
+        }
+        do {
+            try server.start()
+            server.setAvailability(injection.statusByte)
+            injectServer = server
+        } catch {
+            lastError = error.localizedDescription
+        }
+    }
+
+    /// Prompts for Accessibility, then refreshes the live channel's availability.
+    func grantAccessibility() {
+        injection.promptAccessibility()
+        injectServer?.setAvailability(injection.statusByte)
     }
 
     var clientCount = 0
