@@ -34,7 +34,19 @@ Moonlight is an **optional build-time feature** controlled by the `MOONLIGHT_ENA
 - `moonlight-common-c-audio-fec-fix.patch` — Compatibility with newer Sunshine pre-release server versions
 - `opus-spm-umbrella.patch` — Exposes `opus_multistream.h` via SPM umbrella header
 
-Other scripts: `scripts/build-and-sign.sh` (config-driven device build+sign+deploy; reads gitignored `scripts/build-signing.conf`, runs setup-deps as pre-build hook, passes `MOONLIGHT_ENABLED` via `EXTRA_BUILD_SETTINGS`), `scripts/release.sh` (local Moonlight-enabled GitHub release via `gh`).
+Other scripts: `scripts/build-and-sign.sh` (config-driven device build+sign+deploy; reads gitignored `scripts/build-signing.conf`, runs setup-deps as pre-build hook, passes `MOONLIGHT_ENABLED` via `EXTRA_BUILD_SETTINGS`), `scripts/release.sh` (local Moonlight-enabled GitHub release via `gh`), `scripts/install-companion.sh` (build the macOS companion and install it to `/Applications`, quitting + relaunching it — TCC perms and the token live with the installed app, not Xcode's DerivedData build).
+
+### Testing
+
+Unit tests live in `VisionVNCTests/` (app-hosted XCTest target, visionOS). **Run locally — there is no CI test job** (CI only archives):
+
+```
+xcodebuild test -scheme VisionVNCTests -destination 'platform=visionOS Simulator,name=Apple Vision Pro,OS=26.5'
+```
+
+The target is wired via a **shared** scheme (`VisionVNC.xcodeproj/xcshareddata/xcschemes/VisionVNCTests.xcscheme`) so the command resolves headlessly; the `VisionVNC`/`VisionVNCCompanion` schemes still autocreate. `VisionVNCTests/` is a `PBXFileSystemSynchronizedRootGroup`, so new `*.swift` files there auto-compile into the test target — no pbxproj edits needed. Tests `@testable import VisionVNC` and run in **Debug** (the app's Debug config sets `ENABLE_TESTABILITY = YES`).
+
+Current coverage is the pure, regression-prone logic: `TextDiff` (keyboard diff), `CompanionInjectProtocol` (framing/drain/backspace), and `SavedConnection` SSH env parsing/validation. Not yet covered (need extra target linkage): `SecureEnclaveSSHKey` OpenSSH encoding (needs `Crypto`) and the macOS-only `InjectionService` surrogate-safe chunking (needs a macOS test target).
 
 ## Architecture
 
@@ -243,9 +255,15 @@ AudioSender/                            — macOS menu bar sender target (Vision
 ├── MusicAppBridge.swift                — Music.app metadata/control (notifications + AppleScript)
 └── Info.plist                          — NSAudioCaptureUsageDescription, NSAppleEventsUsageDescription
 
+VisionVNCTests/                         — app-hosted XCTest target (run locally, no CI)
+├── TextDiffTests.swift                 — keyboard common-prefix diff
+├── CompanionInjectProtocolTests.swift  — inject framing / drain / backspace
+└── SavedConnectionEnvTests.swift       — SSH env parsing + name validation
+
 scripts/
 ├── setup-deps.sh                       — Clone+patch repos/ deps (local Moonlight builds)
 ├── build-and-sign.sh                   — Config-driven device build/sign/deploy (build-signing.conf, gitignored)
+├── install-companion.sh                — Build the macOS companion + install to /Applications (quit/relaunch)
 └── release.sh                          — Local Moonlight-enabled GitHub release (gh CLI)
 
 ci/
