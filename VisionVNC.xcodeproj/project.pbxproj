@@ -21,6 +21,7 @@
 		1DC83C272F74524200BF0482 /* VisionVNC.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = VisionVNC.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		AA10AD100000000000000001 /* VisionVNCCompanion.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = VisionVNCCompanion.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		AA10AD10000000000000000C /* VisionVNC.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; name = VisionVNC.xcconfig; path = Configuration/VisionVNC.xcconfig; sourceTree = "<group>"; };
+		BBAA00000000000000000001 /* VisionVNCTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = VisionVNCTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -62,6 +63,11 @@
 			path = Shared;
 			sourceTree = "<group>";
 		};
+		BBAA00000000000000000002 /* VisionVNCTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = VisionVNCTests;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -87,6 +93,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		BBAA00000000000000000007 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -104,6 +117,7 @@
 				1DC83C292F74524200BF0482 /* VisionVNC */,
 				AA10AD100000000000000002 /* AudioSender */,
 				AA10AD100000000000000004 /* Shared */,
+				BBAA00000000000000000002 /* VisionVNCTests */,
 				1DC83C2A2F74524200BF0482 /* Packages */,
 				1DC83C282F74524200BF0482 /* Products */,
 				1D1D4D672FD30B7000952C39 /* Recovered References */,
@@ -115,6 +129,7 @@
 			children = (
 				1DC83C272F74524200BF0482 /* VisionVNC.app */,
 				AA10AD100000000000000001 /* VisionVNCCompanion.app */,
+				BBAA00000000000000000001 /* VisionVNCTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -185,6 +200,28 @@
 			productReference = AA10AD100000000000000001 /* VisionVNCCompanion.app */;
 			productType = "com.apple.product-type.application";
 		};
+		BBAA00000000000000000005 /* VisionVNCTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = BBAA00000000000000000009 /* Build configuration list for PBXNativeTarget "VisionVNCTests" */;
+			buildPhases = (
+				BBAA00000000000000000006 /* Sources */,
+				BBAA00000000000000000007 /* Frameworks */,
+				BBAA00000000000000000008 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				BBAA00000000000000000002 /* VisionVNCTests */,
+			);
+			name = VisionVNCTests;
+			packageProductDependencies = (
+			);
+			productName = VisionVNCTests;
+			productReference = BBAA00000000000000000001 /* VisionVNCTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -200,6 +237,10 @@
 					};
 					AA10AD100000000000000005 = {
 						CreatedOnToolsVersion = 26.3;
+					};
+					BBAA00000000000000000005 = {
+						CreatedOnToolsVersion = 26.3;
+						TestTargetID = 1DC83C262F74524200BF0482;
 					};
 				};
 			};
@@ -229,6 +270,7 @@
 			targets = (
 				1DC83C262F74524200BF0482 /* VisionVNC */,
 				AA10AD100000000000000005 /* VisionVNCCompanion */,
+				BBAA00000000000000000005 /* VisionVNCTests */,
 			);
 		};
 /* End PBXProject section */
@@ -242,6 +284,13 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		AA10AD100000000000000008 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		BBAA00000000000000000008 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -282,6 +331,13 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		AA10AD100000000000000006 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		BBAA00000000000000000006 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -543,6 +599,46 @@
 			};
 			name = Release;
 		};
+		BBAA0000000000000000000A /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = 9T5F88VJFL;
+				GENERATE_INFOPLIST_FILE = YES;
+				PRODUCT_BUNDLE_IDENTIFIER = com.illixion.VisionVNCTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = xros;
+				SUPPORTED_PLATFORMS = "xros xrsimulator";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 7;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/VisionVNC.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/VisionVNC";
+				XROS_DEPLOYMENT_TARGET = 26.2;
+			};
+			name = Debug;
+		};
+		BBAA0000000000000000000B /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = 9T5F88VJFL;
+				GENERATE_INFOPLIST_FILE = YES;
+				PRODUCT_BUNDLE_IDENTIFIER = com.illixion.VisionVNCTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = xros;
+				SUPPORTED_PLATFORMS = "xros xrsimulator";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 7;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/VisionVNC.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/VisionVNC";
+				XROS_DEPLOYMENT_TARGET = 26.2;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -569,6 +665,15 @@
 			buildConfigurations = (
 				AA10AD10000000000000000A /* Debug */,
 				AA10AD10000000000000000B /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		BBAA00000000000000000009 /* Build configuration list for PBXNativeTarget "VisionVNCTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				BBAA0000000000000000000A /* Debug */,
+				BBAA0000000000000000000B /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
