@@ -10,6 +10,11 @@
 		1D8097B22F7FCBED00C67700 /* MoonlightCommonC in Frameworks */ = {isa = PBXBuildFile; productRef = 1D8097B12F7FCBED00C67700 /* MoonlightCommonC */; };
 		1D8097B52F7FCBFA00C67700 /* Opus in Frameworks */ = {isa = PBXBuildFile; productRef = 1D8097B42F7FCBFA00C67700 /* Opus */; };
 		1DC83C3D2F74587300BF0482 /* RoyalVNCKit in Frameworks */ = {isa = PBXBuildFile; productRef = 1DC83C3C2F74587300BF0482 /* RoyalVNCKit */; };
+		5511C0DE0000000000000021 /* SwiftTerm in Frameworks */ = {isa = PBXBuildFile; productRef = 5511C0DE0000000000000011 /* SwiftTerm */; };
+		5511C0DE0000000000000022 /* NIOSSH in Frameworks */ = {isa = PBXBuildFile; productRef = 5511C0DE0000000000000012 /* NIOSSH */; };
+		5511C0DE0000000000000023 /* NIOCore in Frameworks */ = {isa = PBXBuildFile; productRef = 5511C0DE0000000000000013 /* NIOCore */; };
+		5511C0DE0000000000000024 /* NIOTransportServices in Frameworks */ = {isa = PBXBuildFile; productRef = 5511C0DE0000000000000014 /* NIOTransportServices */; };
+		5511C0DE0000000000000025 /* Crypto in Frameworks */ = {isa = PBXBuildFile; productRef = 5511C0DE0000000000000015 /* Crypto */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -67,6 +72,11 @@
 				1DC83C3D2F74587300BF0482 /* RoyalVNCKit in Frameworks */,
 				1D8097B22F7FCBED00C67700 /* MoonlightCommonC in Frameworks */,
 				1D8097B52F7FCBFA00C67700 /* Opus in Frameworks */,
+				5511C0DE0000000000000021 /* SwiftTerm in Frameworks */,
+				5511C0DE0000000000000022 /* NIOSSH in Frameworks */,
+				5511C0DE0000000000000023 /* NIOCore in Frameworks */,
+				5511C0DE0000000000000024 /* NIOTransportServices in Frameworks */,
+				5511C0DE0000000000000025 /* Crypto in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -142,6 +152,11 @@
 				1DC83C3C2F74587300BF0482 /* RoyalVNCKit */,
 				1D8097B12F7FCBED00C67700 /* MoonlightCommonC */,
 				1D8097B42F7FCBFA00C67700 /* Opus */,
+				5511C0DE0000000000000011 /* SwiftTerm */,
+				5511C0DE0000000000000012 /* NIOSSH */,
+				5511C0DE0000000000000013 /* NIOCore */,
+				5511C0DE0000000000000014 /* NIOTransportServices */,
+				5511C0DE0000000000000015 /* Crypto */,
 			);
 			productName = VisionVNC;
 			productReference = 1DC83C272F74524200BF0482 /* VisionVNC.app */;
@@ -201,6 +216,11 @@
 				1DC83C3B2F74587300BF0482 /* XCLocalSwiftPackageReference "repos/royalvnc" */,
 				1D8097B02F7FCBED00C67700 /* XCLocalSwiftPackageReference "repos/moonlight-common-c" */,
 				1D8097B32F7FCBFA00C67700 /* XCLocalSwiftPackageReference "repos/opus" */,
+				5511C0DE0000000000000001 /* XCRemoteSwiftPackageReference "SwiftTerm" */,
+				5511C0DE0000000000000002 /* XCRemoteSwiftPackageReference "swift-nio-ssh" */,
+				5511C0DE0000000000000003 /* XCRemoteSwiftPackageReference "swift-nio" */,
+				5511C0DE0000000000000004 /* XCRemoteSwiftPackageReference "swift-nio-transport-services" */,
+				5511C0DE0000000000000005 /* XCRemoteSwiftPackageReference "swift-crypto" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 1DC83C282F74524200BF0482 /* Products */;
@@ -570,6 +590,50 @@
 		};
 /* End XCLocalSwiftPackageReference section */
 
+/* Begin XCRemoteSwiftPackageReference section */
+		5511C0DE0000000000000001 /* XCRemoteSwiftPackageReference "SwiftTerm" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/migueldeicaza/SwiftTerm";
+			requirement = {
+				kind = exactVersion;
+				version = 1.13.0;
+			};
+		};
+		5511C0DE0000000000000002 /* XCRemoteSwiftPackageReference "swift-nio-ssh" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/apple/swift-nio-ssh";
+			requirement = {
+				kind = exactVersion;
+				version = 0.13.0;
+			};
+		};
+		5511C0DE0000000000000003 /* XCRemoteSwiftPackageReference "swift-nio" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/apple/swift-nio";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.81.0;
+			};
+		};
+		5511C0DE0000000000000004 /* XCRemoteSwiftPackageReference "swift-nio-transport-services" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/apple/swift-nio-transport-services";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.28.0;
+			};
+		};
+		5511C0DE0000000000000005 /* XCRemoteSwiftPackageReference "swift-crypto" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/apple/swift-crypto";
+			requirement = {
+				kind = versionRange;
+				minimumVersion = 1.0.0;
+				maximumVersion = 5.0.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
 /* Begin XCSwiftPackageProductDependency section */
 		1D8097B12F7FCBED00C67700 /* MoonlightCommonC */ = {
 			isa = XCSwiftPackageProductDependency;
@@ -587,6 +651,31 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 1DC83C3B2F74587300BF0482 /* XCLocalSwiftPackageReference "repos/royalvnc" */;
 			productName = RoyalVNCKit;
+		};
+		5511C0DE0000000000000011 /* SwiftTerm */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 5511C0DE0000000000000001 /* XCRemoteSwiftPackageReference "SwiftTerm" */;
+			productName = SwiftTerm;
+		};
+		5511C0DE0000000000000012 /* NIOSSH */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 5511C0DE0000000000000002 /* XCRemoteSwiftPackageReference "swift-nio-ssh" */;
+			productName = NIOSSH;
+		};
+		5511C0DE0000000000000013 /* NIOCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 5511C0DE0000000000000003 /* XCRemoteSwiftPackageReference "swift-nio" */;
+			productName = NIOCore;
+		};
+		5511C0DE0000000000000014 /* NIOTransportServices */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 5511C0DE0000000000000004 /* XCRemoteSwiftPackageReference "swift-nio-transport-services" */;
+			productName = NIOTransportServices;
+		};
+		5511C0DE0000000000000015 /* Crypto */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 5511C0DE0000000000000005 /* XCRemoteSwiftPackageReference "swift-crypto" */;
+			productName = Crypto;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
