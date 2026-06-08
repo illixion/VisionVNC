@@ -86,6 +86,42 @@ final class VNCConnectionManager: NSObject, VNCConnectionDelegate {
     /// session the user already had open separately is never touched.
     private var startedCompanionAudio = false
 
+    // MARK: - Companion Text Injection (keyboard bypass)
+
+    /// Where typed text is routed. `.companion` (default) sends literal text to
+    /// the Mac companion when its channel is up; `.vnc` always uses VNC key
+    /// codes. Modifiers and special keys always use VNC regardless.
+    enum KeyboardRoute: String, CaseIterable, Identifiable, Sendable {
+        case companion, vnc
+        var id: String { rawValue }
+        var label: String { self == .companion ? "Companion" : "VNC keys" }
+    }
+
+    /// Host + token for the companion's text-injection channel, resolved from
+    /// the same companion connection that provides audio.
+    struct CompanionInject {
+        let hostname: String
+        let port: UInt16
+        let token: String
+    }
+
+    /// User's preferred typing route. Defaults to the companion (modifier-safe,
+    /// dictation-friendly) when available.
+    var keyboardRoute: KeyboardRoute = .companion
+    /// True when the companion inject channel is connected and the Mac will
+    /// actually type (toggle on + Accessibility granted).
+    private(set) var companionInputAvailable = false
+
+    /// Whether typing is currently going through the companion.
+    var usingCompanionInput: Bool { keyboardRoute == .companion && companionInputAvailable }
+
+    /// Whether this session has a companion inject channel configured at all
+    /// (drives whether the keyboard window shows a route picker).
+    var hasCompanionInput: Bool { companionInject != nil }
+
+    private var companionInject: CompanionInject?
+    private var injectClient: CompanionInjectClient?
+
     /// True when this VNC session has a resolved audio companion (a saved
     /// audio connection to the same host). Drives the audio button in the
     /// remote desktop toolbar.
@@ -106,12 +142,13 @@ final class VNCConnectionManager: NSObject, VNCConnectionDelegate {
 
     // MARK: - Connection Lifecycle
 
-    func connect(hostname: String, port: UInt16, username: String? = nil, password: String? = nil, colorDepth: VNCConnection.Settings.ColorDepth = .depth24Bit, jpegQualityLevel: Int = 6, compressionLevel: Int = 6, touchMode: TouchMode = .absolute, trackpadOnly: Bool = false, title: String? = nil, audioCompanion: AudioCompanion? = nil) {
+    func connect(hostname: String, port: UInt16, username: String? = nil, password: String? = nil, colorDepth: VNCConnection.Settings.ColorDepth = .depth24Bit, jpegQualityLevel: Int = 6, compressionLevel: Int = 6, touchMode: TouchMode = .absolute, trackpadOnly: Bool = false, title: String? = nil, audioCompanion: AudioCompanion? = nil, companionInject: CompanionInject? = nil) {
         disconnect()
         // Tear down any companion audio from a previous session before
         // taking on the new one (no-op if we never owned one).
         stopCompanionAudioIfStarted()
         self.audioCompanion = audioCompanion
+        self.companionInject = companionInject
 
         self.touchMode = touchMode
         self.isTrackpadOnly = trackpadOnly
@@ -189,6 +226,7 @@ final class VNCConnectionManager: NSObject, VNCConnectionDelegate {
             case .connected:
                 self.connectionState = .connected
                 self.startCompanionAudioIfNeeded()
+                self.startInjectClientIfNeeded()
             case .disconnecting:
                 self.connectionState = .disconnecting
             case .disconnected:
@@ -200,6 +238,7 @@ final class VNCConnectionManager: NSObject, VNCConnectionDelegate {
                 self.framebufferImage = nil
                 self.isTrackpadOnly = false
                 self.stopCompanionAudioIfStarted()
+                self.stopInjectClient()
             }
         }
     }
@@ -237,6 +276,38 @@ final class VNCConnectionManager: NSObject, VNCConnectionDelegate {
         guard startedCompanionAudio else { return }
         startedCompanionAudio = false
         audioManager?.userDisconnect()
+    }
+
+    // MARK: - Companion Inject Lifecycle
+
+    /// Opens the text-injection channel to the companion (if one is configured).
+    /// Availability is reported asynchronously via the channel handshake.
+    private func startInjectClientIfNeeded() {
+        injectClient?.close()
+        injectClient = nil
+        companionInputAvailable = false
+        guard let inject = companionInject, !inject.token.isEmpty else { return }
+
+        let client = CompanionInjectClient(
+            config: .init(host: inject.hostname, port: inject.port, token: inject.token)
+        )
+        client.onEvent = { [weak self] event in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                switch event {
+                case .available(let ok): self.companionInputAvailable = ok
+                case .closed: self.companionInputAvailable = false
+                }
+            }
+        }
+        injectClient = client
+        client.start()
+    }
+
+    private func stopInjectClient() {
+        injectClient?.close()
+        injectClient = nil
+        companionInputAvailable = false
     }
 
     nonisolated func connection(_ connection: VNCConnection,
@@ -367,12 +438,16 @@ final class VNCConnectionManager: NSObject, VNCConnectionDelegate {
 
     // MARK: - Keyboard Text Routing
 
-    /// Type literal text into the VNC session, one character at a time.
-    /// Newlines map to Return; non-printable characters are dropped by
-    /// `VNCKeyCode.withCharacter`. Special keys and modifiers are sent via the
-    /// dedicated buttons, never here. (A companion text-injection route is
-    /// layered on top of this in a later step.)
+    /// Type literal text. When the companion route is active the text is sent
+    /// to the Mac companion for Unicode injection (modifier-safe, dictation-
+    /// friendly); otherwise it's typed into VNC one character at a time
+    /// (newlines → Return, non-printables dropped by `VNCKeyCode.withCharacter`).
+    /// Special keys and modifiers always use VNC, never this path.
     func routeInsertText(_ text: String) {
+        if usingCompanionInput {
+            injectClient?.sendText(text)
+            return
+        }
         for char in text {
             if char.isNewline {
                 sendKeyDown(.return)
@@ -386,11 +461,15 @@ final class VNCConnectionManager: NSObject, VNCConnectionDelegate {
         }
     }
 
-    /// Emit `count` backspaces. Note the RoyalVNCKit naming trap:
-    /// `VNCKeyCode.delete` is `XK_BackSpace` (backspace), while
-    /// `.forwardDelete` is the forward Delete key.
+    /// Emit `count` backspaces — via the companion when active, else via VNC.
+    /// Note the RoyalVNCKit naming trap: `VNCKeyCode.delete` is `XK_BackSpace`
+    /// (backspace), while `.forwardDelete` is the forward Delete key.
     func routeDeleteBackward(_ count: Int) {
         guard count > 0 else { return }
+        if usingCompanionInput {
+            injectClient?.sendBackspace(count)
+            return
+        }
         for _ in 0..<count {
             sendKeyDown(.delete)
             sendKeyUp(.delete)

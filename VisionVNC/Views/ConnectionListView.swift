@@ -227,24 +227,33 @@ struct ConnectionListView: View {
             }
         }
 
-        // Start a companion audio stream alongside the VNC session, synced to
-        // the VNC lifecycle. Prefer an explicitly linked audio connection (so
-        // the desktop can run over a tunnel while audio uses a LAN host); fall
-        // back to a saved audio connection on the same host. Trackpad-only
-        // sessions are input-only (no video), so skip companion audio there.
-        let audioConnection: SavedConnection? = connection.quality == .trackpadOnly ? nil
-            : (connection.linkedAudioConnectionID.flatMap { linkedID in
-                savedConnections.first { $0.connectionType == .audio && $0.id == linkedID }
-              } ?? savedConnections.first {
-                $0.connectionType == .audio && $0.hostname == connection.hostname
-              })
-        let audioCompanion = audioConnection.map {
+        // Resolve the companion (audio) connection once: prefer an explicitly
+        // linked one (so the desktop can run over a tunnel while the companion
+        // uses a LAN host), else a saved audio connection on the same host. It
+        // drives both the companion audio stream and the text-injection channel.
+        let companionConnection: SavedConnection? = connection.linkedCompanionConnectionID.flatMap { linkedID in
+            savedConnections.first { $0.connectionType == .audio && $0.id == linkedID }
+        } ?? savedConnections.first {
+            $0.connectionType == .audio && $0.hostname == connection.hostname
+        }
+
+        // Companion audio is skipped for trackpad-only sessions (no video to
+        // accompany), but text injection still applies — typing is the point of
+        // a trackpad-only overlay over a Mac Virtual Display.
+        let audioCompanion = (connection.quality == .trackpadOnly ? nil : companionConnection).map {
             VNCConnectionManager.AudioCompanion(
                 hostname: $0.hostname,
                 port: UInt16($0.port),
                 token: $0.audioToken,
                 title: $0.displayName,
                 lowLatency: $0.lowLatencyAudio
+            )
+        }
+        let companionInject = companionConnection.map {
+            VNCConnectionManager.CompanionInject(
+                hostname: $0.hostname,
+                port: CompanionInjectProtocol.defaultPort,
+                token: $0.audioToken
             )
         }
 
@@ -260,7 +269,8 @@ struct ConnectionListView: View {
             touchMode: connection.vncTouchMode,
             trackpadOnly: connection.quality == .trackpadOnly,
             title: connection.displayName,
-            audioCompanion: audioCompanion
+            audioCompanion: audioCompanion,
+            companionInject: companionInject
         )
 
         // Push so the connection manager goes into the back stack and

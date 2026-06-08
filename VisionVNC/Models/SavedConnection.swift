@@ -201,13 +201,16 @@ final class SavedConnection {
     /// false so lightweight migration is safe and behavior is unchanged.
     var lowLatencyAudio: Bool = false
 
-    /// On a VNC connection, the `id` of a saved **audio** connection to start
-    /// alongside the VNC session. Lets the desktop run over an encrypted
-    /// tunnel (e.g. Tailscale) while audio streams over a different host on
-    /// the LAN — the implicit same-hostname match can't express that. nil →
-    /// fall back to the hostname match (or no companion). Default nil so
-    /// lightweight migration is safe.
-    var linkedAudioConnectionID: UUID?
+    /// On a VNC connection, the `id` of a saved **companion** (audio) connection
+    /// to pair with the VNC session — it provides both the companion audio
+    /// stream and, on the same host/token, the text-injection channel for the
+    /// keyboard bypass. Lets the desktop run over an encrypted tunnel (e.g.
+    /// Tailscale) while the companion runs on a different LAN host — the
+    /// implicit same-hostname match can't express that. nil → fall back to the
+    /// hostname match (or no companion). Renamed from `linkedAudioConnectionID`;
+    /// `originalName` keeps lightweight migration of existing stores working.
+    @Attribute(originalName: "linkedAudioConnectionID")
+    var linkedCompanionConnectionID: UUID?
 
     // MARK: SSH-specific
 
