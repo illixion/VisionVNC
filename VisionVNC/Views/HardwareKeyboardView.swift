@@ -22,18 +22,63 @@ struct HardwareKeyboardView: UIViewRepresentable {
 final class KeyCaptureView: UIView {
     var connectionManager: VNCConnectionManager?
 
+    private var keyWindowObserver: NSObjectProtocol?
+
     override var canBecomeFirstResponder: Bool { true }
+
+    private var loggedFirstPress = false
 
     override func didMoveToWindow() {
         super.didMoveToWindow()
         if window != nil {
-            becomeFirstResponder()
+            // Re-grab first responder whenever this window becomes key — e.g.
+            // after the keyboard window closes — so hardware keyboard input works
+            // without the keyboard window open, not just while it's focused.
+            if keyWindowObserver == nil {
+                keyWindowObserver = NotificationCenter.default.addObserver(
+                    forName: UIWindow.didBecomeKeyNotification, object: nil, queue: .main
+                ) { [weak self] note in
+                    guard let self, (note.object as? UIWindow) === self.window else { return }
+                    self.reclaimFirstResponder()
+                }
+            }
+            reclaimFirstResponder()
+            // Retry shortly after — the window/scene may not accept first
+            // responder at the instant the view is attached.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                self?.reclaimFirstResponder()
+            }
+        } else if let obs = keyWindowObserver {
+            NotificationCenter.default.removeObserver(obs)
+            keyWindowObserver = nil
         }
+    }
+
+    deinit {
+        if let obs = keyWindowObserver {
+            NotificationCenter.default.removeObserver(obs)
+        }
+    }
+
+    /// Become first responder unless something is presented over our window
+    /// (don't steal focus from the credential prompt sheet's text field). We do
+    /// NOT gate on `isKeyWindow` — on visionOS that can be false even for the
+    /// window the user is looking at, which would block capture entirely.
+    private func reclaimFirstResponder() {
+        guard let window = self.window else { return }
+        if window.rootViewController?.presentedViewController != nil { return }
+        if isFirstResponder { return }
+        let ok = becomeFirstResponder()
+        AppLog.app.line("KeyCaptureView becomeFirstResponder -> \(ok) (isKeyWindow=\(window.isKeyWindow))")
     }
 
     // MARK: - Press Events
 
     override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        if !loggedFirstPress {
+            loggedFirstPress = true
+            AppLog.app.line("KeyCaptureView received first hardware key press")
+        }
         var handled = false
 
         for press in presses {

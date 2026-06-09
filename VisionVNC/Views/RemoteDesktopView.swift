@@ -11,6 +11,9 @@ struct RemoteDesktopView: View {
     @State private var isDragging = false
     @State private var previousDragTranslation: CGSize = .zero
     @State private var showAudioPanel = false
+    // Gaze "drag lock": double-tap presses and holds the left button so a
+    // subsequent pinch-drag drags; a single tap releases it.
+    @State private var dragLocked = false
 
     var body: some View {
         Group {
@@ -68,10 +71,12 @@ struct RemoteDesktopView: View {
     @ViewBuilder
     private var coreContent: some View {
         ZStack {
-            // Invisible hardware keyboard capture
+            // Invisible (1×1) hardware keyboard capture. A zero-size / zero-alpha
+            // view can't reliably become first responder on visionOS, so keep it
+            // 1×1 and transparent-but-present instead. It's the bottommost ZStack
+            // child, so it never intercepts gestures.
             HardwareKeyboardView(connectionManager: connectionManager)
-                .frame(width: 0, height: 0)
-                .opacity(0)
+                .frame(width: 1, height: 1)
 
             GeometryReader { geometry in
                 ZStack {
@@ -88,7 +93,9 @@ struct RemoteDesktopView: View {
                             .aspectRatio(contentMode: .fit)
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-                        // Virtual cursor indicator for touchpad mode
+                        // Virtual cursor indicator for touchpad mode. macOS Screen
+                        // Sharing doesn't draw the remote cursor, so in relative
+                        // mode this local dot is the only pointer indicator.
                         if connectionManager.touchMode == .relative,
                            connectionManager.framebufferSize.width > 0 {
                             cursorOverlay
@@ -99,10 +106,25 @@ struct RemoteDesktopView: View {
                 }
                 .frame(width: geometry.size.width, height: geometry.size.height)
                 .contentShape(Rectangle())
-                .onTapGesture(count: 2) { handleDoubleTap() }
+                // Double tap = begin click+drag lock; single tap = left click
+                // (or release a drag lock). Right click is the toolbar button.
+                .gesture(SpatialTapGesture(count: 2).onEnded { value in
+                    beginDragLock(at: value.location)
+                })
                 .gesture(tapGesture)
                 .gesture(dragGesture)
                 .gesture(scrollGesture)
+                .onContinuousHover { phase in
+                    // Bluetooth-mouse / pointer motion without a button held.
+                    // A DragGesture only fires while a button is down, so plain
+                    // moves were never transmitted — hover fills that gap. Use
+                    // only the absolute location (gaze can warp the pointer, so
+                    // derived deltas would jump). Click-drag still uses dragGesture.
+                    if case .active(let location) = phase,
+                       let point = translator?.viewToFramebuffer(location) {
+                        connectionManager.moveCursorAbsolute(x: point.x, y: point.y)
+                    }
+                }
                 .onAppear {
                     viewSize = geometry.size
                 }
@@ -111,6 +133,19 @@ struct RemoteDesktopView: View {
                 }
             }
         }
+        .overlay(alignment: .top) {
+            if dragLocked { dragLockBadge }
+        }
+    }
+
+    /// Shown while a gaze drag lock holds the left button down.
+    private var dragLockBadge: some View {
+        Label("Dragging — tap to drop", systemImage: "hand.draw")
+            .font(.caption)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .glassBackgroundEffect()
+            .padding(.top, 8)
     }
 
     // MARK: - Status View
@@ -151,6 +186,10 @@ struct RemoteDesktopView: View {
                     systemImage: connectionManager.touchMode == .absolute
                         ? "hand.tap" : "rectangle.and.hand.point.up.left"
                 )
+            }
+
+            Button(action: rightClickAtCursor) {
+                Label("Right-click", systemImage: "cursorarrow.click.2")
             }
 
             Button(action: { openWindow(id: "keyboard") }) {
@@ -205,27 +244,30 @@ struct RemoteDesktopView: View {
 
     // MARK: - Gestures
 
-    /// Tap = left click (absolute: at tap location, relative: at virtual cursor)
+    /// Single tap = left click, or release an active drag lock.
     private var tapGesture: some Gesture {
         SpatialTapGesture()
             .onEnded { value in
-                if connectionManager.touchMode == .absolute {
-                    guard let point = translator?.viewToFramebuffer(value.location) else { return }
-                    connectionManager.sendMouseDown(button: .left, x: point.x, y: point.y)
-                    connectionManager.sendMouseUp(button: .left, x: point.x, y: point.y)
+                if dragLocked {
+                    releaseLeft(at: value.location)
+                    dragLocked = false
                 } else {
-                    connectionManager.clickAtVirtualCursor(button: .left)
+                    leftClick(at: value.location)
                 }
             }
     }
 
-    /// Drag: absolute = click-and-drag, relative = move cursor (no button held)
+    /// Drag: moves the cursor. While a drag lock is held (or a plain absolute
+    /// click-and-drag is in progress), the left button stays down so this drags.
     private var dragGesture: some Gesture {
         DragGesture(minimumDistance: 4)
             .onChanged { value in
                 if connectionManager.touchMode == .absolute {
                     guard let point = translator?.viewToFramebuffer(value.location) else { return }
-                    if !isDragging {
+                    if dragLocked {
+                        // Button already held by the drag lock — just move.
+                        connectionManager.sendMouseMove(x: point.x, y: point.y)
+                    } else if !isDragging {
                         isDragging = true
                         connectionManager.sendMouseDown(button: .left, x: point.x, y: point.y)
                     } else {
@@ -243,7 +285,9 @@ struct RemoteDesktopView: View {
                 }
             }
             .onEnded { value in
-                if connectionManager.touchMode == .absolute {
+                // Plain click-and-drag releases on lift; a drag lock stays held
+                // until a single tap releases it.
+                if connectionManager.touchMode == .absolute && isDragging && !dragLocked {
                     if let point = translator?.viewToFramebuffer(value.location) {
                         connectionManager.sendMouseUp(button: .left, x: point.x, y: point.y)
                     }
@@ -253,16 +297,44 @@ struct RemoteDesktopView: View {
             }
     }
 
-    /// Double-tap = right click
-    private func handleDoubleTap() {
+    // MARK: - Click Helpers
+
+    /// Left click at a tapped location (absolute) or the virtual cursor (relative).
+    private func leftClick(at location: CGPoint) {
         if connectionManager.touchMode == .absolute {
-            // Right-click at center of framebuffer as approximation
-            let centerX = UInt16(connectionManager.framebufferSize.width / 2)
-            let centerY = UInt16(connectionManager.framebufferSize.height / 2)
-            connectionManager.sendMouseDown(button: .right, x: centerX, y: centerY)
-            connectionManager.sendMouseUp(button: .right, x: centerX, y: centerY)
+            guard let point = translator?.viewToFramebuffer(location) else { return }
+            connectionManager.sendMouseDown(button: .left, x: point.x, y: point.y)
+            connectionManager.sendMouseUp(button: .left, x: point.x, y: point.y)
         } else {
-            connectionManager.clickAtVirtualCursor(button: .right)
+            connectionManager.clickAtVirtualCursor(button: .left)
+        }
+    }
+
+    /// Right click at the current cursor position (toolbar button).
+    private func rightClickAtCursor() {
+        connectionManager.clickAtVirtualCursor(button: .right)
+    }
+
+    /// Double tap = press and hold the left button so the next drag drags.
+    private func beginDragLock(at location: CGPoint) {
+        guard !dragLocked else { return }
+        if connectionManager.touchMode == .absolute {
+            guard let point = translator?.viewToFramebuffer(location) else { return }
+            connectionManager.sendMouseDown(button: .left, x: point.x, y: point.y)
+        } else {
+            connectionManager.pressMouseAtVirtualCursor(button: .left)
+        }
+        dragLocked = true
+    }
+
+    /// Release the held left button (ends a drag lock).
+    private func releaseLeft(at location: CGPoint) {
+        if connectionManager.touchMode == .absolute {
+            if let point = translator?.viewToFramebuffer(location) {
+                connectionManager.sendMouseUp(button: .left, x: point.x, y: point.y)
+            }
+        } else {
+            connectionManager.releaseMouseAtVirtualCursor(button: .left)
         }
     }
 
@@ -297,6 +369,7 @@ struct RemoteDesktopView: View {
         )
     }
 
+    /// Local pointer dot for relative/touchpad mode, drawn at the virtual cursor.
     private var cursorOverlay: some View {
         let point = translator?.framebufferToView(
             x: connectionManager.virtualCursorX,

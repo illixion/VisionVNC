@@ -733,8 +733,8 @@
 			repositoryURL = "https://github.com/apple/swift-crypto";
 			requirement = {
 				kind = versionRange;
-				minimumVersion = 1.0.0;
 				maximumVersion = 5.0.0;
+				minimumVersion = 1.0.0;
 			};
 		};
 /* End XCRemoteSwiftPackageReference section */

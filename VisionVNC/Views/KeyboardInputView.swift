@@ -74,6 +74,18 @@ struct KeyboardInputView: View {
                 .padding(.horizontal)
             }
 
+            // Scroll pad — gaze scrolling for the remote desktop (no mouse wheel).
+            ScrollPadView(
+                onVerticalTick: { steps in
+                    connectionManager.scrollAtVirtualCursor(
+                        wheel: steps > 0 ? .up : .down, steps: UInt32(abs(steps)))
+                },
+                onHorizontalTick: { steps in
+                    connectionManager.scrollAtVirtualCursor(
+                        wheel: steps > 0 ? .right : .left, steps: UInt32(abs(steps)))
+                }
+            )
+
             Spacer()
         }
         .padding(.top)

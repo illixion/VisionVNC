@@ -511,4 +511,28 @@ final class VNCConnectionManager: NSObject, VNCConnectionDelegate {
         initializeVirtualCursorIfNeeded()
         sendScroll(wheel: wheel, x: virtualCursorX, y: virtualCursorY, steps: steps)
     }
+
+    /// Press (and hold) a button at the current virtual cursor — used to begin a
+    /// gaze drag lock; pair with `releaseMouseAtVirtualCursor`.
+    func pressMouseAtVirtualCursor(button: VNCMouseButton) {
+        initializeVirtualCursorIfNeeded()
+        sendMouseDown(button: button, x: virtualCursorX, y: virtualCursorY)
+    }
+
+    /// Release a held button at the current virtual cursor (ends a drag lock).
+    func releaseMouseAtVirtualCursor(button: VNCMouseButton) {
+        initializeVirtualCursorIfNeeded()
+        sendMouseUp(button: button, x: virtualCursorX, y: virtualCursorY)
+    }
+
+    /// Move the cursor to an absolute framebuffer position — used for pointer
+    /// hover from a Bluetooth mouse (`onContinuousHover`), which fires without a
+    /// button held (unlike a drag gesture). The virtual cursor is kept in sync
+    /// so a subsequent relative-mode click lands where the pointer is.
+    func moveCursorAbsolute(x: UInt16, y: UInt16) {
+        virtualCursorX = x
+        virtualCursorY = y
+        virtualCursorInitialized = true
+        sendMouseMove(x: x, y: y)
+    }
 }

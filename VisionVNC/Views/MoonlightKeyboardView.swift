@@ -88,6 +88,16 @@ struct MoonlightKeyboardView: View {
                 .buttonStyle(.borderedProminent)
                 .tint(.red)
 
+                // Scroll pad — gaze scrolling for the stream (no mouse wheel).
+                ScrollPadView(
+                    onVerticalTick: { steps in
+                        LiSendHighResScrollEvent(Int16(clamping: steps * 20))
+                    },
+                    onHorizontalTick: { steps in
+                        LiSendHighResHScrollEvent(Int16(clamping: steps * 20))
+                    }
+                )
+
                 Spacer()
             }
             .padding(.top)

@@ -217,6 +217,14 @@ nonisolated func startMoonlightStream(
     audioRenderer: MoonlightAudioRenderer,
     delegate: MoonlightStreamDelegate
 ) -> Int32 {
+    // Defensive clean slate: moonlight-common-c keeps a single connection's
+    // worth of internal threads and file-static depacketizer state. If a prior
+    // session ended without a full teardown (e.g. a wifi dropout terminated it),
+    // that stale state would corrupt this connection and crash on the lingering
+    // VideoRecv thread. LiStopConnection is stage-driven and a no-op when nothing
+    // is active, so it's safe to call unconditionally here.
+    LiStopConnection()
+
     // Set global renderer references
     activeVideoRenderer = videoRenderer
     activeAudioRenderer = audioRenderer

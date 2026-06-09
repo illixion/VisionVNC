@@ -58,10 +58,20 @@ struct MoonlightStreamView: View {
     @State private var previousDragTranslation: CGSize = .zero
     // Track whether a drag is actively holding the mouse button (absolute mode)
     @State private var absoluteDragActive = false
+    // Gaze "drag lock": double-tap presses and holds the left button so a
+    // subsequent pinch-drag drags; a single tap releases it. Lets gaze users
+    // drag (move windows, select) without a physical mouse button.
+    @State private var dragLocked = false
 
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
+
+            // 1×1 transparent hardware keyboard capture, kept bottommost so it
+            // never intercepts gestures. A zero-size / zero-alpha view can't
+            // reliably become first responder on visionOS.
+            MoonlightHardwareKeyboardView()
+                .frame(width: 1, height: 1)
 
             if let layer = manager.displayLayer {
                 GeometryReader { geometry in
@@ -69,21 +79,36 @@ struct MoonlightStreamView: View {
                         .frame(width: geometry.size.width, height: geometry.size.height)
                         .gesture(mouseDragGesture(in: geometry.size))
                         .gesture(scrollGesture)
-                        .onTapGesture(count: 2) {
-                            // Double tap = right click
-                            LiSendMouseButtonEvent(Int8(BUTTON_ACTION_PRESS), BUTTON_RIGHT)
-                            LiSendMouseButtonEvent(Int8(BUTTON_ACTION_RELEASE), BUTTON_RIGHT)
+                        .onContinuousHover { phase in
+                            // Track whether the pointer is over the stream content
+                            // (vs the app's controls) so GCMouse clicks on the
+                            // toolbar aren't sent to the remote. Also, in absolute
+                            // mode, position the pointer to match. Relative mode
+                            // gets raw deltas from GCMouse instead.
+                            switch phase {
+                            case .active(let location):
+                                manager.setPointerOverContent(true)
+                                if manager.touchMode == .absolute {
+                                    let (streamX, streamY) = mapToStreamCoordinates(location, in: geometry.size)
+                                    LiSendMousePositionEvent(streamX, streamY, Int16(manager.streamWidth), Int16(manager.streamHeight))
+                                }
+                            case .ended:
+                                manager.setPointerOverContent(false)
+                            }
                         }
-                        .onTapGesture { location in
-                            handleTap(at: location, in: geometry.size)
-                        }
+                        // Double tap = begin click+drag lock; single tap = left
+                        // click (or release a drag lock). Right click is the
+                        // toolbar button. All suppressed when a physical mouse is
+                        // connected — it owns clicks via GCMouse, and visionOS
+                        // would otherwise double-deliver each click as a tap too.
+                        .gesture(SpatialTapGesture(count: 2).onEnded { value in
+                            beginDragLock(at: value.location, in: geometry.size)
+                        })
+                        .gesture(SpatialTapGesture(count: 1).onEnded { value in
+                            singleTap(at: value.location, in: geometry.size)
+                        })
                 }
                 .ignoresSafeArea()
-
-                // Invisible hardware keyboard capture overlay
-                MoonlightHardwareKeyboardView()
-                    .frame(width: 0, height: 0)
-                    .opacity(0)
             } else {
                 VStack(spacing: 16) {
                     ProgressView()
@@ -99,8 +124,17 @@ struct MoonlightStreamView: View {
                     .environment(manager)
             }
         }
+        .overlay(alignment: .top) {
+            if dragLocked {
+                Label("Dragging — tap to drop", systemImage: "hand.draw")
+                    .font(.caption)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .glassBackgroundEffect()
+                    .padding(.top, 8)
+            }
+        }
         .handlesGameControllerEvents(matching: .gamepad)
-        .persistentSystemOverlays(.hidden)
         .onDisappear {
             manager.stopStreaming()
             dismissWindow(id: "moonlight-keyboard")
@@ -137,15 +171,39 @@ struct MoonlightStreamView: View {
 
     // MARK: - Tap Handling
 
-    private func handleTap(at location: CGPoint, in viewSize: CGSize) {
-        if manager.touchMode == .absolute {
-            // Map tap location to stream coordinates and send absolute position + click
-            let (streamX, streamY) = mapToStreamCoordinates(location, in: viewSize)
-            LiSendMousePositionEvent(streamX, streamY, Int16(manager.streamWidth), Int16(manager.streamHeight))
+    /// Position the pointer for a tap in absolute mode (no-op in relative mode,
+    /// where the cursor is wherever prior motion left it).
+    private func positionForTap(at location: CGPoint, in viewSize: CGSize) {
+        guard manager.touchMode == .absolute else { return }
+        let (streamX, streamY) = mapToStreamCoordinates(location, in: viewSize)
+        LiSendMousePositionEvent(streamX, streamY, Int16(manager.streamWidth), Int16(manager.streamHeight))
+    }
+
+    /// Single tap: left click, or release an active drag lock.
+    private func singleTap(at location: CGPoint, in viewSize: CGSize) {
+        guard !manager.isMouseConnected else { return }
+        positionForTap(at: location, in: viewSize)
+        if dragLocked {
+            LiSendMouseButtonEvent(Int8(BUTTON_ACTION_RELEASE), BUTTON_LEFT)
+            dragLocked = false
+        } else {
+            LiSendMouseButtonEvent(Int8(BUTTON_ACTION_PRESS), BUTTON_LEFT)
+            LiSendMouseButtonEvent(Int8(BUTTON_ACTION_RELEASE), BUTTON_LEFT)
         }
-        // Left click (both modes)
+    }
+
+    /// Double tap: press and hold the left button so the next drag drags.
+    private func beginDragLock(at location: CGPoint, in viewSize: CGSize) {
+        guard !manager.isMouseConnected, !dragLocked else { return }
+        positionForTap(at: location, in: viewSize)
         LiSendMouseButtonEvent(Int8(BUTTON_ACTION_PRESS), BUTTON_LEFT)
-        LiSendMouseButtonEvent(Int8(BUTTON_ACTION_RELEASE), BUTTON_LEFT)
+        dragLocked = true
+    }
+
+    /// Right click at the host's current cursor position (toolbar button).
+    private func rightClickAtCurrentPosition() {
+        LiSendMouseButtonEvent(Int8(BUTTON_ACTION_PRESS), BUTTON_RIGHT)
+        LiSendMouseButtonEvent(Int8(BUTTON_ACTION_RELEASE), BUTTON_RIGHT)
     }
 
     // MARK: - Coordinate Mapping
@@ -189,16 +247,20 @@ struct MoonlightStreamView: View {
     private func mouseDragGesture(in viewSize: CGSize) -> some Gesture {
         DragGesture(minimumDistance: 2)
             .onChanged { value in
+                guard !manager.isMouseConnected else { return }
                 if manager.touchMode == .absolute {
                     let (streamX, streamY) = mapToStreamCoordinates(value.location, in: viewSize)
                     LiSendMousePositionEvent(streamX, streamY, Int16(manager.streamWidth), Int16(manager.streamHeight))
-                    // Press button on first drag update for click-and-drag
-                    if !absoluteDragActive {
+                    // In drag-lock the button is already held (from a double-tap);
+                    // don't re-press. Otherwise this is a plain click-and-drag:
+                    // press the button on the first drag update.
+                    if !dragLocked && !absoluteDragActive {
                         absoluteDragActive = true
                         LiSendMouseButtonEvent(Int8(BUTTON_ACTION_PRESS), BUTTON_LEFT)
                     }
                 } else {
-                    // Relative: send incremental deltas
+                    // Relative: send incremental deltas (the button, if any, is
+                    // held remotely — by drag-lock — so this drags).
                     let dx = value.translation.width - previousDragTranslation.width
                     let dy = value.translation.height - previousDragTranslation.height
                     previousDragTranslation = value.translation
@@ -206,14 +268,16 @@ struct MoonlightStreamView: View {
                 }
             }
             .onEnded { value in
-                if manager.touchMode == .absolute && absoluteDragActive {
-                    // Send final position then release button
+                previousDragTranslation = .zero
+                guard !manager.isMouseConnected else { return }
+                // A plain click-and-drag releases on lift. A drag-lock keeps the
+                // button held until a single tap releases it.
+                if manager.touchMode == .absolute && absoluteDragActive && !dragLocked {
                     let (streamX, streamY) = mapToStreamCoordinates(value.location, in: viewSize)
                     LiSendMousePositionEvent(streamX, streamY, Int16(manager.streamWidth), Int16(manager.streamHeight))
                     LiSendMouseButtonEvent(Int8(BUTTON_ACTION_RELEASE), BUTTON_LEFT)
-                    absoluteDragActive = false
                 }
-                previousDragTranslation = .zero
+                absoluteDragActive = false
             }
     }
 
@@ -235,13 +299,19 @@ struct MoonlightStreamView: View {
     private var controlsBar: some View {
         HStack(spacing: 16) {
             Button {
-                manager.touchMode = manager.touchMode == .absolute ? .relative : .absolute
+                manager.setTouchMode(manager.touchMode == .absolute ? .relative : .absolute)
             } label: {
                 Label(
                     manager.touchMode == .absolute ? "Direct" : "Touchpad",
                     systemImage: manager.touchMode == .absolute
                         ? "hand.tap" : "rectangle.and.hand.point.up.left"
                 )
+            }
+
+            Button {
+                rightClickAtCurrentPosition()
+            } label: {
+                Label("Right-click", systemImage: "cursorarrow.click.2")
             }
 
             Button {

@@ -75,6 +75,11 @@ class MoonlightConnectionManager: MoonlightStreamDelegate {
     /// Stream resolution for coordinate mapping in absolute mode.
     var streamWidth: Int = 1920
     var streamHeight: Int = 1080
+
+    /// Whether a physical (Bluetooth/USB) mouse is currently connected. When
+    /// true, the stream view suppresses its touch-gesture clicks so the GCMouse
+    /// path owns all clicks (avoids visionOS's double-delivery double-clicks).
+    var isMouseConnected: Bool = false
     /// Selected display index for multi-display servers.
     var selectedDisplayIndex: Int = 0
 
@@ -89,7 +94,12 @@ class MoonlightConnectionManager: MoonlightStreamDelegate {
 
     private var audioRenderer: MoonlightAudioRenderer?
     private var gamepadManager: MoonlightGamepadManager?
+    private var mouseManager: MoonlightMouseManager?
+    private var keyboardManager: MoonlightKeyboardManager?
     private var isStreamActive = false
+    /// Guards against concurrent teardowns (e.g. a manual disconnect racing a
+    /// server-initiated termination) issuing overlapping LiStopConnection calls.
+    private var isTearingDown = false
 
     // FPS tracking
     private var fpsFrameCount: UInt64 = 0
@@ -388,9 +398,10 @@ class MoonlightConnectionManager: MoonlightStreamDelegate {
 
                 if result != 0 {
                     await MainActor.run {
-                        self.connectionState = .error("Failed to start stream (error: \(result))")
-                        self.statusMessage = "Stream failed"
-                        self.cleanupStream()
+                        self.teardownStream {
+                            self.connectionState = .error("Failed to start stream (error: \(result))")
+                            self.statusMessage = "Stream failed"
+                        }
                     }
                 }
             } catch {
@@ -404,13 +415,32 @@ class MoonlightConnectionManager: MoonlightStreamDelegate {
 
     /// Stop the active streaming session.
     func stopStreaming() {
-        guard isStreamActive else { return }
+        teardownStream {
+            self.connectionState = .ready
+            self.statusMessage = "Disconnected from stream"
+        }
+    }
+
+    /// Fully tear the active session down: `LiStopConnection()` on a background
+    /// thread (it must not run on the connection's callback thread or block the
+    /// main thread), then release Swift-side resources and apply the final UI
+    /// state. Guarded so it runs exactly once regardless of which path triggers
+    /// it (manual disconnect, server termination, or stage failure) — concurrent
+    /// LiStopConnection calls would race on moonlight-common-c's internal state.
+    private func teardownStream(quitOnServer: Bool = false, _ applyFinalState: @escaping @MainActor () -> Void) {
+        guard isStreamActive, !isTearingDown else {
+            applyFinalState()
+            return
+        }
+        isTearingDown = true
+        let client = quitOnServer ? httpClient : nil
         Task.detached {
             stopMoonlightStream()
+            if quitOnServer { try? await client?.quitApp() }
             await MainActor.run {
-                self.cleanupStream()
-                self.connectionState = .ready
-                self.statusMessage = "Disconnected from stream"
+                self.cleanupStream()       // sets isStreamActive = false
+                self.isTearingDown = false
+                applyFinalState()
             }
         }
     }
@@ -420,6 +450,11 @@ class MoonlightConnectionManager: MoonlightStreamDelegate {
         gamepadManager?.stopListening()
         gamepadManager = nil
         activeGamepadManager = nil
+        mouseManager?.stopListening()
+        mouseManager = nil
+        isMouseConnected = false
+        keyboardManager?.stopListening()
+        keyboardManager = nil
         displayLayer?.flush()
         displayLayer = nil
         videoRenderer?.displayLayer = nil
@@ -438,6 +473,35 @@ class MoonlightConnectionManager: MoonlightStreamDelegate {
         gamepadManager = manager
         activeGamepadManager = manager
         manager.startListening()
+    }
+
+    private func startMouseManager() {
+        let manager = MoonlightMouseManager(relativeMotionEnabled: touchMode == .relative)
+        manager.onConnectedChange = { [weak self] connected in
+            self?.isMouseConnected = connected
+        }
+        mouseManager = manager
+        manager.startListening() // fires onConnectedChange for any already-connected mouse
+    }
+
+    private func startKeyboardManager() {
+        let manager = MoonlightKeyboardManager()
+        keyboardManager = manager
+        manager.startListening()
+    }
+
+    /// Switch the active touch/pointer mode. Keeps the `GCMouse` bridge in sync
+    /// so raw motion deltas are only forwarded in relative mode (absolute mode
+    /// drives the pointer from the view's hover position events instead).
+    func setTouchMode(_ mode: TouchMode) {
+        touchMode = mode
+        mouseManager?.relativeMotionEnabled = (mode == .relative)
+    }
+
+    /// Tell the `GCMouse` bridge whether the pointer is over the stream content,
+    /// so physical clicks on the app's own controls aren't sent to the remote.
+    func setPointerOverContent(_ over: Bool) {
+        mouseManager?.pointerOverContent = over
     }
 
     private func startDisplayLink() {
@@ -519,9 +583,10 @@ class MoonlightConnectionManager: MoonlightStreamDelegate {
     nonisolated func moonlightStreamStageFailed(_ stage: Int32, errorCode: Int32) {
         let name = String(cString: LiGetStageName(stage))
         Task { @MainActor in
-            self.connectionState = .error("Stage '\(name)' failed (error: \(errorCode))")
-            self.statusMessage = "Stream setup failed"
-            self.cleanupStream()
+            self.teardownStream {
+                self.connectionState = .error("Stage '\(name)' failed (error: \(errorCode))")
+                self.statusMessage = "Stream setup failed"
+            }
         }
     }
 
@@ -531,18 +596,26 @@ class MoonlightConnectionManager: MoonlightStreamDelegate {
             self.statusMessage = "Streaming"
             self.startDisplayLink()
             self.startGamepadManager()
+            self.startMouseManager()
+            self.startKeyboardManager()
         }
     }
 
     nonisolated func moonlightStreamConnectionTerminated(_ errorCode: Int32) {
         Task { @MainActor in
-            self.cleanupStream()
-            if errorCode == 0 {
-                self.connectionState = .ready
-                self.statusMessage = "Stream ended"
-            } else {
-                self.connectionState = .error("Stream terminated (error: \(errorCode))")
-                self.statusMessage = "Stream lost"
+            // A server-initiated termination (e.g. wifi dropout) must still call
+            // LiStopConnection to join the internal threads and reset moonlight's
+            // static state — otherwise the next session corrupts/crashes. Route
+            // through the guarded teardown (off-main, since LiStopConnection
+            // blocks and must not run on the callback thread).
+            self.teardownStream {
+                if errorCode == 0 {
+                    self.connectionState = .ready
+                    self.statusMessage = "Stream ended"
+                } else {
+                    self.connectionState = .error("Stream terminated (error: \(errorCode))")
+                    self.statusMessage = "Stream lost"
+                }
             }
         }
     }
@@ -630,17 +703,9 @@ class MoonlightConnectionManager: MoonlightStreamDelegate {
 
     /// Stop the local stream AND quit the app on the server.
     func stopStreamingAndQuit() {
-        guard isStreamActive else { return }
-        let client = httpClient
-        Task.detached {
-            stopMoonlightStream()
-            // End the session on the server
-            try? await client?.quitApp()
-            await MainActor.run {
-                self.cleanupStream()
-                self.connectionState = .ready
-                self.statusMessage = "Session ended"
-            }
+        teardownStream(quitOnServer: true) {
+            self.connectionState = .ready
+            self.statusMessage = "Session ended"
         }
     }
 
