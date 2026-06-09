@@ -32,7 +32,7 @@
 			);
 			target = 1DC83C262F74524200BF0482 /* VisionVNC */;
 		};
-		AA10AD100000000000000003 /* Exceptions for "AudioSender" folder in "VisionVNCCompanion" target */ = {
+		AA10AD100000000000000003 /* Exceptions for "CompanionMac" folder in "VisionVNCCompanion" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Info.plist,
@@ -50,12 +50,12 @@
 			path = VisionVNC;
 			sourceTree = "<group>";
 		};
-		AA10AD100000000000000002 /* AudioSender */ = {
+		AA10AD100000000000000002 /* CompanionMac */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
-				AA10AD100000000000000003 /* Exceptions for "AudioSender" folder in "VisionVNCCompanion" target */,
+				AA10AD100000000000000003 /* Exceptions for "CompanionMac" folder in "VisionVNCCompanion" target */,
 			);
-			path = AudioSender;
+			path = CompanionMac;
 			sourceTree = "<group>";
 		};
 		AA10AD100000000000000004 /* Shared */ = {
@@ -115,7 +115,7 @@
 			isa = PBXGroup;
 			children = (
 				1DC83C292F74524200BF0482 /* VisionVNC */,
-				AA10AD100000000000000002 /* AudioSender */,
+				AA10AD100000000000000002 /* CompanionMac */,
 				AA10AD100000000000000004 /* Shared */,
 				BBAA00000000000000000002 /* VisionVNCTests */,
 				1DC83C2A2F74524200BF0482 /* Packages */,
@@ -190,7 +190,7 @@
 			dependencies = (
 			);
 			fileSystemSynchronizedGroups = (
-				AA10AD100000000000000002 /* AudioSender */,
+				AA10AD100000000000000002 /* CompanionMac */,
 				AA10AD100000000000000004 /* Shared */,
 			);
 			name = VisionVNCCompanion;
@@ -211,6 +211,7 @@
 			buildRules = (
 			);
 			dependencies = (
+				BBAA0000000000000000000C /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				BBAA00000000000000000002 /* VisionVNCTests */,
@@ -346,10 +347,25 @@
 		};
 /* End PBXSourcesBuildPhase section */
 
+/* Begin PBXContainerItemProxy section */
+		BBAA0000000000000000000D /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 1DC83C1F2F74524200BF0482 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 1DC83C262F74524200BF0482;
+			remoteInfo = VisionVNC;
+		};
+/* End PBXContainerItemProxy section */
+
 /* Begin PBXTargetDependency section */
 		1DC83C532F745D6600BF0482 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			productRef = 1DC83C522F745D6600BF0482 /* RoyalVNCKit */;
+		};
+		BBAA0000000000000000000C /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 1DC83C262F74524200BF0482 /* VisionVNC */;
+			targetProxy = BBAA0000000000000000000D /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -551,7 +567,7 @@
 				DEVELOPMENT_TEAM = 9T5F88VJFL;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = AudioSender/Info.plist;
+				INFOPLIST_FILE = CompanionMac/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
@@ -580,7 +596,7 @@
 				DEVELOPMENT_TEAM = 9T5F88VJFL;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = AudioSender/Info.plist;
+				INFOPLIST_FILE = CompanionMac/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",

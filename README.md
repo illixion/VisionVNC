@@ -4,6 +4,9 @@ A native remote desktop and game streaming app for Apple Vision Pro, built in Sw
 
 VisionVNC combines a full-featured **VNC viewer** with a **Moonlight game streaming** client in a single visionOS app. Connect to any VNC server for remote desktop access, or stream games and applications from a [Sunshine](https://github.com/LizardByte/Sunshine) / NVIDIA GameStream host with hardware-accelerated video decoding and low-latency input.
 
+> [!TIP]
+> **New: use your Vision Pro with a Windows PC in public — even on café/hotel Wi-Fi.** Public networks usually block device-to-device traffic, which breaks VNC and Moonlight. The new [Windows Hotspot Companion (Beta)](#windows-hotspot-companion-beta) turns the Windows host into its own NAT'd Wi-Fi access point the headset joins directly — so streaming works *and* the Vision Pro keeps internet. A long-standing pain point with no clean solution until now.
+
 ## Features
 
 ### VNC Remote Desktop
@@ -116,6 +119,8 @@ The project is **arm64-only** (`ARCHS = arm64` at the project level) — Apple d
 
 ### Building the Companion (macOS)
 
+> Looking for the Windows side? See [Windows Hotspot Companion (Beta)](#windows-hotspot-companion-beta) below.
+
 The **VisionVNCCompanion** scheme builds the macOS menu bar app that streams system audio to VisionVNC. It has no external dependencies, so it builds even without the `repos/` setup above. Select the `VisionVNCCompanion` scheme in Xcode and run, or from the command line:
 
 ```bash
@@ -132,6 +137,31 @@ Requires macOS 14.2+. On first start of streaming, grant the **System Audio Reco
 1. Launch VisionVNCCompanion on the Mac (speaker icon in the menu bar) and enable **Stream system audio**
 2. In VisionVNC on the Vision Pro, add an **Audio** connection pointing at your Mac's IP, port 4855
 3. Spatialized Stereo will be off by default, since the Mac Virtual Display's audio stream is always forced into Spatialized Stereo, so if you ever need to stream 5.1/7.1 surround just use Mac VD audio streaming instead.
+
+## Windows Hotspot Companion (Beta)
+
+`CompanionWindows/` is a separate companion app for **using a Vision Pro with a Windows machine in public** — cafés, hotels, conference Wi-Fi, anywhere the two devices can't reach each other on the shared network.
+
+Normally VNC and Moonlight need both devices on the same LAN, and most public Wi-Fi blocks client-to-client traffic (AP isolation) — so streaming simply doesn't work. This companion turns the **Windows host into its own NAT'd Wi-Fi access point** that the Vision Pro joins directly. From the venue's perspective there's a single client (the Windows PC); the headset rides *behind the PC's NAT*, so it keeps internet **and** gets a direct, low-latency path to the local Sunshine/VNC server at the gateway (`192.168.137.1`). The visionOS app auto-fills that gateway as the host when it detects it's on such a network.
+
+It's a standalone **Node + .NET** project (Electron UI over an elevated .NET backend using the Windows Mobile Hotspot API).
+
+**Install:** download the latest installer for your CPU from the [Releases](../../releases) page and run it — no need to install toolchains or compile anything (which is a pain on Windows). Both architectures are built natively:
+- `VisionVNCHotspotCompanion-…-x64-Setup.exe` — Intel / AMD PCs
+- `VisionVNCHotspotCompanion-…-arm64-Setup.exe` — Windows on ARM (Snapdragon X-class laptops)
+
+The installers are built by CI and ship with a **signed build-provenance attestation**, so you can prove the download was produced by this repo's workflow from a specific commit and wasn't tampered with:
+
+```bash
+gh attestation verify VisionVNCHotspotCompanion-<version>-<arch>-Setup.exe --repo illixion/VisionVNC
+```
+
+Prefer to build it yourself? See [`CompanionWindows/README.md`](CompanionWindows/README.md).
+
+> ⚠️ **Beta quality — test before you rely on it.** This has been validated end-to-end on real hardware, but only with **one USB Wi-Fi adapter** (a TP-Link Archer T2U / RTL8811AU); it has **not** been tested across the wide variety of Wi-Fi chipsets and drivers out there. Whether it works on your machine depends entirely on your adapter's driver:
+> - The host needs a Wi-Fi adapter whose driver can **host an AP** (SoftAP or Wi-Fi-Direct-GO). Many built-in laptop adapters are **station-only and cannot host at all** — in that case you'll need an inexpensive **USB Wi-Fi adapter**. Check with `netsh wlan show wirelesscapabilities`.
+> - Sharing a **wired (Ethernet) upstream** is the most reliable setup. Sharing a Wi-Fi upstream over a *single* radio (STA + AP on one adapter) is unstable; the café Wi-Fi scenario realistically needs Ethernet or a second/dual-band adapter.
+> - Treat it as something to **manually test on your specific hardware** before depending on it for a trip. See `CompanionWindows/spike/SPIKE-FINDINGS.md` for the full hardware/driver findings.
 
 ## Architecture
 
@@ -166,12 +196,16 @@ VisionVNCApp
     ├── ConnectionListView        — Unified server list, routes by type
     └── ConnectionFormView        — Per-connection settings form
 
-VisionVNCCompanion (macOS menu bar app)
+CompanionMac/ → VisionVNCCompanion (macOS menu bar app)
 ├── SystemAudioTap                — Core Audio process tap + aggregate device
 ├── AudioStreamServer             — TCP server, Float32 PCM frames
-└── AudioSenderApp                — MenuBarExtra UI
+└── CompanionApp                  — MenuBarExtra UI
 
-Shared/AudioStreamProtocol.swift  — wire format, compiled into both targets
+CompanionWindows/ (PoC, Node + .NET) — "VisionVNC Hotspot Companion"
+├── backend/                      — .NET 8 worker: Mobile Hotspot AP+NAT, named-pipe RPC
+└── app/                          — Electron UI ("Join from Vision Pro" panel)
+
+Shared/AudioStreamProtocol.swift  — wire format, compiled into both visionOS + macOS targets
 ```
 
 ### How Moonlight Streaming Works

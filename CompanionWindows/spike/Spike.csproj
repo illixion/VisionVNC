@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <!-- net8.0-windows10.0.19041.0 pulls in the WinRT projection (Microsoft.Windows.SDK.NET)
+         that exposes Windows.Networking.NetworkOperators / Connectivity. -->
+    <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <RootNamespace>VisionVNC.HotspotSpike</RootNamespace>
+    <AssemblyName>HotspotSpike</AssemblyName>
+    <!-- Honor the project-wide manifest so we can mark requireAdministrator. -->
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+  </PropertyGroup>
+
+</Project>

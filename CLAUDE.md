@@ -9,6 +9,11 @@ VisionVNC is a remote desktop and game streaming app for **visionOS** built in S
 3. **Audio** — Uncompressed system-audio streaming from a companion macOS menu bar app (`VisionVNCCompanion` target). Works around macOS forcing Spatial Audio on for Mac Virtual Display: audio played by this app honors the per-app Spatial Audio setting. Also carries Music.app now-playing metadata (title/artist/artwork) to the Vision Pro and transport commands (play/pause/next/prev) back to the Mac; the visionOS side is an iTunes-style mini player.
 4. **SSH / Remote Claude** — A built-in SSH terminal client ([SwiftTerm](https://github.com/migueldeicaza/SwiftTerm) MIT + [swift-nio-ssh](https://github.com/apple/swift-nio-ssh) Apache-2.0, pure Swift) for any host, plus a **Projects** tab that drives Claude Code (or another configurable CLI) on a Mac over SSH — tmux-backed for persistence, with a gaze/dictation composer + quick-key row. The device identity is a Secure Enclave P-256 key; only its public key is installed on the host. Because the macOS Keychain is unreachable over SSH, Claude auth uses a `CLAUDE_CODE_OAUTH_TOKEN` (from `claude setup-token`) stored in the Vision Pro keychain and injected inline per session — no `sshd_config` edit. The companion macOS app also gained **text-only keyboard injection** (CGEvent Unicode + backspace, no modifiers — DuckyScript-safe) so the VNC soft keyboard can route typing through the Mac when a companion is linked.
 
+There are two **companion apps** for the host side (see `CompanionMac/` and `CompanionWindows/`):
+
+- **macOS Companion** (`VisionVNCCompanion` target, source in `CompanionMac/`) — the audio / now-playing / keyboard-injection / SSH-key companion described above.
+- **Windows Hotspot Companion** (`CompanionWindows/`, a **PoC**, separate Node + .NET codebase) — turns a Windows host into a NAT'd Wi-Fi access point the Vision Pro joins directly, so the headset rides behind the PC's NAT (defeating café/hotel AP-isolation) and reaches the local Sunshine/VNC server at the gateway. Uses the Windows Mobile Hotspot API (`NetworkOperatorTetheringManager`) via a `.NET` backend, fronted by an Electron UI over an ACL'd named pipe. The visionOS side complements it with `LocalNetwork.swift` (auto-prefills the `192.168.137.1` gateway host on a Windows-ICS subnet). It does **not** share compiled code with the macOS companion; the audio/inject TLS-PSK channel is not exercised in the PoC.
+
 Moonlight is an **optional build-time feature** controlled by the `MOONLIGHT_ENABLED` Swift compilation condition. When disabled, the app is a pure VNC viewer with zero Moonlight code compiled in.
 
 ## Build Configuration
@@ -98,7 +103,7 @@ Seven `WindowGroup` scenes in `VisionVNCApp` (two conditionally compiled):
 | `AudioStreamReceiver` (visionOS) | `@unchecked Sendable`, off-main NWConnection receive loop → AVAudioEngine/AVAudioPlayerNode. Prebuffers 4 frames before `play()` to absorb jitter. Local mute drops PCM (no backlog). Observes audio-session interruption/engine-config-change/silence-hint and emits `.reloadRequested` (see Gotchas). |
 | `SystemAudioTap` (macOS) | Core Audio process tap (`CATapDescription` global stereo mixdown, macOS 14.2+) hosted in a private aggregate device; IOProc converts the tap's Float32 to interleaved int24 (the wire format) before delivery. `muteSystemOutput` uses `.muted` tap behavior — silences local/Sidecar output while capturing (the whole point: only the streamed copy is audible). Mute change requires tap restart. No BlackHole/virtual driver needed. Requires TCC "System Audio Recording" (NSAudioCaptureUsageDescription). |
 | `AudioStreamServer` (macOS) | NWListener TCP server, **single client (newest-wins: new connection displaces the old)**, per-client backpressure: PCM frames dropped for a client >200 KB behind (latency cap). Metadata/artwork frames bypass the cap and are replayed to newly connected clients after the header. Inbound loop parses `command` frames → `onCommand`. |
-| `AudioStreamerController` (macOS) | `@Observable` orchestrator behind the `MenuBarExtra` UI in `AudioSenderApp`. Tap starts **unmuted**; restarts muted on the 0→1 client edge and unmuted on 1→0 (mute only while someone is listening). |
+| `AudioStreamerController` (macOS) | `@Observable` orchestrator behind the `MenuBarExtra` UI in `CompanionApp`. Tap starts **unmuted**; restarts muted on the 0→1 client edge and unmuted on 1→0 (mute only while someone is listening). |
 | `MusicAppBridge` (macOS) | Music.app metadata + control via public APIs only: `DistributedNotificationCenter` `com.apple.Music.playerInfo` (event-driven) + `NSAppleScript` one-shots for artwork (≤600 px JPEG, on track change), player position, and transport. Every script call is guarded by an `NSRunningApplication` check (`tell application "Music"` would launch it). Needs `NSAppleEventsUsageDescription` / one-time Automation TCC. |
 
 ### Shared Types
@@ -245,20 +250,27 @@ VisionVNC/
 ├── Assets.xcassets/                    — App icon (solidimagestack, 1024x1024 @2x)
 └── Info.plist                          — NSLocalNetworkUsageDescription, multi-scene
 
-Shared/                                 — compiled into BOTH targets (visionOS app + macOS sender)
+Shared/                                 — compiled into BOTH targets (visionOS app + macOS companion)
 └── AudioStreamProtocol.swift           — Wire protocol v6 (int24 PCM via PCM24), NowPlayingInfo, MediaCommand
 
-AudioSender/                            — macOS menu bar sender target (VisionVNCCompanion)
-├── AudioSenderApp.swift                — MenuBarExtra UI + AudioStreamerController
+CompanionMac/                           — macOS menu bar companion target (VisionVNCCompanion)
+├── CompanionApp.swift                  — MenuBarExtra UI (CompanionApp + CompanionMenuView) + AudioStreamerController
 ├── AudioStreamServer.swift             — Single-client TCP server, metadata replay, command rx
 ├── SystemAudioTap.swift                — Core Audio process tap
 ├── MusicAppBridge.swift                — Music.app metadata/control (notifications + AppleScript)
 └── Info.plist                          — NSAudioCaptureUsageDescription, NSAppleEventsUsageDescription
 
+CompanionWindows/                       — Windows "Hotspot Companion" (PoC; separate Node + .NET codebase)
+├── backend/                            — .NET 8 worker: TetheringController (Mobile Hotspot AP+NAT), PipeServer (ACL'd named-pipe JSON-RPC)
+├── app/                                — Electron UI: status + "Join from Vision Pro" panel (SSID / 8-char password / gateway IP)
+├── spike/                              — Step-1 capability spike + SPIKE-FINDINGS.md (decision record)
+└── README.md                           — build/run/architecture/protocol
+
 VisionVNCTests/                         — app-hosted XCTest target (run locally, no CI)
 ├── TextDiffTests.swift                 — keyboard common-prefix diff
 ├── CompanionInjectProtocolTests.swift  — inject framing / drain / backspace
-└── SavedConnectionEnvTests.swift       — SSH env parsing + name validation
+├── SavedConnectionEnvTests.swift       — SSH env parsing + name validation
+└── LocalNetworkTests.swift             — Windows-ICS subnet inference for host auto-prefill
 
 scripts/
 ├── setup-deps.sh                       — Clone+patch repos/ deps (local Moonlight builds)

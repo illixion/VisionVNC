@@ -2,14 +2,14 @@ import SwiftUI
 import AppKit
 import os
 
-/// Menu bar companion app for VisionVNC: captures system audio via a
-/// Core Audio process tap and streams it as uncompressed PCM to the
-/// VisionVNC app on Apple Vision Pro.
+/// Menu bar companion app for VisionVNC (macOS side): streams system audio
+/// to the Vision Pro via a Core Audio process tap, relays Music.app now-playing
+/// metadata + transport, and offers keyboard text injection and SSH key setup.
 ///
-/// Workaround for macOS forcing Spatial Audio on for Mac Virtual Display
-/// audio — audio played by the visionOS app honors the per-app setting.
+/// The audio path works around macOS forcing Spatial Audio on for Mac Virtual
+/// Display — audio played by the visionOS app honors the per-app setting.
 @main
-struct AudioSenderApp: App {
+struct CompanionApp: App {
     @State private var controller = AudioStreamerController()
 
     init() {
@@ -23,7 +23,7 @@ struct AudioSenderApp: App {
 
     var body: some Scene {
         MenuBarExtra {
-            AudioSenderMenuView(controller: controller)
+            CompanionMenuView(controller: controller)
         } label: {
             // Priority: injecting > now-playing track > audio idle/active.
             if controller.isInjecting {
@@ -38,7 +38,7 @@ struct AudioSenderApp: App {
     }
 }
 
-struct AudioSenderMenuView: View {
+struct CompanionMenuView: View {
     @Bindable var controller: AudioStreamerController
     @State private var copied = false
 

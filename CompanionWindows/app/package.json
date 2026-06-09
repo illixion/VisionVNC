@@ -1,0 +1,48 @@
+{
+  "name": "visionvnc-hotspot-companion",
+  "version": "0.1.0",
+  "description": "VisionVNC Hotspot Companion (Windows) — turns the Windows host into a NAT'd Wi-Fi AP the Vision Pro joins directly.",
+  "main": "src/main.js",
+  "author": "Ixion <illixion@illixion.com>",
+  "license": "MIT",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder"
+  },
+  "devDependencies": {
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.illixion.VisionVNCHotspotCompanion",
+    "productName": "VisionVNC Hotspot Companion",
+    "directories": {
+      "output": "dist",
+      "buildResources": "buildResources"
+    },
+    "files": [
+      "src/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "../backend/bin/Release/net8.0-windows10.0.19041.0/publish",
+        "to": "backend",
+        "filter": ["**/*"]
+      }
+    ],
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "requestedExecutionLevel": "requireAdministrator"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": true,
+      "allowElevation": true,
+      "createDesktopShortcut": true,
+      "include": "buildResources/installer.nsh"
+    }
+  }
+}

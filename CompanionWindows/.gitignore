@@ -1,0 +1,13 @@
+# .NET
+**/bin/
+**/obj/
+
+# Node / Electron
+app/node_modules/
+app/dist/
+
+# Transient dev artifacts
+**/*.log
+spike/spike.live.log
+app/*.png
+backend/hold.log*

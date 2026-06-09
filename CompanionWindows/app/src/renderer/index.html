@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self';" />
+  <title>VisionVNC Hotspot Companion</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <img class="logo" src="logo.png" alt="VisionVNC" />
+      <div>
+        <h1>VisionVNC Hotspot Companion</h1>
+        <p class="subtitle">Direct Wi-Fi link for Vision Pro — NAT'd through this PC</p>
+      </div>
+    </div>
+    <div id="backendPill" class="pill pill-bad">Backend: connecting…</div>
+  </header>
+
+  <main>
+    <div id="capabilityBanner" class="banner hidden"></div>
+
+    <section class="card">
+      <div class="card-head">
+        <h2>Hotspot</h2>
+        <span id="stateBadge" class="badge badge-off">OFF</span>
+      </div>
+
+      <div class="grid">
+        <label class="field">
+          <span>Network name (SSID)</span>
+          <input id="ssid" type="text" maxlength="32" autocomplete="off" spellcheck="false" />
+        </label>
+
+        <label class="field">
+          <span>Password (8-char WPA2)</span>
+          <div class="with-button">
+            <input id="passphrase" type="text" maxlength="63" autocomplete="off" spellcheck="false" />
+            <button id="regen" class="ghost" title="Generate a new password">⟳</button>
+          </div>
+        </label>
+
+        <label class="field">
+          <span>Band</span>
+          <select id="band">
+            <option value="auto" selected>Auto</option>
+            <option value="2.4">2.4 GHz</option>
+            <option value="5">5 GHz</option>
+          </select>
+        </label>
+
+        <label class="field">
+          <span>Share internet from</span>
+          <select id="upstream"></select>
+        </label>
+      </div>
+
+      <div class="actions">
+        <button id="startBtn" class="primary">Start hotspot</button>
+        <button id="stopBtn" class="danger hidden">Stop hotspot</button>
+        <button id="fixAdapterBtn" class="ghost hidden">Disable conflicting adapter &amp; retry</button>
+        <span id="opMsg" class="op-msg"></span>
+      </div>
+    </section>
+
+    <section id="joinPanel" class="card join hidden">
+      <h2>Join from Vision Pro</h2>
+      <p class="join-help">On the headset: <strong>Settings → Wi-Fi</strong>, pick the network and type the
+        password. Then in VisionVNC, add a VNC/Moonlight connection to the <strong>gateway IP</strong>.</p>
+      <div class="join-grid">
+        <div class="join-item">
+          <span class="join-label">Network</span>
+          <div class="join-value" id="joinSsid">—</div>
+          <button class="copy" data-copy="joinSsid">Copy</button>
+        </div>
+        <div class="join-item">
+          <span class="join-label">Password</span>
+          <div class="join-value" id="joinPass">—</div>
+          <button class="copy" data-copy="joinPass">Copy</button>
+        </div>
+        <div class="join-item highlight">
+          <span class="join-label">Gateway IP (type into VisionVNC)</span>
+          <div class="join-value" id="joinGateway">—</div>
+          <button class="copy" data-copy="joinGateway">Copy</button>
+        </div>
+      </div>
+      <div class="join-stats">
+        <span>Connected clients: <strong id="clientCount">0</strong> / <span id="maxClients">—</span></span>
+        <span>Upstream: <strong id="upstreamName">—</strong></span>
+      </div>
+    </section>
+  </main>
+
+  <script src="renderer.js"></script>
+</body>
+</html>

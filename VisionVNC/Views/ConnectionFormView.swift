@@ -22,6 +22,9 @@ struct ConnectionFormView: View {
     @State private var port: String = String(ConnectionDefaults.port(for: .vnc))
     @State private var label: String = ""
 
+    /// True when `hostname` was auto-filled from a detected Windows hotspot (shows a hint).
+    @State private var didDetectHotspotHost: Bool = false
+
     // VNC
     @State private var quality: ConnectionQuality = ConnectionDefaults.vncQuality
     @State private var autoLogin: Bool = false
@@ -79,6 +82,27 @@ struct ConnectionFormView: View {
         savedConnection != nil
     }
 
+    /// Only VNC/Moonlight connect to the hotspot host (the Windows box). Audio/SSH target a Mac.
+    private var typeTargetsHotspotHost: Bool {
+        switch connectionType {
+        case .vnc: return true
+        #if MOONLIGHT_ENABLED
+        case .moonlight: return true
+        #endif
+        default: return false
+        }
+    }
+
+    /// Pre-fill the host with the Windows ICS gateway when this device is on a hotspot subnet —
+    /// a smart, overridable default. New, host-targeting connections with an empty host only.
+    private func prefillHotspotHostIfAvailable() {
+        guard !isEditing, typeTargetsHotspotHost, hostname.isEmpty else { return }
+        if let host = LocalNetwork.windowsHotspotHost() {
+            hostname = host
+            didDetectHotspotHost = true
+        }
+    }
+
     var body: some View {
         Form {
             connectionTypeSection
@@ -111,9 +135,13 @@ struct ConnectionFormView: View {
         .onAppear {
             loadFromSavedConnection()
             consumePendingImportedToken()
+            prefillHotspotHostIfAvailable()
         }
         .onChange(of: connectionType) { _, newType in
             port = String(ConnectionDefaults.port(for: newType))
+            // Re-evaluate the hotspot pre-fill for the newly selected type; clear a stale hint.
+            if hostname.isEmpty { didDetectHotspotHost = false }
+            prefillHotspotHostIfAvailable()
         }
         .onChange(of: audioManager.pendingImportedToken) { _, _ in
             consumePendingImportedToken()
@@ -151,6 +179,13 @@ struct ConnectionFormView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(.rect)
                 .onTapGesture { focusedField = .port }
+
+            if didDetectHotspotHost && hostname == LocalNetwork.windowsIcsGateway {
+                Label("Detected a Windows hotspot — host set to its gateway (\(LocalNetwork.windowsIcsGateway)). Edit if needed.",
+                      systemImage: "wifi.router")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
     }
 

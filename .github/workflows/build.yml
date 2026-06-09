@@ -134,6 +134,7 @@ jobs:
             **Assets**
             - `VisionVNC-…-unsigned.ipa` — VNC + Audio only (Moonlight disabled). All MIT-compatible.
             - `VisionVNCCompanion-…-unsigned.zip` — the macOS companion app.
+            - `VisionVNCHotspotCompanion-…-x64-Setup.exe` / `…-arm64-Setup.exe` — *if present*, the Windows Hotspot Companion installer (**Beta**), built natively for Intel/AMD (x64) and Windows-on-ARM (arm64). Ships with a signed build-provenance attestation; verify before running with `gh attestation verify <file> --repo ${{ github.repository }}`.
             - `VisionVNC-…-moonlight-unsigned.ipa` — *if present*, a Moonlight-enabled build.
 
             ⚠️ **Licensing note:** the Moonlight-enabled IPA links
@@ -235,3 +236,93 @@ jobs:
           # The build-and-release job already created this release; attach to it.
           # GPLv3 — see the release notes' licensing note.
           gh release upload "$VERSION" --clobber "$IPA_NAME"
+
+  # Windows Hotspot Companion (Beta) installers — built natively per architecture:
+  # x64 on windows-latest, arm64 on windows-11-arm (Snapdragon X-class laptops are
+  # increasingly common). Self-contained .NET backend + Electron/NSIS installer,
+  # attached to the release build-and-release created. Each emits a signed
+  # build-provenance attestation so anyone can prove the installer was produced by
+  # this workflow from this commit and wasn't tampered with:
+  # `gh attestation verify <exe> --repo <owner>/<repo>`. No native deps the runner
+  # can't compile (unlike Moonlight), so this is NOT continue-on-error; fail-fast is
+  # off so one arch failing doesn't cancel the other.
+  build-windows:
+    needs: build-and-release
+    if: github.ref == 'refs/heads/main'
+    permissions:
+      contents: write       # upload the installer to the existing release
+      id-token: write       # OIDC token used to sign the provenance attestation
+      attestations: write   # store the attestation
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: windows-latest
+            rid: win-x64
+            ebarch: x64
+            arch: x64
+          - runner: windows-11-arm
+            rid: win-arm64
+            ebarch: arm64
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up .NET 8 SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 'lts/*'
+
+      # Self-contained publish — bundles the .NET runtime so the installer works
+      # without a separate .NET install (electron-builder copies this into
+      # resources/backend per package.json extraResources). The fixed -o path keeps
+      # extraResources valid regardless of the RID.
+      - name: Publish backend (self-contained, ${{ matrix.rid }})
+        working-directory: CompanionWindows/backend
+        run: dotnet publish -c Release -r ${{ matrix.rid }} --self-contained true -o bin/Release/net8.0-windows10.0.19041.0/publish
+
+      - name: Build installer (Electron + NSIS, ${{ matrix.arch }})
+        working-directory: CompanionWindows/app
+        run: |
+          npm ci
+          npm run dist -- --win --${{ matrix.ebarch }}
+
+      - name: Name the installer with the release version + arch
+        id: win
+        shell: bash
+        run: |
+          VERSION="0.1.0-${GITHUB_SHA::8}"
+          SRC=$(ls CompanionWindows/app/dist/*.exe | head -n1)
+          DEST="VisionVNCHotspotCompanion-${VERSION}-${{ matrix.arch }}-Setup.exe"
+          cp "$SRC" "$DEST"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "installer=$DEST" >> "$GITHUB_OUTPUT"
+
+      # Record the checksum in the immutable build log + run summary as an extra,
+      # independent integrity reference (compare against `sha256sum` of your download).
+      - name: Print installer SHA-256
+        shell: bash
+        run: |
+          echo "## Windows installer SHA-256 (${{ matrix.arch }})" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          sha256sum "${{ steps.win.outputs.installer }}" | tee -a "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: ${{ steps.win.outputs.installer }}
+
+      - name: Attach installer to release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "${{ steps.win.outputs.version }}" --clobber "${{ steps.win.outputs.installer }}"
