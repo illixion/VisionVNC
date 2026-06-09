@@ -10,11 +10,24 @@ set -euo pipefail
 #
 # Usage:   scripts/install-companion.sh
 #
+# Why signing matters here: macOS ties TCC privacy grants (Accessibility,
+# Screen/Audio Recording, Automation) to the app's code-signing identity. An
+# ad-hoc signature ("-") gets a fresh, unstable cdhash on every build, so each
+# rebuild looks like a brand-new app and macOS silently drops every grant — you
+# re-approve all the prompts after every install. Signing with your stable Apple
+# Development identity (the one Xcode already provisions for this Mac) keeps the
+# signing identity constant across rebuilds, so the grants stick.
+#
+# By default this script auto-detects your "Apple Development" identity from the
+# login keychain and signs with it. If none is found it falls back to ad-hoc and
+# warns. Override detection with SIGN_IDENTITY (e.g. SIGN_IDENTITY="-" to force
+# ad-hoc, or a specific identity name / 40-char SHA-1 hash).
+#
 # Options (env):
 #   CONFIG=Debug          build configuration (default: Release)
-#   SIGN_IDENTITY="…"     codesign identity (default: "-", ad-hoc). Pass your
-#                         Apple Development identity to keep granted TCC
-#                         permissions stable across rebuilds.
+#   SIGN_IDENTITY="…"     codesign identity. Default: auto-detected Apple
+#                         Development identity (falls back to "-", ad-hoc).
+#                         Pass "-" to force ad-hoc, or a name/hash to pin one.
 #
 # Note: the companion's bundle id is com.illixion.VisionVNCCompanion. After the
 # rename from "Audio Sender" (a different bundle id), macOS treats this as a new
@@ -25,7 +38,6 @@ APP_NAME="VisionVNCCompanion.app"
 EXEC_NAME="VisionVNCCompanion"
 BUNDLE_ID="com.illixion.VisionVNCCompanion"
 CONFIG="${CONFIG:-Release}"
-SIGN_IDENTITY="${SIGN_IDENTITY:--}"   # "-" = ad-hoc
 
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DERIVED="$PROJECT_DIR/build/companion-dd"   # build/ is gitignored
@@ -33,6 +45,26 @@ DEST="/Applications/$APP_NAME"
 
 cd "$PROJECT_DIR"
 
+# Resolve the signing identity. If the caller didn't pin one, find the first
+# valid "Apple Development" codesigning identity in the keychain — this is the
+# per-Mac identity Xcode provisions, and signing with it keeps TCC grants stable
+# across rebuilds. Fall back to ad-hoc with a warning if there isn't one.
+if [ -z "${SIGN_IDENTITY:-}" ]; then
+  SIGN_IDENTITY="$(security find-identity -v -p codesigning 2>/dev/null \
+    | awk -F'"' '/Apple Development/ { print $2; exit }')"
+  if [ -n "$SIGN_IDENTITY" ]; then
+    echo "▶ Auto-detected signing identity: $SIGN_IDENTITY"
+  else
+    SIGN_IDENTITY="-"
+    echo "⚠ No 'Apple Development' identity found — falling back to ad-hoc (\"-\")." >&2
+    echo "  TCC privacy grants will NOT persist across rebuilds. Open Xcode once" >&2
+    echo "  to provision a signing identity, or pass SIGN_IDENTITY explicitly." >&2
+  fi
+fi
+
+# Manual signing with a real identity; automatic (Xcode-managed) only matters
+# for provisioning profiles, which a local menu-bar app doesn't need. Ad-hoc
+# still requires CODE_SIGN_STYLE=Manual + a literal "-" identity.
 echo "▶ Building $SCHEME ($CONFIG, signing: $SIGN_IDENTITY)…"
 xcodebuild \
   -project VisionVNC.xcodeproj \
@@ -42,7 +74,7 @@ xcodebuild \
   -derivedDataPath "$DERIVED" \
   CODE_SIGN_IDENTITY="$SIGN_IDENTITY" \
   CODE_SIGN_STYLE=Manual \
-  CODE_SIGNING_REQUIRED=NO \
+  CODE_SIGNING_REQUIRED=YES \
   CODE_SIGNING_ALLOWED=YES \
   build
 

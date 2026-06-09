@@ -137,6 +137,20 @@ jobs:
             - `VisionVNCHotspotCompanion-…-x64-Setup.exe` / `…-arm64-Setup.exe` — *if present*, the Windows Hotspot Companion installer (**Beta**), built natively for Intel/AMD (x64) and Windows-on-ARM (arm64). Ships with a signed build-provenance attestation; verify before running with `gh attestation verify <file> --repo ${{ github.repository }}`.
             - `VisionVNC-…-moonlight-unsigned.ipa` — *if present*, a Moonlight-enabled build.
 
+            **Running the macOS Companion**
+
+            The companion zip is unsigned, so Gatekeeper blocks it on first launch
+            ("damaged / can't be opened"). After unzipping into `/Applications`,
+            clear the quarantine flag and re-sign it ad-hoc:
+
+            ```sh
+            xattr -dr com.apple.quarantine /Applications/VisionVNCCompanion.app
+            codesign --force --deep --sign - /Applications/VisionVNCCompanion.app
+            ```
+
+            Then open it normally. (If you build the companion yourself with a real
+            Apple Development identity, you can skip this.)
+
             ⚠️ **Licensing note:** the Moonlight-enabled IPA links
             [moonlight-common-c](https://github.com/moonlight-stream/moonlight-common-c),
             which is **GPLv3**. That artifact is therefore distributed under the GPLv3,
