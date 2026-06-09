@@ -24,6 +24,10 @@ final class AudioStreamServer: @unchecked Sendable {
     private final class Client {
         let connection: NWConnection
         var pendingBytes = 0
+        /// TLS-PSK handshake completed — the peer is authenticated and counted
+        /// as a connected client, but the header may not be sent yet (it's
+        /// supplied lazily once the audio tap starts; see `provideHeader`).
+        var ready = false
         var headerSent = false
         /// Buffer for inbound frames (commands, udpHello) from the client.
         var inbound = Data()
@@ -43,7 +47,11 @@ final class AudioStreamServer: @unchecked Sendable {
 
     private let port: UInt16
     private let token: String
-    private let header: AudioStreamHeader
+    /// Stream header (sample rate / channel count), supplied lazily by the
+    /// controller once the audio tap starts on the first client connecting —
+    /// the tap (and thus the format) doesn't exist while idle. Mutated only
+    /// on `queue`.
+    private nonisolated(unsafe) var header: AudioStreamHeader?
     private let queue = DispatchQueue(label: "com.illixion.VisionVNCCompanion.server", qos: .userInteractive)
     private nonisolated(unsafe) var listener: NWListener?
     private nonisolated(unsafe) var clients: [ObjectIdentifier: Client] = [:]
@@ -59,10 +67,9 @@ final class AudioStreamServer: @unchecked Sendable {
     private nonisolated(unsafe) var currentNowPlayingFrame: Data?
     private nonisolated(unsafe) var currentArtworkFrame: Data?
 
-    nonisolated init(port: UInt16, token: String, header: AudioStreamHeader) {
+    nonisolated init(port: UInt16, token: String) {
         self.port = port
         self.token = token
-        self.header = header
     }
 
     nonisolated func start() throws {
@@ -162,7 +169,7 @@ final class AudioStreamServer: @unchecked Sendable {
                     // backpressure accounting: the OS drops if it can't keep
                     // up, which is the desired latency-over-reliability trade.
                     if udpFrames == nil {
-                        udpFrames = Self.chunkPCMForDatagram(pcm, channelCount: header.channelCount)
+                        udpFrames = Self.chunkPCMForDatagram(pcm, channelCount: header?.channelCount ?? 2)
                     }
                     for datagram in udpFrames! {
                         udp.send(content: datagram, completion: .contentProcessed { [weak self, weak client] error in
@@ -227,9 +234,11 @@ final class AudioStreamServer: @unchecked Sendable {
             switch state {
             case .ready:
                 // TLS-PSK handshake succeeded → the peer holds the token.
-                // Start streaming immediately; there is no app-layer auth.
-                self.log.info("TLS-PSK handshake ready — streaming")
-                self.beginStreaming(client)
+                // Mark it connected; there is no app-layer auth. The header is
+                // sent once the controller starts the tap and calls
+                // `provideHeader` (the tap only runs while a client is present).
+                self.log.info("TLS-PSK handshake ready — client connected")
+                self.markReady(client)
             case .waiting(let error):
                 self.log.error("Client connection waiting: \(String(describing: error))")
             case .failed(let error):
@@ -332,11 +341,34 @@ final class AudioStreamServer: @unchecked Sendable {
         }
     }
 
-    /// Sends the header and replays the current now-playing state once the
-    /// TLS-PSK channel is ready. Guarded against the handler firing twice.
-    /// Runs on `queue`.
-    private nonisolated func beginStreaming(_ client: Client) {
-        guard !client.headerSent else { return }
+    /// Marks the client as connected (TLS ready) and notifies the count so the
+    /// controller can spin up the audio tap. The header is not sent yet — it's
+    /// deferred until `provideHeader` arrives with the tap's format. If the tap
+    /// is already running (a header is on hand, e.g. a reconnect while another
+    /// client was present), send it right away. Runs on `queue`.
+    private nonisolated func markReady(_ client: Client) {
+        guard !client.ready else { return }
+        client.ready = true
+        notifyClientCount()
+        if let header { sendHeader(header, to: client) }
+    }
+
+    /// Supplies the stream header once the controller has started the tap.
+    /// Stores it for late-joining clients and flushes it to any connected
+    /// client still awaiting one. Runs on `queue`.
+    nonisolated func provideHeader(_ header: AudioStreamHeader) {
+        queue.async { [self] in
+            self.header = header
+            for client in clients.values where client.ready && !client.headerSent {
+                sendHeader(header, to: client)
+            }
+        }
+    }
+
+    /// Sends the header and replays the current now-playing state to a single
+    /// connected client. Guarded against double-send. Runs on `queue`.
+    private nonisolated func sendHeader(_ header: AudioStreamHeader, to client: Client) {
+        guard client.ready, !client.headerSent else { return }
         client.connection.send(content: header.encoded(), completion: .contentProcessed { _ in })
         client.headerSent = true
         // Replay current now-playing state (artwork first so the receiver
@@ -347,7 +379,6 @@ final class AudioStreamServer: @unchecked Sendable {
         if let info = currentNowPlayingFrame {
             client.connection.send(content: info, completion: .contentProcessed { _ in })
         }
-        notifyClientCount()
     }
 
     private nonisolated func remove(_ connection: NWConnection) {
@@ -359,7 +390,9 @@ final class AudioStreamServer: @unchecked Sendable {
     }
 
     private nonisolated func notifyClientCount() {
-        let count = clients.values.filter(\.headerSent).count
+        // Count TLS-ready clients (not header-sent): the controller starts the
+        // tap in response, and the tap is what produces the header.
+        let count = clients.values.filter(\.ready).count
         onClientCountChange?(count)
     }
 }

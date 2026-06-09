@@ -424,14 +424,20 @@ final class AudioStreamerController {
     private var musicBridge: MusicAppBridge?
     /// Whether the tap is currently muting local Mac output.
     private var tapMuted = false
-    /// Delays un-muting after the last client leaves, so a Vision Pro
-    /// reconnect (e.g. an audio-mode switch, which drops and reopens the
-    /// connection) doesn't leak a blip of Mac audio out the local output
-    /// during the gap.
-    private var pendingUnmuteTask: Task<Void, Never>?
+    /// Delays tearing down the tap after the last client leaves, so a Vision
+    /// Pro reconnect (e.g. an audio-mode switch, which drops and reopens the
+    /// connection) doesn't restart the tap — which would both blip Mac audio
+    /// out the local output and re-trigger the system audio-capture indicator.
+    private var pendingStopTapTask: Task<Void, Never>?
+
+    /// True while the server is listening (streaming "on"). Independent of the
+    /// tap: the system audio tap is created only while a client is connected
+    /// (see `handleClientCountChange`), so an idle companion captures no audio
+    /// and shows no system audio-recording indicator.
+    private var serverRunning = false
 
     var isRunning: Bool {
-        get { tap != nil }
+        get { serverRunning }
         set {
             guard newValue != isRunning else { return }
             UserDefaults.standard.set(newValue, forKey: Self.autoStartKey)
@@ -472,8 +478,8 @@ final class AudioStreamerController {
             }
             // The mute behavior is baked into the tap at creation — restart
             // the tap (only matters while a client is actually connected,
-            // since the tap runs unmuted with no clients).
-            if isRunning, clientCount > 0 {
+            // since the tap doesn't exist with no clients).
+            if isRunning, clientCount > 0, tap != nil {
                 restartTap(muted: newValue)
             }
         }
@@ -496,45 +502,79 @@ final class AudioStreamerController {
         stop()
         lastError = nil
 
-        // Start unmuted — local output is only silenced once a client
-        // actually connects (see the client-count handler below).
+        // Bring up the server and Music bridge only — no audio tap yet. The
+        // tap is created lazily when a client connects (handleClientCountChange),
+        // so an idle companion captures no system audio and shows no
+        // audio-recording indicator.
+        let server = AudioStreamServer(port: port, token: token)
+        server.onClientCountChange = { [weak self] count in
+            Task { @MainActor [weak self] in
+                self?.handleClientCountChange(count)
+            }
+        }
+        do {
+            try server.start()
+        } catch {
+            lastError = error.localizedDescription
+            return
+        }
+
+        // Music.app now-playing metadata + transport commands
+        let bridge = MusicAppBridge()
+        bridge.onNowPlaying = { [weak self] info, artwork in
+            self?.handleNowPlaying(info, artwork: artwork)
+        }
+        server.onCommand = { [weak bridge] command in
+            Task { @MainActor [weak bridge] in
+                bridge?.send(command)
+            }
+        }
+        bridge.start()
+
+        self.server = server
+        self.musicBridge = bridge
+        serverRunning = true
+    }
+
+    private func handleClientCountChange(_ count: Int) {
+        let previous = clientCount
+        clientCount = count
+        guard isRunning else { return }
+        if previous == 0, count > 0 {
+            // First client connected — cancel a pending teardown and start the
+            // tap (muted per the user setting, since a listener is present).
+            pendingStopTapTask?.cancel()
+            pendingStopTapTask = nil
+            if tap == nil { startTap(muted: muteWhileStreaming) }
+        } else if previous > 0, count == 0 {
+            // Last client left — tear down the tap (stops capturing and clears
+            // the audio-recording indicator) after a short grace, so a quick
+            // Vision Pro reconnect (e.g. an audio-mode switch) doesn't thrash
+            // the tap or blip Mac audio out the local output.
+            pendingStopTapTask?.cancel()
+            pendingStopTapTask = Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .seconds(3))
+                guard let self, !Task.isCancelled,
+                      self.isRunning, self.clientCount == 0 else { return }
+                self.stopTap()
+            }
+        }
+    }
+
+    /// Creates the system audio tap and hands its format to the server as the
+    /// stream header. Called when the first client connects.
+    private func startTap(muted: Bool) {
+        guard let server, isRunning, tap == nil else { return }
         let tap = SystemAudioTap()
         do {
-            let format = try tap.start(muteSystemOutput: false)
-            tapMuted = false
+            let format = try tap.start(muteSystemOutput: muted)
             streamFormat = format
-
-            let server = AudioStreamServer(
-                port: port,
-                token: token,
-                header: AudioStreamHeader(sampleRate: format.sampleRate, channelCount: format.channelCount)
-            )
-            server.onClientCountChange = { [weak self] count in
-                Task { @MainActor [weak self] in
-                    self?.handleClientCountChange(count)
-                }
-            }
-            try server.start()
-
+            tapMuted = muted
             tap.onAudio = { [weak server] pcm in
                 server?.broadcast(pcm)
             }
-
-            // Music.app now-playing metadata + transport commands
-            let bridge = MusicAppBridge()
-            bridge.onNowPlaying = { [weak self] info, artwork in
-                self?.handleNowPlaying(info, artwork: artwork)
-            }
-            server.onCommand = { [weak bridge] command in
-                Task { @MainActor [weak bridge] in
-                    bridge?.send(command)
-                }
-            }
-            bridge.start()
-
+            server.provideHeader(AudioStreamHeader(sampleRate: format.sampleRate, channelCount: format.channelCount))
             self.tap = tap
-            self.server = server
-            self.musicBridge = bridge
         } catch {
             tap.stop()
             streamFormat = nil
@@ -542,74 +582,42 @@ final class AudioStreamerController {
         }
     }
 
-    private func handleClientCountChange(_ count: Int) {
-        let previous = clientCount
-        clientCount = count
-        guard muteWhileStreaming, isRunning else { return }
-        // Mute local output only while someone is listening.
-        if previous == 0, count > 0 {
-            // (Re)connected — cancel a pending unmute; mute now if we aren't
-            // already (a mute held across a reconnect needs no tap restart).
-            pendingUnmuteTask?.cancel()
-            pendingUnmuteTask = nil
-            if !tapMuted { restartTap(muted: true) }
-        } else if previous > 0, count == 0 {
-            // Hold the mute briefly — only unmute if no client returns. This
-            // covers the Vision Pro's reconnect during an audio-mode switch.
-            pendingUnmuteTask?.cancel()
-            pendingUnmuteTask = Task { @MainActor [weak self] in
-                try? await Task.sleep(for: .seconds(3))
-                guard let self, !Task.isCancelled,
-                      self.isRunning, self.clientCount == 0 else { return }
-                self.restartTap(muted: false)
-            }
-        }
-    }
-
-    /// Rebuilds the tap with the given mute behavior (it's baked in at
-    /// creation time). The server and its already-sent header are kept —
-    /// the tap format doesn't change with mute behavior.
-    private func restartTap(muted: Bool) {
-        guard isRunning else { return }
+    /// Stops and releases the tap (no more system audio capture). The server
+    /// keeps listening; the tap is recreated when a client next connects.
+    private func stopTap() {
         tap?.onAudio = nil
         tap?.stop()
         tap = nil
+        tapMuted = false
+        streamFormat = nil
+    }
 
-        let newTap = SystemAudioTap()
-        do {
-            let format = try newTap.start(muteSystemOutput: muted)
-            if let old = streamFormat,
-               format.sampleRate != old.sampleRate || format.channelCount != old.channelCount {
-                // Stream format changed under us — connected clients hold a
-                // stale header. Restart everything so a reconnect resyncs.
-                newTap.stop()
-                start()
-                return
-            }
-            newTap.onAudio = { [weak server] pcm in
-                server?.broadcast(pcm)
-            }
-            tap = newTap
-            tapMuted = muted
-        } catch {
-            lastError = error.localizedDescription
-            stop()
+    /// Rebuilds the tap with the given mute behavior (it's baked in at
+    /// creation time). Used when the mute setting flips mid-stream. The tap
+    /// format doesn't change with mute behavior, so the connected client's
+    /// already-sent header stays valid; if it somehow did change, restart
+    /// everything so a reconnect resyncs.
+    private func restartTap(muted: Bool) {
+        guard isRunning, tap != nil else { return }
+        let oldFormat = streamFormat
+        stopTap()
+        startTap(muted: muted)
+        if let oldFormat, let new = streamFormat,
+           new.sampleRate != oldFormat.sampleRate || new.channelCount != oldFormat.channelCount {
+            start()
         }
     }
 
     func stop() {
-        pendingUnmuteTask?.cancel()
-        pendingUnmuteTask = nil
-        tapMuted = false
-        tap?.onAudio = nil
-        tap?.stop()
-        tap = nil
+        pendingStopTapTask?.cancel()
+        pendingStopTapTask = nil
+        stopTap()
         musicBridge?.stop()
         musicBridge = nil
         server?.stop()
         server = nil
+        serverRunning = false
         clientCount = 0
-        streamFormat = nil
         nowPlaying = nil
     }
 
