@@ -328,6 +328,15 @@ jobs:
           sha256sum "${{ steps.win.outputs.installer }}" | tee -a "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
 
+      # Make the installer downloadable from the run page (both PR and main) so it
+      # can be smoke-tested without compiling locally on Windows.
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: VisionVNCHotspotCompanion-${{ matrix.arch }}
+          path: ${{ steps.win.outputs.installer }}
+          retention-days: 14
+
       # Attestation + release upload only on main; PRs are build-only checks
       # (and Dependabot PRs run with a restricted token without these permissions).
       - name: Attest build provenance
