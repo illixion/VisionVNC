@@ -95,6 +95,14 @@ final class AudioStreamManager {
     var channelCount: Int = 0
     var bytesReceived: Int = 0
 
+    /// True while non-silent PCM is actually arriving (the sender suppresses
+    /// silent audio, so a frame == real sound). Drives the animated speaker
+    /// glyph: it pulses only when sound is genuinely playing, and goes still
+    /// during silence (e.g. Music paused while another app plays) — in either
+    /// mode. Flipped off by a watchdog when the activity pings stop.
+    private(set) var isReceivingAudio = false
+    private var audioActivityToken = 0
+
     /// Low-latency (UDP) mode was requested for the current connection.
     private(set) var lowLatencyRequested = false
     /// PCM is actually flowing over the UDP path.
@@ -118,6 +126,9 @@ final class AudioStreamManager {
     }
 
     private var receiver: AudioStreamReceiver?
+
+    /// Deferred health re-check used in Music mode (see `ensureConnected`).
+    private var healthRecheckTask: Task<Void, Never>?
 
     /// Last event (connect or data) timestamp — drives the health probe
     /// used to detect a silently dead TCP connection after the app was
@@ -176,6 +187,7 @@ final class AudioStreamManager {
         bytesReceived = 0
         sampleRate = 0
         channelCount = 0
+        isReceivingAudio = false
         lastActivityAt = nil
         nowPlaying = nil
         artworkImage = nil
@@ -213,9 +225,12 @@ final class AudioStreamManager {
         pendingCloseTask = nil
         retryTask?.cancel()
         retryTask = nil
+        healthRecheckTask?.cancel()
+        healthRecheckTask = nil
         receiver?.stop()
         receiver = nil
         state = .idle
+        isReceivingAudio = false
         clearNowPlayingIntegration()
     }
 
@@ -261,9 +276,45 @@ final class AudioStreamManager {
         case .idle, .error:
             reconnectLast()
         case .streaming:
-            if !isHealthy {
+            guard !isHealthy else {
+                healthRecheckTask?.cancel()
+                healthRecheckTask = nil
+                break
+            }
+            // Stale health on scene restore. In Speaker mode a reconnect is
+            // harmless (mixable session), so recover immediately. In Music
+            // mode a reconnect rebuilds the receiver and re-asserts the
+            // *exclusive* audio session — which interrupts whatever else the
+            // device is playing (e.g. a YouTube video). Since the sender now
+            // heartbeats during silence, a live-but-quiet connection refreshes
+            // its health within ~0.5 s of resume; give it a grace window to
+            // prove it, and only reconnect if it stays silent (truly dead).
+            if audioMode == .speaker {
                 AppLog.audioStream.line("Connection unhealthy after scene activation — reconnecting")
                 reconnectLast()
+            } else {
+                scheduleMusicHealthRecheck()
+            }
+        }
+    }
+
+    /// Music mode: wait for the sender's keepalive heartbeat to prove the
+    /// existing connection survived suspension before resorting to a
+    /// reconnect (which would interrupt other device audio). No-op if the
+    /// connection reports healthy by the time the grace window elapses.
+    private func scheduleMusicHealthRecheck() {
+        guard healthRecheckTask == nil else { return }
+        AppLog.audioStream.line("Music mode: connection stale on restore — waiting for keepalive before reconnecting")
+        healthRecheckTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(1.5))
+            guard let self, !Task.isCancelled else { return }
+            self.healthRecheckTask = nil
+            guard self.state == .streaming else { return }
+            if self.isHealthy {
+                AppLog.audioStream.line("Music mode: keepalive arrived — connection alive, not reconnecting")
+            } else {
+                AppLog.audioStream.line("Music mode: still no data after grace — reconnecting")
+                self.reconnectLast()
             }
         }
     }
@@ -298,6 +349,19 @@ final class AudioStreamManager {
         case .bytesReceived(let total):
             bytesReceived = total
             lastActivityAt = Date()
+        case .audioActivity:
+            // A non-silent PCM frame arrived. Light the animated glyph and
+            // arm a watchdog to dim it once the pings stop (silence). Each
+            // ping supersedes the previous watchdog via the token.
+            lastActivityAt = Date()
+            if !isReceivingAudio { isReceivingAudio = true }
+            audioActivityToken &+= 1
+            let token = audioActivityToken
+            Task { [weak self] in
+                try? await Task.sleep(for: .milliseconds(450))
+                guard let self, self.audioActivityToken == token else { return }
+                self.isReceivingAudio = false
+            }
         case .nowPlaying(let info):
             nowPlaying = info.hasTrack ? info : nil
             if info.artworkID == nil {
@@ -461,6 +525,9 @@ final class AudioStreamReceiver: @unchecked Sendable {
     enum Event: Sendable {
         case connected(sampleRate: Double, channels: Int)
         case bytesReceived(Int)
+        /// A non-silent PCM frame was just scheduled (throttled to ~5/s).
+        /// Drives the "audio active" UI; absent during silence.
+        case audioActivity
         case nowPlaying(NowPlayingInfo)
         case artwork(Data)
         /// The audio session/config was lost (VoIP interruption, reroute);
@@ -513,6 +580,12 @@ final class AudioStreamReceiver: @unchecked Sendable {
     private let prebufferFrameCount: Int
     private nonisolated(unsafe) var scheduledFrames = 0
     private nonisolated(unsafe) var totalBytes = 0
+    /// Last `.audioActivity` emit (uptime ns), to throttle the ping to ~5/s.
+    private nonisolated(unsafe) var lastAudioActivityNanos: UInt64 = 0
+    /// Uptime (ns) of the last scheduled PCM buffer, to detect a silence gap
+    /// (the sender suppresses silent PCM) and rebuild the jitter cushion on
+    /// resume. 0 == no buffer scheduled yet.
+    private nonisolated(unsafe) var lastScheduleNanos: UInt64 = 0
     /// While true, incoming PCM is dropped instead of scheduled (local
     /// pause); the connection keeps draining.
     private nonisolated(unsafe) var playbackPaused = false
@@ -805,7 +878,12 @@ final class AudioStreamReceiver: @unchecked Sendable {
                 }
             case .artwork:
                 onEvent?(.artwork(payload))
-            case .command, .udpHello, .keepAlive, nil:
+            case .keepAlive:
+                // Silence heartbeat from the sender (no PCM while quiet).
+                // Refresh liveness so the health probe doesn't mistake a
+                // quiet-but-live connection for a dead one.
+                onEvent?(.bytesReceived(totalBytes))
+            case .command, .udpHello, nil:
                 break // not receiver-bound / unknown — skip
             }
         }
@@ -906,8 +984,13 @@ final class AudioStreamReceiver: @unchecked Sendable {
         let frameEnd = AudioStreamProtocol.frameLengthPrefixSize + Int(length)
         guard data.count >= frameEnd else { return }
         let type = data[data.startIndex.advanced(by: AudioStreamProtocol.frameLengthPrefixSize)]
-        // Non-PCM datagrams (e.g. keepAlive) count for liveness in the
-        // receive loop but carry no audio — nothing to schedule.
+        // Non-PCM datagrams carry no audio. A keepAlive (sent while the
+        // source is silent) still proves liveness — refresh the health probe
+        // so a quiet UDP stream isn't mistaken for a dead one.
+        if type == AudioStreamProtocol.FrameType.keepAlive.rawValue {
+            onEvent?(.bytesReceived(totalBytes))
+            return
+        }
         guard type == AudioStreamProtocol.FrameType.pcm.rawValue else { return }
         let payload = data.subdata(in: data.startIndex.advanced(by: AudioStreamProtocol.frameLengthPrefixSize + 1)..<data.startIndex.advanced(by: frameEnd))
         schedule(payload)
@@ -936,6 +1019,7 @@ final class AudioStreamReceiver: @unchecked Sendable {
                 // Restart with the normal jitter prebuffer.
                 playerNode?.stop()
                 scheduledFrames = 0
+                lastScheduleNanos = 0
             }
         }
     }
@@ -1016,11 +1100,22 @@ final class AudioStreamReceiver: @unchecked Sendable {
         // session — engine.start() alone won't bring it back, so the
         // rebuilt engine reports "running" but pumps audio nowhere.
         // Returning false here engages the rebuild retry/backoff.
-        do {
-            try session.setActive(true)
-        } catch {
-            AppLog.audioStream.line("Failed to activate audio session: \(error)")
-            return false
+        //
+        // Exception: in Music mode, behave like a regular media player and
+        // don't wrestle the channel away from another app that's actively
+        // playing. setActive(true) on an exclusive session would interrupt
+        // it. Stay yielded — when the other app stops, the audio-session
+        // interruption-ended notification rebuilds us and re-activates then.
+        // (Speaker mode is mixable, so this never applies.)
+        if mode == .music, session.isOtherAudioPlaying {
+            AppLog.audioStream.line("Music mode: other audio is playing — yielding, not reacquiring the session")
+        } else {
+            do {
+                try session.setActive(true)
+            } catch {
+                AppLog.audioStream.line("Failed to activate audio session: \(error)")
+                return false
+            }
         }
         let outs = session.currentRoute.outputs
             .map { "\($0.portType.rawValue):\($0.portName)" }
@@ -1143,8 +1238,38 @@ final class AudioStreamReceiver: @unchecked Sendable {
             }
         }
 
+        // Exact-zero payload == a warm-keep silence frame from the sender
+        // (it transmits silence for a few seconds across short gaps before
+        // suppressing). Used below to gate the animated glyph. `contains`
+        // early-exits, so real audio costs next to nothing.
+        let isSilentFrame = !payload.contains { $0 != 0 }
+
+        // Resume after a silence gap: once the sender suppresses sustained
+        // silence the player node drains dry. Feeding it a single late buffer
+        // underruns and pops (worst on the small low-latency UDP cushion) —
+        // reset so the jitter prebuffer is rebuilt before playback resumes,
+        // exactly like a fresh start. The threshold sits well above the
+        // ~10–20 ms frame cadence so only real suppression gaps trigger it.
+        let nowNanos = DispatchTime.now().uptimeNanoseconds
+        if scheduledFrames >= prebufferFrameCount, lastScheduleNanos != 0,
+           nowNanos &- lastScheduleNanos > 200_000_000 {
+            playerNode.stop()
+            scheduledFrames = 0
+        }
+        lastScheduleNanos = nowNanos
+
         playerNode.scheduleBuffer(buffer)
         scheduledFrames += 1
+
+        // Drive the animated glyph off *actual sound*. The sender keeps the
+        // stream warm with exact-silence frames across short gaps (so playback
+        // doesn't glitch), so a zero-filled frame is silence — schedule it to
+        // keep the node fed, but don't count it as activity. The manager's
+        // watchdog then settles the animation shortly after sound stops.
+        if !isSilentFrame, nowNanos &- lastAudioActivityNanos > 200_000_000 {
+            lastAudioActivityNanos = nowNanos
+            onEvent?(.audioActivity)
+        }
 
         // Hold playback until a small jitter buffer has accumulated
         if scheduledFrames == prebufferFrameCount {

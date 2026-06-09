@@ -44,12 +44,24 @@ final class SystemAudioTap: @unchecked Sendable {
     private nonisolated(unsafe) var ioProcID: AudioDeviceIOProcID?
     private nonisolated(unsafe) var format: AudioStreamBasicDescription?
 
+    /// Silence-suppression hysteresis (IOProc thread only). The stream is kept
+    /// "warm" — silent PCM is still transmitted — for this long after audio
+    /// goes quiet, so short musical gaps (track switches, crossfades) play
+    /// through seamlessly without the receiver's jitter buffer draining and
+    /// popping on resume. Only sustained silence past the hold is suppressed,
+    /// which is where the bandwidth (and the receiver-side pause) is won.
+    private static let silenceHoldSeconds: Double = 10
+    private nonisolated(unsafe) var silentFrames = 0
+    private nonisolated(unsafe) var suppressingSilence = false
+
     nonisolated init() {}
 
     /// Creates the tap + aggregate device and starts IO.
     /// Returns the capture format so the caller can build the stream header.
     nonisolated func start(muteSystemOutput: Bool) throws -> StreamFormat {
         stop()
+        silentFrames = 0
+        suppressingSilence = false
 
         // 1. System-wide stereo mixdown tap of all processes
         let description = CATapDescription(stereoGlobalTapButExcludeProcesses: [])
@@ -109,16 +121,16 @@ final class SystemAudioTap: @unchecked Sendable {
         let isNonInterleaved = asbd.mFormatFlags & kAudioFormatFlagIsNonInterleaved != 0
         let channelCount = Int(asbd.mChannelsPerFrame)
 
+        let sampleRate = asbd.mSampleRate
         status = AudioDeviceCreateIOProcIDWithBlock(&ioProcID, aggregateID, nil) { [weak self] _, inInputData, _, _, _ in
             guard let self, let onAudio = self.onAudio else { return }
-            let payload = Self.extractPCM(
-                from: inInputData,
+            self.process(
+                inInputData,
                 isNonInterleaved: isNonInterleaved,
-                channelCount: channelCount
+                channelCount: channelCount,
+                sampleRate: sampleRate,
+                onAudio: onAudio
             )
-            if !payload.isEmpty {
-                onAudio(payload)
-            }
         }
         guard status == noErr, ioProcID != nil else {
             stop()
@@ -152,6 +164,77 @@ final class SystemAudioTap: @unchecked Sendable {
         }
 
         format = nil
+    }
+
+    /// IOProc body (realtime thread). Applies the silence-suppression
+    /// hysteresis, then encodes and delivers the buffer unless we're in the
+    /// suppressed (sustained-silence) state. When nothing is playing the
+    /// global mixdown is exact digital silence (0.0); those buffers are still
+    /// transmitted for `silenceHoldSeconds` so brief gaps stay seamless, then
+    /// dropped to save bandwidth (and let the receiver settle into a pause).
+    private nonisolated func process(
+        _ bufferList: UnsafePointer<AudioBufferList>,
+        isNonInterleaved: Bool,
+        channelCount: Int,
+        sampleRate: Double,
+        onAudio: (@Sendable (Data) -> Void)
+    ) {
+        let (silent, frames) = Self.inspect(
+            bufferList, isNonInterleaved: isNonInterleaved, channelCount: channelCount
+        )
+        if silent {
+            if !suppressingSilence {
+                silentFrames += frames
+                if Double(silentFrames) >= sampleRate * Self.silenceHoldSeconds {
+                    suppressingSilence = true
+                }
+            }
+        } else {
+            silentFrames = 0
+            suppressingSilence = false
+        }
+        guard !suppressingSilence else { return }
+
+        let payload = Self.extractPCM(
+            from: bufferList, isNonInterleaved: isNonInterleaved, channelCount: channelCount
+        )
+        if !payload.isEmpty { onAudio(payload) }
+    }
+
+    /// Cheaply reports whether a buffer is exact digital silence and how many
+    /// sample-frames it carries — without encoding it (so a sustained-silence
+    /// stream costs only the scan). Silence detection early-exits on the first
+    /// non-zero sample, so active audio is effectively free.
+    private nonisolated static func inspect(
+        _ bufferList: UnsafePointer<AudioBufferList>,
+        isNonInterleaved: Bool,
+        channelCount: Int
+    ) -> (silent: Bool, frames: Int) {
+        let buffers = UnsafeMutableAudioBufferListPointer(
+            UnsafeMutablePointer(mutating: bufferList)
+        )
+        guard !buffers.isEmpty else { return (true, 0) }
+
+        if !isNonInterleaved || buffers.count == 1 {
+            let buffer = buffers[0]
+            guard let base = buffer.mData, buffer.mDataByteSize > 0 else { return (true, 0) }
+            let count = Int(buffer.mDataByteSize) / MemoryLayout<Float32>.size
+            let floats = UnsafeBufferPointer(
+                start: base.assumingMemoryBound(to: Float32.self), count: count
+            )
+            let frames = channelCount > 0 ? count / channelCount : count
+            return (isSilent(floats), frames)
+        }
+
+        // Non-interleaved: one buffer per channel.
+        let frames = Int(buffers[0].mDataByteSize) / MemoryLayout<Float32>.size
+        for channel in 0..<min(channelCount, buffers.count) {
+            guard let base = buffers[channel].mData?.assumingMemoryBound(to: Float32.self) else { continue }
+            if !isSilent(UnsafeBufferPointer(start: base, count: frames)) {
+                return (false, frames)
+            }
+        }
+        return (true, frames)
     }
 
     /// Converts an AudioBufferList of Float32 samples into a contiguous
@@ -189,5 +272,13 @@ final class SystemAudioTap: @unchecked Sendable {
             }
         }
         return interleaved.withUnsafeBufferPointer { PCM24.encode($0) }
+    }
+
+    /// True when every sample is exact digital silence (0.0). Early-exits on
+    /// the first non-zero sample, so the common "audio playing" case costs
+    /// next to nothing; only a genuinely silent buffer scans in full.
+    private nonisolated static func isSilent(_ floats: UnsafeBufferPointer<Float32>) -> Bool {
+        for sample in floats where sample != 0 { return false }
+        return true
     }
 }

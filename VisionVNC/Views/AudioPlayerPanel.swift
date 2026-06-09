@@ -68,10 +68,16 @@ struct AudioPlayerPanel: View {
             } else {
                 Rectangle()
                     .fill(.fill.tertiary)
-                Image(systemName: iconName)
+                // `variableValue` 0 draws the wave bars empty (none
+                // highlighted); the variableColor animation overrides it while
+                // active. Without it the effect's resting state lights *every*
+                // bar, so stopping looked like it froze fully-highlighted —
+                // pinning to 0 makes it settle on the empty frame instead.
+                Image(systemName: iconName, variableValue: isAudioActive ? 1 : 0)
                     .font(.system(size: 64))
                     .foregroundStyle(audioManager.state == .streaming ? Color.accentColor : .secondary)
-                    .symbolEffect(.variableColor.iterative, options: .repeating, isActive: audioManager.state == .streaming)
+                    .symbolEffect(.variableColor.iterative, options: .repeating, isActive: isAudioActive)
+                    .animation(.easeInOut(duration: 0.35), value: isAudioActive)
             }
         }
         .frame(width: width, height: width)
@@ -176,6 +182,15 @@ struct AudioPlayerPanel: View {
     }
 
     // MARK: - Status
+
+    /// True only while real sound is arriving — gates the pulsing animation.
+    /// The glyph and its accent tint stay put; only the `variableColor`
+    /// motion toggles, so a streaming-but-silent stream (e.g. Music paused
+    /// while another app plays) shows the same still, accent-tinted icon
+    /// without the moving highlight and with no layout shift.
+    private var isAudioActive: Bool {
+        audioManager.state == .streaming && audioManager.isReceivingAudio
+    }
 
     private var iconName: String {
         switch audioManager.state {

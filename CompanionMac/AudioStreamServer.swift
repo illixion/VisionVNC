@@ -34,6 +34,10 @@ final class AudioStreamServer: @unchecked Sendable {
         /// One-shot guard so a persistent UDP send failure logs once, not
         /// hundreds of times per second.
         var udpErrorLogged = false
+        /// Set whenever a PCM frame is sent to this client; cleared on each
+        /// keepalive tick. Gates the silence heartbeat so the beat is sent
+        /// only while the source is actually silent (no PCM this interval).
+        var sentPCMSinceBeat = false
         init(connection: NWConnection) { self.connection = connection }
     }
 
@@ -73,14 +77,27 @@ final class AudioStreamServer: @unchecked Sendable {
         }
         listener.start(queue: queue)
 
-        // Heartbeat the UDP path so a silent source still proves liveness.
+        // Heartbeat so a silent source still proves liveness. The source now
+        // suppresses silent PCM (see SystemAudioTap), so without a beat a
+        // quiet-but-live connection would look dead to the receiver's health
+        // probe and trigger a needless reconnect (which, in the receiver's
+        // Music mode, re-asserts an exclusive audio session and interrupts
+        // whatever else the device is playing). Beat only while silent — when
+        // PCM is flowing it already proves liveness — on whichever path the
+        // client uses (UDP datagram, else the TCP stream).
         let timer = DispatchSource.makeTimerSource(queue: queue)
         timer.schedule(deadline: .now() + .milliseconds(500), repeating: .milliseconds(500))
         timer.setEventHandler { [weak self] in
             guard let self else { return }
             for client in self.clients.values where client.headerSent {
-                guard let udp = client.udp else { continue }
-                udp.send(content: Self.keepAliveFrame, completion: .contentProcessed { _ in })
+                let silent = !client.sentPCMSinceBeat
+                client.sentPCMSinceBeat = false
+                guard silent else { continue }
+                if let udp = client.udp {
+                    udp.send(content: Self.keepAliveFrame, completion: .contentProcessed { _ in })
+                } else {
+                    client.connection.send(content: Self.keepAliveFrame, completion: .contentProcessed { _ in })
+                }
             }
         }
         timer.resume()
@@ -135,6 +152,7 @@ final class AudioStreamServer: @unchecked Sendable {
             // Built lazily only if a UDP (DTLS) client is connected.
             var udpFrames: [Data]?
             for client in clients.values where client.headerSent {
+                client.sentPCMSinceBeat = true
                 if let udp = client.udp {
                     // Low-latency path: DTLS won't fragment one application
                     // record across datagrams, so a full ~4 KB PCM blob would
