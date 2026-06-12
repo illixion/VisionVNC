@@ -2,8 +2,10 @@ import SwiftUI
 
 /// Compact ornament tab bar: icon-only buttons where the selected tab
 /// expands into a labeled glass pill. Design imported from Spatial Stash's
-/// `TabBarOrnament`.
+/// `TabBarOrnament`. Live broadcast/view-sharing indicators appear on the
+/// trailing side while streaming.
 struct MainTabBar: View {
+    @Environment(BroadcastManager.self) private var broadcastManager
     @Binding var selectedTab: MainView.Tab
 
     var body: some View {
@@ -15,10 +17,39 @@ struct MainTabBar: View {
                     action: { selectedTab = tab }
                 )
             }
+            if broadcastManager.state == .broadcasting || broadcastManager.viewSharingActive {
+                Divider()
+                    .frame(height: 24)
+                if broadcastManager.state == .broadcasting {
+                    LiveIndicator(systemImage: "dot.radiowaves.left.and.right", help: "Broadcasting camera")
+                }
+                if broadcastManager.viewSharingActive {
+                    LiveIndicator(systemImage: "eye.fill", help: "Sharing your view")
+                }
+            }
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
         .glassBackgroundEffect()
+        .animation(.smooth(duration: 0.22), value: broadcastManager.state == .broadcasting)
+        .animation(.smooth(duration: 0.22), value: broadcastManager.viewSharingActive)
+    }
+}
+
+/// Non-interactive live-stream chip, matching the tab buttons' metrics.
+private struct LiveIndicator: View {
+    let systemImage: String
+    let help: String
+
+    var body: some View {
+        Image(systemName: systemImage)
+            .font(.title3)
+            .foregroundStyle(.red)
+            .frame(minWidth: 44, minHeight: 32)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+            .help(help)
+            .transition(.opacity)
     }
 }
 

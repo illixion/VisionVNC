@@ -17,13 +17,21 @@ nonisolated final class SampleHandler: RPBroadcastSampleHandler {
     private nonisolated(unsafe) var publisher: RTSPPublisher?
     private nonisolated(unsafe) var publisherStarted = false
     private nonisolated(unsafe) var stopped = false
+    private nonisolated(unsafe) var lastHeartbeatUptimeNanos: UInt64 = 0
 
     override func broadcastStarted(withSetupInfo setupInfo: [String: NSObject]?) {
-        guard let config = BroadcastShared.serverConfig(viewStream: true,
-                                                        password: BroadcastShared.getPassword()) else {
+        let password = BroadcastShared.getPassword()
+        broadcastLog("🔧 View broadcast config: group=\(BroadcastShared.appGroup) password=\(password == nil ? "MISSING" : "present")")
+        guard let config = BroadcastShared.serverConfig(viewStream: true, password: password) else {
             finishBroadcastWithError(NSError(
                 domain: "VisionVNCBroadcast", code: 1,
                 userInfo: [NSLocalizedDescriptionKey: "Set the server address in VisionVNC's Broadcast tab first."]))
+            return
+        }
+        if config.username != nil, config.password == nil {
+            finishBroadcastWithError(NSError(
+                domain: "VisionVNCBroadcast", code: 3,
+                userInfo: [NSLocalizedDescriptionKey: "Couldn't read the publish password — re-AirDrop the pairing link from the Mac companion."]))
             return
         }
 
@@ -74,6 +82,12 @@ nonisolated final class SampleHandler: RPBroadcastSampleHandler {
         guard !stopped else { return }
         switch sampleBufferType {
         case .video:
+            // ~2 s heartbeat drives the app's "view sharing live" indicator.
+            let now = DispatchTime.now().uptimeNanoseconds
+            if now - lastHeartbeatUptimeNanos > 2_000_000_000 {
+                lastHeartbeatUptimeNanos = now
+                BroadcastShared.recordViewHeartbeat()
+            }
             videoEncoder.encode(sampleBuffer)
         case .audioMic:
             // Only flows when the user enables the mic in the View Sharing
@@ -110,6 +124,7 @@ nonisolated final class SampleHandler: RPBroadcastSampleHandler {
 
     private func teardown() {
         stopped = true
+        BroadcastShared.clearViewHeartbeat()
         publisher?.stop()
         publisher = nil
         videoEncoder.invalidate()

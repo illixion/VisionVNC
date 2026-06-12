@@ -146,9 +146,44 @@ struct CompanionMenuView: View {
                 Text("Broadcast Server (OBS)")
                     .font(.subheadline.weight(.semibold))
 
-                Text(broadcastServer.statusText)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                // Mirrors the Access Token row: expanding status pill, then
+                // copy and share buttons in the same order.
+                HStack(spacing: 8) {
+                    Text(broadcastServer.statusText)
+                        .font(.system(.caption, design: .monospaced))
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
+
+                    Button {
+                        guard let url = broadcastServer.shareURL else { return }
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(url.absoluteString, forType: .string)
+                        broadcastLinkCopied = true
+                        Task {
+                            try? await Task.sleep(for: .seconds(1.5))
+                            broadcastLinkCopied = false
+                        }
+                    } label: {
+                        Image(systemName: broadcastLinkCopied ? "checkmark" : "doc.on.doc")
+                    }
+                    .disabled(broadcastServer.shareURL == nil)
+                    .help("Copy the pairing link to the clipboard")
+
+                    Button {
+                        guard let url = broadcastServer.shareURL,
+                              let service = NSSharingService(named: .sendViaAirDrop) else { return }
+                        service.perform(withItems: [url])
+                    } label: {
+                        Image(systemName: "square.and.arrow.up")
+                    }
+                    .disabled(broadcastServer.shareURL == nil)
+                    .help("Send the pairing link to your Vision Pro via AirDrop")
+                }
 
                 if let error = broadcastServer.lastError {
                     Text(error)
@@ -157,46 +192,19 @@ struct CompanionMenuView: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
 
-                HStack(spacing: 8) {
-                    Button(broadcastServer.isWorking ? "Configuring…" : "Set Up Broadcast Server") {
-                        broadcastServer.setUpServer()
-                    }
-                    .controlSize(.small)
-                    .disabled(!broadcastServer.mediamtxInstalled || broadcastServer.isWorking)
-                    .help("Writes the mediamtx config (encrypted RTSPS ingest, OBS-only output), generates credentials + TLS certificate, and restarts the service.")
-
-                    if let url = broadcastServer.shareURL {
-                        Button {
-                            guard let service = NSSharingService(named: .sendViaAirDrop) else { return }
-                            service.perform(withItems: [url])
-                        } label: {
-                            Image(systemName: "square.and.arrow.up")
-                        }
-                        .controlSize(.small)
-                        .help("AirDrop the pairing link to your Vision Pro — fills in server, credentials, and the pinned certificate.")
-
-                        Button {
-                            NSPasteboard.general.clearContents()
-                            NSPasteboard.general.setString(url.absoluteString, forType: .string)
-                            broadcastLinkCopied = true
-                            Task {
-                                try? await Task.sleep(for: .seconds(1.5))
-                                broadcastLinkCopied = false
-                            }
-                        } label: {
-                            Image(systemName: broadcastLinkCopied ? "checkmark" : "doc.on.doc")
-                        }
-                        .controlSize(.small)
-                        .help("Copy the pairing link")
-                    }
-                }
-
                 Text(broadcastServer.mediamtxInstalled
-                     ? "Streams from the Vision Pro land in OBS via Browser Sources at http://127.0.0.1:8889/visionpro and …/visionpro-view."
+                     ? "AirDrop the pairing link to auto-fill VisionVNC's Broadcast tab. Streams land in OBS via Browser Sources at http://127.0.0.1:8889/visionpro and …/visionpro-view."
                      : "Install the server first: brew install mediamtx")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
+
+                Button(broadcastServer.isWorking ? "Configuring…" : "Set Up Broadcast Server") {
+                    broadcastServer.setUpServer()
+                }
+                .controlSize(.small)
+                .disabled(!broadcastServer.mediamtxInstalled || broadcastServer.isWorking)
+                .help("Writes the mediamtx config (encrypted RTSPS ingest, OBS-only output), generates credentials + TLS certificate, and restarts the service.")
             }
 
             Divider()

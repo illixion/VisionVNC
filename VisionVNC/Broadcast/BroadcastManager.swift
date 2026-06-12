@@ -37,6 +37,9 @@ final class BroadcastManager {
     private(set) var statsFPS: Int = 0
     private(set) var statsKbps: Int = 0
     private(set) var audioActive = false
+    /// The Mirror My View extension is publishing (polled from its
+    /// shared-defaults heartbeat — it runs in a separate process).
+    private(set) var viewSharingActive = false
 
     var selectedCameraID: String? {
         didSet { defaults.set(selectedCameraID, forKey: Keys.camera) }
@@ -83,6 +86,7 @@ final class BroadcastManager {
     @ObservationIgnored private var audioEncoder: BroadcastAudioEncoder?
     @ObservationIgnored private var link: PipelineLink?
     @ObservationIgnored private var statsTimer: Timer?
+    @ObservationIgnored private var viewSharingTimer: Timer?
     @ObservationIgnored private var userStopped = false
     @ObservationIgnored private var reconnectTask: Task<Void, Never>?
 
@@ -119,6 +123,13 @@ final class BroadcastManager {
         password = BroadcastShared.getPassword() ?? ""
         bitrateMbps = defaults.object(forKey: Keys.bitrate) as? Int ?? 10
         certFingerprint = defaults.string(forKey: Keys.certFingerprint) ?? ""
+
+        viewSharingTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.viewSharingActive = BroadcastShared.isViewSharingActive()
+            }
+        }
     }
 
     /// Applies a pairing payload AirDropped from the macOS companion
@@ -132,7 +143,7 @@ final class BroadcastManager {
         username = setup.username
         password = setup.password
         certFingerprint = setup.certFingerprintHex ?? ""
-        AppLog.broadcast.line("📥 Imported broadcast server setup for \(setup.host) (TLS: \(certFingerprint.isEmpty ? "off" : "pinned"))")
+        AppLog.broadcast.line("📥 Imported broadcast server setup for \(setup.host) (TLS: \(certFingerprint.isEmpty ? "off" : "pinned"), group: \(BroadcastShared.appGroup))")
     }
 
     var isActive: Bool {

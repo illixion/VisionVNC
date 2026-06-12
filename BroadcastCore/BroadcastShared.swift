@@ -91,6 +91,27 @@ nonisolated enum BroadcastShared {
         return bytes
     }
 
+    // MARK: - View-sharing liveness (extension → app)
+
+    /// The broadcast extension heartbeats into the shared defaults while it
+    /// publishes; the app polls this to drive its "view sharing live"
+    /// indicator (no other cross-process signal is available).
+    private static let viewHeartbeatKey = "broadcast.viewHeartbeat"
+
+    static func recordViewHeartbeat() {
+        defaults.set(Date().timeIntervalSince1970, forKey: viewHeartbeatKey)
+    }
+
+    static func clearViewHeartbeat() {
+        defaults.removeObject(forKey: viewHeartbeatKey)
+    }
+
+    /// True while a heartbeat landed within the last `window` seconds.
+    static func isViewSharingActive(window: TimeInterval = 6) -> Bool {
+        let last = defaults.double(forKey: viewHeartbeatKey)
+        return last > 0 && Date().timeIntervalSince1970 - last < window
+    }
+
     // MARK: - Publish password (app-group keychain)
 
     /// The publish password lives in a keychain item scoped to the app
@@ -109,7 +130,16 @@ nonisolated enum BroadcastShared {
         return base
     }
 
+    /// Defaults-mirror of the publish password. Cross-process keychain
+    /// sharing via app-group access groups is unreliable under sideload
+    /// re-signing (the extension reads nil → unauthenticated publish → 401),
+    /// so the password is also mirrored into the shared defaults. Keychain
+    /// remains the preferred read. Tradeoff: plaintext at rest in the app
+    /// group container — acceptable for a LAN/tailnet stream password.
+    private static let passwordMirrorKey = "broadcast.publishPassword"
+
     static func setPassword(_ value: String) {
+        defaults.set(value.isEmpty ? nil : value, forKey: passwordMirrorKey)
         for grouped in [true, false] {
             let base = keychainBase(grouped: grouped)
             SecItemDelete(base as CFDictionary)
@@ -138,7 +168,7 @@ nonisolated enum BroadcastShared {
                 return String(data: data, encoding: .utf8)
             }
         }
-        return nil
+        return defaults.string(forKey: passwordMirrorKey)
     }
 
     /// Server settings as the broadcast extension consumes them.

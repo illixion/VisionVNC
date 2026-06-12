@@ -9,15 +9,17 @@ import ReplayKit
 /// the app loses visibility.
 struct BroadcastView: View {
     @Environment(BroadcastManager.self) private var manager
+    @State private var pickerProxy = BroadcastPickerProxy()
 
     var body: some View {
         @Bindable var manager = manager
         NavigationStack {
-            Form {
-                Section {
+            // Two panes: live panel (preview + actions) left, settings right —
+            // everything visible without scrolling.
+            HStack(alignment: .top, spacing: 24) {
+                VStack(alignment: .leading, spacing: 14) {
                     BroadcastPreview(target: manager.previewTarget)
                         .aspectRatio(16 / 9, contentMode: .fit)
-                        .frame(maxWidth: .infinity)
                         .background(.black.opacity(0.6))
                         .clipShape(RoundedRectangle(cornerRadius: 16))
                         .overlay {
@@ -26,69 +28,10 @@ struct BroadcastView: View {
                                     .foregroundStyle(.secondary)
                             }
                         }
-                        .listRowBackground(Color.clear)
-                        .listRowInsets(EdgeInsets())
-                }
 
-                Section("Source") {
-                    Picker("Camera", selection: $manager.selectedCameraID) {
-                        ForEach(manager.cameras) { camera in
-                            Text(camera.name).tag(Optional(camera.id))
-                        }
-                    }
-                    .disabled(manager.isActive)
-                    Toggle("Microphone", isOn: $manager.micEnabled)
-                        .disabled(manager.isActive)
-                    Picker("Video bitrate", selection: $manager.bitrateMbps) {
-                        ForEach([5, 10, 15, 20], id: \.self) { Text("\($0) Mbps").tag($0) }
-                    }
-                    .disabled(manager.isActive)
-                }
+                    statusRow
+                        .font(.callout)
 
-                Section {
-                    HStack {
-                        Label("Mirror My View", systemImage: "eye")
-                        Spacer()
-                        BroadcastPickerButton()
-                            .frame(width: 60, height: 44)
-                    }
-                    TextField("View stream path", text: $manager.viewStreamPath)
-                        .autocorrectionDisabled()
-                        .textInputAutocapitalization(.never)
-                        .disabled(manager.isActive)
-                } header: {
-                    Text("View Sharing")
-                } footer: {
-                    Text("Streams everything you see (runs in the background, separate from the camera broadcast above). Uses the same server with this stream path.")
-                }
-
-                Section {
-                    TextField("Host", text: $manager.host, prompt: Text("100.x.x.x or hostname"))
-                        .textContentType(.URL)
-                        .autocorrectionDisabled()
-                        .textInputAutocapitalization(.never)
-                    TextField("Port", value: $manager.port, format: .number.grouping(.never))
-                    TextField("Stream path", text: $manager.streamPath)
-                        .autocorrectionDisabled()
-                        .textInputAutocapitalization(.never)
-                    TextField("Username", text: $manager.username)
-                        .autocorrectionDisabled()
-                        .textInputAutocapitalization(.never)
-                    SecureField("Password", text: $manager.password)
-                    LabeledContent("Encryption") {
-                        Label(manager.certFingerprint.isEmpty ? "None — use Tailscale/VPN" : "RTSPS, pinned certificate",
-                              systemImage: manager.certFingerprint.isEmpty ? "lock.open" : "lock.fill")
-                            .foregroundStyle(manager.certFingerprint.isEmpty ? AnyShapeStyle(.secondary) : AnyShapeStyle(.green))
-                            .font(.callout)
-                    }
-                } header: {
-                    Text("Server (mediamtx over RTSP)")
-                } footer: {
-                    Text("Easiest setup: press \"Set Up Broadcast Server\" in the Mac companion, then AirDrop the pairing link — it fills all of this in, including the encryption certificate.")
-                }
-                .disabled(manager.isActive)
-
-                Section {
                     Button {
                         if manager.isActive {
                             manager.stop()
@@ -100,13 +43,97 @@ struct BroadcastView: View {
                               systemImage: manager.isActive ? "stop.circle.fill" : "dot.radiowaves.left.and.right")
                             .frame(maxWidth: .infinity)
                     }
+                    .buttonStyle(.borderedProminent)
                     .tint(manager.isActive ? .red : .accentColor)
 
-                    statusRow
-                } footer: {
-                    Text("Capture pauses if VisionVNC leaves the foreground — keep the app visible while broadcasting.")
+                    Text("Camera capture pauses if VisionVNC leaves the foreground.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    Divider()
+
+                    HStack {
+                        Label("Mirror My View", systemImage: "eye")
+                        Spacer()
+                        if manager.viewSharingActive {
+                            Label("Live", systemImage: "record.circle")
+                                .foregroundStyle(.red)
+                        } else {
+                            Text("Off")
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .font(.callout)
+
+                    Button {
+                        pickerProxy.present()
+                    } label: {
+                        Label(manager.viewSharingActive ? "Stop View Sharing…" : "Start View Sharing…",
+                              systemImage: "shared.with.you")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .background {
+                        BroadcastPickerHost(proxy: pickerProxy)
+                            .frame(width: 1, height: 1)
+                            .allowsHitTesting(false)
+                    }
+
+                    Text("Streams everything you see — select \"VisionVNC View\" in the system dialog. Keeps running while the app is in the background.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    Spacer(minLength: 0)
                 }
+                .frame(width: 400)
+                .padding(.top, 18)
+
+                Form {
+                    Section("Source") {
+                        Picker("Camera", selection: $manager.selectedCameraID) {
+                            ForEach(manager.cameras) { camera in
+                                Text(camera.name).tag(Optional(camera.id))
+                            }
+                        }
+                        Toggle("Microphone", isOn: $manager.micEnabled)
+                        Picker("Video bitrate", selection: $manager.bitrateMbps) {
+                            ForEach([5, 10, 15, 20], id: \.self) { Text("\($0) Mbps").tag($0) }
+                        }
+                    }
+                    .disabled(manager.isActive)
+
+                    Section {
+                        TextField("Host", text: $manager.host, prompt: Text("100.x.x.x or hostname"))
+                            .textContentType(.URL)
+                            .autocorrectionDisabled()
+                            .textInputAutocapitalization(.never)
+                        TextField("Port", value: $manager.port, format: .number.grouping(.never))
+                        TextField("Stream path", text: $manager.streamPath)
+                            .autocorrectionDisabled()
+                            .textInputAutocapitalization(.never)
+                        TextField("View stream path", text: $manager.viewStreamPath)
+                            .autocorrectionDisabled()
+                            .textInputAutocapitalization(.never)
+                        TextField("Username", text: $manager.username)
+                            .autocorrectionDisabled()
+                            .textInputAutocapitalization(.never)
+                        SecureField("Password", text: $manager.password)
+                        LabeledContent("Encryption") {
+                            Label(manager.certFingerprint.isEmpty ? "None — use Tailscale/VPN" : "RTSPS, pinned certificate",
+                                  systemImage: manager.certFingerprint.isEmpty ? "lock.open" : "lock.fill")
+                                .foregroundStyle(manager.certFingerprint.isEmpty ? AnyShapeStyle(.secondary) : AnyShapeStyle(.green))
+                                .font(.callout)
+                        }
+                    } header: {
+                        Text("Server (mediamtx over RTSP)")
+                    } footer: {
+                        Text("Easiest setup: press \"Set Up Broadcast Server\" in the Mac companion, then AirDrop the pairing link — it fills all of this in, including the encryption certificate.")
+                    }
+                    .disabled(manager.isActive)
+                }
+                .formStyle(.grouped)
+                .scrollContentBackground(.hidden)
             }
+            .padding(.horizontal, 24)
             .navigationTitle("Broadcast")
         }
         .task {
@@ -139,17 +166,38 @@ struct BroadcastView: View {
     }
 }
 
-/// System View Sharing entry point for the Mirror My View broadcast
-/// extension — visionOS renders this as the broadcast start/stop button.
-private struct BroadcastPickerButton: UIViewRepresentable {
+/// Forwards a SwiftUI button tap to the system broadcast picker's internal
+/// UIButton. RPSystemBroadcastPickerView only exposes a bare icon button
+/// (near-invisible on visionOS glass), so the picker is hosted offscreen and
+/// a regular labeled button drives it.
+@MainActor
+final class BroadcastPickerProxy {
+    fileprivate weak var picker: RPSystemBroadcastPickerView?
+
+    func present() {
+        guard let picker else { return }
+        let button = picker.subviews.lazy.compactMap { $0 as? UIButton }.first
+        button?.sendActions(for: .touchUpInside)
+    }
+}
+
+private struct BroadcastPickerHost: UIViewRepresentable {
+    let proxy: BroadcastPickerProxy
+
     func makeUIView(context: Context) -> RPSystemBroadcastPickerView {
         let picker = RPSystemBroadcastPickerView()
         picker.preferredExtension = BroadcastShared.extensionBundleID
         picker.showsMicrophoneButton = true
+        // Kept in the hierarchy (required for the tap forward to work) but
+        // visually hidden behind the SwiftUI button.
+        picker.alpha = 0.02
+        proxy.picker = picker
         return picker
     }
 
-    func updateUIView(_ uiView: RPSystemBroadcastPickerView, context: Context) {}
+    func updateUIView(_ uiView: RPSystemBroadcastPickerView, context: Context) {
+        proxy.picker = uiView
+    }
 }
 
 /// Live broadcast preview: an `AVSampleBufferDisplayLayer` that
