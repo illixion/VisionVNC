@@ -9,6 +9,7 @@ struct MainView: View {
         case connections = "Connections"
         case projects = "Projects"
         case sessions = "Sessions"
+        case broadcast = "Broadcast"
         case console = "Console"
         case settings = "Settings"
 
@@ -17,6 +18,7 @@ struct MainView: View {
             case .connections: "rectangle.connected.to.line.below"
             case .projects: "sparkles"
             case .sessions: "macwindow.on.rectangle"
+            case .broadcast: "dot.radiowaves.left.and.right"
             case .settings: "gear"
             case .console: "terminal"
             }
@@ -24,6 +26,7 @@ struct MainView: View {
     }
 
     @Environment(AudioStreamManager.self) private var audioManager
+    @Environment(BroadcastManager.self) private var broadcastManager
     @State private var selectedTab: Tab = .connections
 
     var body: some View {
@@ -35,6 +38,8 @@ struct MainView: View {
                 ProjectsView()
             case .sessions:
                 SessionsView()
+            case .broadcast:
+                BroadcastView()
             case .settings:
                 SettingsView()
             case .console:
@@ -42,31 +47,20 @@ struct MainView: View {
             }
         }
         .onOpenURL { url in
-            // An AirDropped visionvnc://…/setAudioToken URL: stash the token
-            // and surface the Connections tab so the form can auto-fill it.
-            guard let token = AudioTokenURL.parseToken(from: url) else { return }
-            selectedTab = .connections
-            audioManager.importToken(token)
-        }
-        .ornament(attachmentAnchor: .scene(.bottomFront)) {
-            HStack(spacing: 4) {
-                ForEach(Tab.allCases, id: \.self) { tab in
-                    Button {
-                        selectedTab = tab
-                    } label: {
-                        Label(tab.rawValue, systemImage: tab.systemImage)
-                            .labelStyle(.titleAndIcon)
-                    }
-                    .buttonStyle(.borderless)
-                    .padding(8)
-                    .background(
-                        selectedTab == tab ? AnyShapeStyle(.fill.tertiary) : AnyShapeStyle(.clear),
-                        in: .capsule
-                    )
-                }
+            // AirDropped pairing URLs from the macOS companion.
+            if let token = AudioTokenURL.parseToken(from: url) {
+                // setAudioToken: stash the token and surface the Connections
+                // tab so the form can auto-fill it.
+                selectedTab = .connections
+                audioManager.importToken(token)
+            } else if let setup = BroadcastSetupURL.parse(from: url) {
+                // setBroadcastServer: fill the Broadcast tab's server config.
+                selectedTab = .broadcast
+                broadcastManager.importSetup(setup)
             }
-            .padding(8)
-            .glassBackgroundEffect()
+        }
+        .ornament(attachmentAnchor: .scene(.bottomFront), contentAlignment: .top) {
+            MainTabBar(selectedTab: $selectedTab)
         }
     }
 }

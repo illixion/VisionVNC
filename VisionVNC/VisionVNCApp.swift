@@ -7,6 +7,7 @@ struct VisionVNCApp: App {
     @State private var connectionManager = VNCConnectionManager()
     @State private var audioManager = AudioStreamManager()
     @State private var sshManager = SSHTerminalManager()
+    @State private var broadcastManager = BroadcastManager()
     #if MOONLIGHT_ENABLED
     @State private var moonlightManager = MoonlightConnectionManager()
     #endif
@@ -17,6 +18,7 @@ struct VisionVNCApp: App {
                 .environment(connectionManager)
                 .environment(audioManager)
                 .environment(sshManager)
+                .environment(broadcastManager)
                 #if MOONLIGHT_ENABLED
                 .environment(moonlightManager)
                 #endif

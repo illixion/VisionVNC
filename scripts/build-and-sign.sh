@@ -165,6 +165,15 @@ sign_app() {
         codesign --force --sign "$identity" --keychain "$keychain" --timestamp=none "$item"
     done
 
+    # Sign nested app extensions before the outer bundle (inside-out rule).
+    # Same profile entitlements as the app — sideload profiles carry one
+    # application-identifier for everything.
+    find "$app_path/PlugIns" -maxdepth 1 -name '*.appex' -type d 2>/dev/null | while read -r appex; do
+        echo "  Signing: $(basename "$appex") (with entitlements)"
+        codesign --force --sign "$identity" --keychain "$keychain" \
+            --entitlements "$entitlements" --timestamp=none "$appex"
+    done
+
     # Sign the main app bundle with entitlements
     echo "  Signing: $(basename "$app_path") (with entitlements)"
     codesign --force --sign "$identity" --keychain "$keychain" \
@@ -205,7 +214,6 @@ if [[ "$SIGN_ONLY" == false ]]; then
         CODE_SIGNING_ALLOWED=NO \
         DEVELOPMENT_TEAM="" \
         PROVISIONING_PROFILE_SPECIFIER="" \
-        PRODUCT_BUNDLE_IDENTIFIER="$BUILD_BUNDLE_ID" \
         ${EXTRA_BUILD_SETTINGS[@]+"${EXTRA_BUILD_SETTINGS[@]}"} \
         build
 
@@ -254,9 +262,26 @@ if [[ -z "$APP_BUNDLE" ]]; then
     exit 1
 fi
 
-# Step 5: Embed provisioning profile
+# Step 4.5: Enforce bundle identities. A command-line
+# PRODUCT_BUNDLE_IDENTIFIER override would hit EVERY target (the broadcast
+# extension would clone the app's ID → installd DuplicateIdentifier), so the
+# IDs are patched per-bundle here instead.
+echo "==> Setting bundle identifiers..."
+plutil -replace CFBundleIdentifier -string "$BUILD_BUNDLE_ID" "$APP_BUNDLE/Info.plist"
+APPEX_BUNDLE=$(find "$APP_BUNDLE/PlugIns" -maxdepth 1 -name '*.appex' -type d 2>/dev/null | head -1)
+if [[ -n "$APPEX_BUNDLE" ]]; then
+    plutil -replace CFBundleIdentifier -string "${BUILD_BUNDLE_ID}.broadcast" "$APPEX_BUNDLE/Info.plist"
+    echo "  App:       $BUILD_BUNDLE_ID"
+    echo "  Extension: ${BUILD_BUNDLE_ID}.broadcast"
+fi
+
+# Step 5: Embed provisioning profile (app + extension; both bundles resolve
+# their shared App Group from it at runtime)
 echo "==> Embedding provisioning profile..."
 cp "$PROFILE_PATH" "$APP_BUNDLE/embedded.mobileprovision"
+if [[ -n "$APPEX_BUNDLE" ]]; then
+    cp "$PROFILE_PATH" "$APPEX_BUNDLE/embedded.mobileprovision"
+fi
 
 # Step 6: Sign
 echo "==> Signing app bundle..."

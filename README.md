@@ -37,6 +37,13 @@ VisionVNC combines a full-featured **VNC viewer** with a **Moonlight game stream
 - Optional "Mute Mac output while streaming" so audio plays only through the Vision Pro
 - Float32 PCM over TCP on the local network (~3 Mbps for stereo 48 kHz), no lossy codec in the chain
 
+### Broadcast (Vision Pro → OBS / video calls)
+- Stream your **Persona camera + microphone**, or **everything you see** (Mirror My View, via a ReplayKit broadcast extension that keeps running while the app is in the background), from the Vision Pro to your computer
+- Lands in OBS as a low-latency (~300–500 ms) Browser Source — from there, OBS's Virtual Camera works in Google Meet, Zoom, etc.
+- Hardware H.264 + native Opus encoding, hand-rolled RTSP/RTP — no third-party media libraries
+- One-button server setup from the macOS Companion, paired to the headset via an AirDropped link
+- Optional end-to-end TLS (RTSPS with certificate pinning) — works safely even without a VPN
+
 ### Shared
 - Multi-window interface — remote desktop, stream view, keyboard, and server list as separate visionOS windows
 - Saved connections with SwiftData persistence
@@ -137,6 +144,25 @@ Requires macOS 14.2+. On first start of streaming, grant the **System Audio Reco
 1. Launch VisionVNCCompanion on the Mac (speaker icon in the menu bar) and enable **Stream system audio**
 2. In VisionVNC on the Vision Pro, add an **Audio** connection pointing at your Mac's IP, port 4855
 3. Spatialized Stereo will be off by default, since the Mac Virtual Display's audio stream is always forced into Spatialized Stereo, so if you ever need to stream 5.1/7.1 surround just use Mac VD audio streaming instead.
+
+### Broadcast Setup (Vision Pro → OBS)
+
+The Broadcast feature streams the Vision Pro's Persona camera or your full view into OBS on a computer, using [mediamtx](https://github.com/bluenviron/mediamtx) as the relay. Setup is three steps:
+
+1. **Install the relay** on the Mac:
+   ```bash
+   brew install mediamtx
+   ```
+2. **Configure it** from the VisionVNC Companion menu bar app: press **Set Up Broadcast Server**. This generates publish credentials and a TLS certificate, writes the mediamtx config (encrypted RTSPS ingest on port 8322; any pre-existing config is backed up as `mediamtx.yml.pre-visionvnc`), and restarts the service. Then press the share button next to it to **AirDrop the pairing link** to your Vision Pro — it auto-fills the server address (your Tailscale IP), credentials, and the pinned certificate in VisionVNC's Broadcast tab.
+3. **Add the streams to OBS** as Browser Sources:
+   - Persona/camera broadcast: `http://127.0.0.1:8889/visionpro?controls=false&muted=true`
+   - Mirror My View: `http://127.0.0.1:8889/visionpro-view?controls=false&muted=true`
+
+   Use **Start Virtual Camera** in OBS to feed the result into Google Meet, Zoom, etc. (mic audio comes through the Browser Source).
+
+On the headset, the Broadcast tab starts the camera stream; the **Mirror My View** button opens the system View Sharing picker, which streams everything you see — including while VisionVNC is in the background.
+
+**Security:** the stream is end-to-end encrypted (RTSPS; the headset pins the companion-generated certificate, so no CA and no VPN are required), publishing requires the generated credentials, and playback is restricted to the Mac itself (`127.0.0.1`). Tailscale is still the recommended transport — the companion advertises the Mac's Tailscale IP in the pairing link — but with TLS active, any network path works.
 
 ## Windows Hotspot Companion (Beta)
 

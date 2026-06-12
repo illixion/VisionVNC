@@ -24,6 +24,10 @@
 			<string>ExtendedGamepad</string>
 		</dict>
 	</array>
+	<key>NSCameraUsageDescription</key>
+	<string>VisionVNC broadcasts your selected camera (such as Persona or Mirror My View) to your streaming server.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>VisionVNC can include your microphone in the broadcast stream.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>VisionVNC connects to remote desktops, game streaming hosts, and the Companion on your local network.</string>
 	<key>NSAppTransportSecurity</key>

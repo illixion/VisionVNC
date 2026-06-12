@@ -15,13 +15,29 @@
 		5511C0DE0000000000000023 /* NIOCore in Frameworks */ = {isa = PBXBuildFile; productRef = 5511C0DE0000000000000013 /* NIOCore */; };
 		5511C0DE0000000000000024 /* NIOTransportServices in Frameworks */ = {isa = PBXBuildFile; productRef = 5511C0DE0000000000000014 /* NIOTransportServices */; };
 		5511C0DE0000000000000025 /* Crypto in Frameworks */ = {isa = PBXBuildFile; productRef = 5511C0DE0000000000000015 /* Crypto */; };
+		CCBB0000000000000000000E /* VisionVNCBroadcast.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = CCBB00000000000000000001 /* VisionVNCBroadcast.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		CCBB0000000000000000000D /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				CCBB0000000000000000000E /* VisionVNCBroadcast.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		1DC83C272F74524200BF0482 /* VisionVNC.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = VisionVNC.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		AA10AD100000000000000001 /* VisionVNCCompanion.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = VisionVNCCompanion.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		AA10AD10000000000000000C /* VisionVNC.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; name = VisionVNC.xcconfig; path = Configuration/VisionVNC.xcconfig; sourceTree = "<group>"; };
 		BBAA00000000000000000001 /* VisionVNCTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = VisionVNCTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		CCBB00000000000000000001 /* VisionVNCBroadcast.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = VisionVNCBroadcast.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -29,8 +45,17 @@
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Info.plist,
+				VisionVNC.entitlements,
 			);
 			target = 1DC83C262F74524200BF0482 /* VisionVNC */;
+		};
+		CCBB00000000000000000004 /* Exceptions for "BroadcastExtension" folder in "VisionVNCBroadcast" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+				BroadcastExtension.entitlements,
+			);
+			target = CCBB00000000000000000005 /* VisionVNCBroadcast */;
 		};
 		AA10AD100000000000000003 /* Exceptions for "CompanionMac" folder in "VisionVNCCompanion" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
@@ -61,6 +86,19 @@
 		AA10AD100000000000000004 /* Shared */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = Shared;
+			sourceTree = "<group>";
+		};
+		CCBB00000000000000000002 /* BroadcastCore */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = BroadcastCore;
+			sourceTree = "<group>";
+		};
+		CCBB00000000000000000003 /* BroadcastExtension */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				CCBB00000000000000000004 /* Exceptions for "BroadcastExtension" folder in "VisionVNCBroadcast" target */,
+			);
+			path = BroadcastExtension;
 			sourceTree = "<group>";
 		};
 		BBAA00000000000000000002 /* VisionVNCTests */ = {
@@ -100,6 +138,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		CCBB00000000000000000007 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -117,6 +162,8 @@
 				1DC83C292F74524200BF0482 /* VisionVNC */,
 				AA10AD100000000000000002 /* CompanionMac */,
 				AA10AD100000000000000004 /* Shared */,
+				CCBB00000000000000000002 /* BroadcastCore */,
+				CCBB00000000000000000003 /* BroadcastExtension */,
 				BBAA00000000000000000002 /* VisionVNCTests */,
 				1DC83C2A2F74524200BF0482 /* Packages */,
 				1DC83C282F74524200BF0482 /* Products */,
@@ -130,6 +177,7 @@
 				1DC83C272F74524200BF0482 /* VisionVNC.app */,
 				AA10AD100000000000000001 /* VisionVNCCompanion.app */,
 				BBAA00000000000000000001 /* VisionVNCTests.xctest */,
+				CCBB00000000000000000001 /* VisionVNCBroadcast.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -152,15 +200,18 @@
 				1DC83C242F74524200BF0482 /* Frameworks */,
 				1DC83C252F74524200BF0482 /* Resources */,
 				1DC83C5A2F9536A000BF0482 /* Copy Third-Party Notices */,
+				CCBB0000000000000000000D /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
 				1DC83C532F745D6600BF0482 /* PBXTargetDependency */,
+				CCBB0000000000000000000C /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				1DC83C292F74524200BF0482 /* VisionVNC */,
 				AA10AD100000000000000004 /* Shared */,
+				CCBB00000000000000000002 /* BroadcastCore */,
 			);
 			name = VisionVNC;
 			packageProductDependencies = (
@@ -223,6 +274,28 @@
 			productReference = BBAA00000000000000000001 /* VisionVNCTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
+		CCBB00000000000000000005 /* VisionVNCBroadcast */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = CCBB00000000000000000008 /* Build configuration list for PBXNativeTarget "VisionVNCBroadcast" */;
+			buildPhases = (
+				CCBB00000000000000000006 /* Sources */,
+				CCBB00000000000000000007 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				CCBB00000000000000000003 /* BroadcastExtension */,
+				CCBB00000000000000000002 /* BroadcastCore */,
+			);
+			name = VisionVNCBroadcast;
+			packageProductDependencies = (
+			);
+			productName = VisionVNCBroadcast;
+			productReference = CCBB00000000000000000001 /* VisionVNCBroadcast.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -272,6 +345,7 @@
 				1DC83C262F74524200BF0482 /* VisionVNC */,
 				AA10AD100000000000000005 /* VisionVNCCompanion */,
 				BBAA00000000000000000005 /* VisionVNCTests */,
+				CCBB00000000000000000005 /* VisionVNCBroadcast */,
 			);
 		};
 /* End PBXProject section */
@@ -331,6 +405,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		CCBB00000000000000000006 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		AA10AD100000000000000006 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -355,6 +436,13 @@
 			remoteGlobalIDString = 1DC83C262F74524200BF0482;
 			remoteInfo = VisionVNC;
 		};
+		CCBB0000000000000000000B /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 1DC83C1F2F74524200BF0482 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = CCBB00000000000000000005;
+			remoteInfo = VisionVNCBroadcast;
+		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXTargetDependency section */
@@ -367,6 +455,11 @@
 			target = 1DC83C262F74524200BF0482 /* VisionVNC */;
 			targetProxy = BBAA0000000000000000000D /* PBXContainerItemProxy */;
 		};
+		CCBB0000000000000000000C /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = CCBB00000000000000000005 /* VisionVNCBroadcast */;
+			targetProxy = CCBB0000000000000000000B /* PBXContainerItemProxy */;
+		};
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
@@ -376,6 +469,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = VisionVNC/VisionVNC.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 9T5F88VJFL;
@@ -408,6 +502,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = VisionVNC/VisionVNC.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 9T5F88VJFL;
@@ -655,6 +750,64 @@
 			};
 			name = Release;
 		};
+		CCBB00000000000000000009 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = BroadcastExtension/BroadcastExtension.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 9T5F88VJFL;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = BroadcastExtension/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "VisionVNC View";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.illixion.VisionVNC.broadcast;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "xros xrsimulator";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 7;
+			};
+			name = Debug;
+		};
+		CCBB0000000000000000000A /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = BroadcastExtension/BroadcastExtension.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 9T5F88VJFL;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = BroadcastExtension/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "VisionVNC View";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.illixion.VisionVNC.broadcast;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "xros xrsimulator";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 7;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -690,6 +843,15 @@
 			buildConfigurations = (
 				BBAA0000000000000000000A /* Debug */,
 				BBAA0000000000000000000B /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		CCBB00000000000000000008 /* Build configuration list for PBXNativeTarget "VisionVNCBroadcast" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				CCBB00000000000000000009 /* Debug */,
+				CCBB0000000000000000000A /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

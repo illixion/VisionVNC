@@ -9,6 +9,8 @@ VisionVNC is a remote desktop and game streaming app for **visionOS** built in S
 3. **Audio** — Uncompressed system-audio streaming from a companion macOS menu bar app (`VisionVNCCompanion` target). Works around macOS forcing Spatial Audio on for Mac Virtual Display: audio played by this app honors the per-app Spatial Audio setting. Also carries Music.app now-playing metadata (title/artist/artwork) to the Vision Pro and transport commands (play/pause/next/prev) back to the Mac; the visionOS side is an iTunes-style mini player.
 4. **SSH / Remote Claude** — A built-in SSH terminal client ([SwiftTerm](https://github.com/migueldeicaza/SwiftTerm) MIT + [swift-nio-ssh](https://github.com/apple/swift-nio-ssh) Apache-2.0, pure Swift) for any host, plus a **Projects** tab that drives Claude Code (or another configurable CLI) on a Mac over SSH — tmux-backed for persistence, with a gaze/dictation composer + quick-key row. The device identity is a Secure Enclave P-256 key; only its public key is installed on the host. Because the macOS Keychain is unreachable over SSH, Claude auth uses a `CLAUDE_CODE_OAUTH_TOKEN` (from `claude setup-token`) stored in the Vision Pro keychain and injected inline per session — no `sshd_config` edit. The companion macOS app also gained **text-only keyboard injection** (CGEvent Unicode + backspace, no modifiers — DuckyScript-safe) so the VNC soft keyboard can route typing through the Mac when a companion is linked.
 
+5. **Broadcast** — streams Vision Pro cameras/view + mic to a mediamtx RTSP server (for OBS / video calls on a computer). Two publishers share one hand-rolled pipeline (`BroadcastCore/`: VideoToolbox H.264 + **native AudioToolbox Opus** (`kAudioFormatOpus` via `AVAudioConverter` — deliberately NOT the vendored libopus, which is stubbed in CI) → RTP/RTSP over `NWConnection`, Basic auth, RTCP SRs): (a) the **Broadcast tab** captures an `AVCaptureDevice` (only Persona/"Front Camera" exists — visionOS exposes no view device) + `AVAudioEngine` mic tap, foreground-only; (b) the **`VisionVNCBroadcast` broadcast upload extension** (ReplayKit `RPBroadcastSampleHandler`, started from the system View Sharing menu or the in-tab `RPSystemBroadcastPickerView`) receives the composited "Mirror My View" feed + mic and keeps streaming while the app is backgrounded, publishing to a separate stream path. Config flows app → extension via app-group UserDefaults + app-group-scoped keychain item (`BroadcastShared`); both targets need the `group.com.illixion.VisionVNC` App Group entitlement (provisioning must include it). Server provisioning is one-button from the macOS companion (`BroadcastServerManager`): generates publish password + self-signed TLS cert, writes the managed mediamtx config (RTSPS-strict ingest :8322, WHEP out on localhost), restarts the brew service, and AirDrops a `visionvnc://…/setBroadcastServer` pairing URL (`Shared/BroadcastSetupURL.swift`) carrying host/creds/cert-fingerprint; the publishers then use RTSPS with DER-SHA256 cert pinning (Moonlight-style trust, fingerprint empty = plain RTSP).
+
 There are two **companion apps** for the host side (see `CompanionMac/` and `CompanionWindows/`):
 
 - **macOS Companion** (`VisionVNCCompanion` target, source in `CompanionMac/`) — the audio / now-playing / keyboard-injection / SSH-key companion described above.
@@ -251,13 +253,26 @@ VisionVNC/
 └── Info.plist                          — NSLocalNetworkUsageDescription, multi-scene
 
 Shared/                                 — compiled into BOTH targets (visionOS app + macOS companion)
-└── AudioStreamProtocol.swift           — Wire protocol v6 (int24 PCM via PCM24), NowPlayingInfo, MediaCommand
+├── AudioStreamProtocol.swift           — Wire protocol v6 (int24 PCM via PCM24), NowPlayingInfo, MediaCommand
+└── BroadcastSetupURL.swift             — visionvnc://…/setBroadcastServer pairing payload (host/creds/cert fingerprint)
+
+BroadcastCore/                          — compiled into BOTH the app and the broadcast extension
+├── BroadcastShared.swift               — app-group config/keychain bridge + broadcastLog (AppLog is app-only)
+├── RTPPacketizer.swift                 — RTP/RTCP framing, H.264 RFC 6184 + Opus RFC 7587 (unit-tested)
+├── SDPBuilder.swift                    — ANNOUNCE SDP from live SPS/PPS (unit-tested)
+├── RTSPPublisher.swift                 — RTSP record client over NWConnection, interleaved RTP, Basic auth
+├── BroadcastVideoEncoder.swift         — VTCompressionSession H.264 (realtime, no B-frames, 1 s GOP)
+└── BroadcastAudioEncoder.swift         — AVAudioConverter → native Opus (PCM-buffer + CMSampleBuffer entry points)
+
+BroadcastExtension/                     — VisionVNCBroadcast target (ReplayKit broadcast upload extension)
+└── SampleHandler.swift                 — Mirror My View + mic → BroadcastCore pipeline → mediamtx
 
 CompanionMac/                           — macOS menu bar companion target (VisionVNCCompanion)
 ├── CompanionApp.swift                  — MenuBarExtra UI (CompanionApp + CompanionMenuView) + AudioStreamerController
 ├── AudioStreamServer.swift             — Single-client TCP server, metadata replay, command rx
 ├── SystemAudioTap.swift                — Core Audio process tap
 ├── MusicAppBridge.swift                — Music.app metadata/control (notifications + AppleScript)
+├── BroadcastServerManager.swift        — one-button mediamtx setup (cert/password gen, managed config, brew restart, pairing URL)
 └── Info.plist                          — NSAudioCaptureUsageDescription, NSAppleEventsUsageDescription
 
 CompanionWindows/                       — Windows "Hotspot Companion" (PoC; separate Node + .NET codebase)
@@ -347,6 +362,16 @@ ci/
 - **`setActive(true)` on every engine build** — after an interruption the session is deactivated; `engine.start()` alone reports running but pumps audio nowhere.
 - **Apple Music streaming tracks expose no artwork** via the Music scripting interface (`artwork 1 of current track` is empty) — only local/downloaded files have it. The mini player falls back to the speaker status glyph; there is no public workaround.
 - **Audio-session / window-lifecycle changes can only be verified on device** — build, then leave uncommitted for on-device testing before committing.
+
+### Broadcast
+- **visionOS strips the AVCapture surface**: no `AVCaptureAudioDataOutput` (mic uses an `AVAudioEngine` input tap), no session presets (device native format only), no `AVCaptureVideoPreviewLayer` (preview is an `AVSampleBufferDisplayLayer` fed raw capture frames marked `DisplayImmediately`).
+- **"Mirror My View" is not a capture device** — it only reaches third-party code through a ReplayKit broadcast upload extension via the system View Sharing menu. Device discovery only ever returns the Persona "Front Camera".
+- The extension bundle id `com.illixion.VisionVNC.broadcast` is hardcoded in `BroadcastShared.extensionBundleID` (used by `RPSystemBroadcastPickerView`) — keep in sync with the target's `PRODUCT_BUNDLE_IDENTIFIER`.
+- Both the app and extension have `.entitlements` files with the `group.com.illixion.VisionVNC` App Group — but **the effective group is resolved at runtime** (`BroadcastShared.appGroup`): sideload re-signing (`build-and-sign.sh`) replaces entitlements with the provisioning profile's, whose group IDs we don't control, so both processes parse their `embedded.mobileprovision` and deterministically pick the same group (preferred if granted, else first sorted). The publish password keychain item uses `kSecAttrAccessGroup` = that group, with an ungrouped fallback for builds with no app-group entitlement (simulator).
+- **`build-and-sign.sh` must never override `PRODUCT_BUNDLE_IDENTIFIER` on the xcodebuild command line** — command-line settings hit every target, cloning the app's ID onto the appex → installd `DuplicateIdentifier` (error 3002). The script patches each bundle's Info.plist after unpacking instead (app = `BUILD_BUNDLE_ID`, appex = `.broadcast` suffix), embeds the profile in both bundles, and signs the appex (inside-out) before the app.
+- Tab-side capture pauses when the app loses foreground; the extension does not (separate process).
+- **TLS**: a non-empty `broadcast.certFingerprint` (hex DER-SHA256, set by the pairing URL) switches `RTSPPublisher` to RTSPS with a custom `sec_protocol_options_set_verify_block` — system trust is fully replaced by the fingerprint match. The companion's managed mediamtx config is `rtspEncryption: strict`, so plain-RTSP clients can't connect to a companion-configured server.
+- The companion's `BroadcastServerManager` shells out to `/usr/bin/openssl` (LibreSSL — RSA keygen for compat) and `brew services`; it requires the companion to be **unsandboxed** (it is) and mediamtx installed via brew (`/opt/homebrew` or `/usr/local` prefix).
 
 ### SSH / Remote Claude / Companion Injection
 - **macOS Keychain is unreachable over SSH** (it's bound to the GUI login session). So `claude` can't read its stored OAuth login in an SSH session. Fix: a `CLAUDE_CODE_OAUTH_TOKEN` (from `claude setup-token`) stored in the Vision Pro keychain (`KeychainStore`, per-connection) and injected per session. Claude Code reads env-var auth before the Keychain.

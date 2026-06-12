@@ -8,6 +8,7 @@ enum AppLog {
     static let subsystem = Bundle.main.bundleIdentifier ?? "com.illixion.VisionVNC"
 
     static let audioStream = Logger(subsystem: subsystem, category: "AudioStream")
+    static let broadcast = Logger(subsystem: subsystem, category: "Broadcast")
     static let cryptoManager = Logger(subsystem: subsystem, category: "CryptoManager")
     static let gamepadManager = Logger(subsystem: subsystem, category: "GamepadManager")
     static let moonlightAudio = Logger(subsystem: subsystem, category: "MoonlightAudio")
