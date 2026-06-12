@@ -1,4 +1,5 @@
 import Foundation
+import AppKit
 import CryptoKit
 import Observation
 import os
@@ -27,6 +28,61 @@ final class BroadcastServerManager {
 
     var password: String = BroadcastServerManager.loadOrCreatePassword() {
         didSet { UserDefaults.standard.set(password, forKey: "broadcastPublishPassword") }
+    }
+
+    // OBS integration (obs-websocket v5 on localhost)
+    private(set) var obsStatusText: String?
+    private(set) var isOBSWorking = false
+    var obsPassword: String = UserDefaults.standard.string(forKey: "obsWebSocketPassword") ?? "" {
+        didSet { UserDefaults.standard.set(obsPassword, forKey: "obsWebSocketPassword") }
+    }
+
+    /// WHEP page URL for a stream path: controls hidden, UNMUTED — the page's
+    /// video element must be unmuted for audio to exist; "Control audio via
+    /// OBS" (reroute_audio) then keeps it in the mixer instead of the
+    /// speakers.
+    static func browserSourceURL(path: String) -> String {
+        "http://127.0.0.1:8889/\(path)?controls=false&muted=false"
+    }
+
+    /// Creates/updates the two Browser Sources in OBS's current scene via
+    /// obs-websocket (Tools → WebSocket Server Settings must be enabled).
+    func addSourcesToOBS() {
+        guard !isOBSWorking else { return }
+        isOBSWorking = true
+        obsStatusText = nil
+        // No stored password → try the clipboard: OBS's "Show Connect Info"
+        // dialog has a Copy Password button, so the natural flow is copy →
+        // click here. Persisted only after a successful connect.
+        var password = obsPassword
+        var passwordFromClipboard = false
+        if password.isEmpty,
+           let clipboard = NSPasteboard.general.string(forType: .string)?
+               .trimmingCharacters(in: .whitespacesAndNewlines),
+           !clipboard.isEmpty, clipboard.count <= 64, !clipboard.contains(where: \.isWhitespace) {
+            password = clipboard
+            passwordFromClipboard = true
+        }
+        Task { @MainActor in
+            defer { isOBSWorking = false }
+            do {
+                try await OBSWebSocketClient.ensureBrowserSources(
+                    password: password.isEmpty ? nil : password,
+                    sources: [
+                        // Bottom → top: camera ends up on top and visible;
+                        // view starts hidden (its dead-stream error page
+                        // would obscure the camera otherwise).
+                        .init(name: "Vision Pro View",
+                              url: Self.browserSourceURL(path: "visionpro-view"), visible: false),
+                        .init(name: "Vision Pro Camera",
+                              url: Self.browserSourceURL(path: "visionpro"), visible: true),
+                    ])
+                if passwordFromClipboard { obsPassword = password }
+                obsStatusText = "OBS scene set up: \"Vision Pro Camera\" visible, \"Vision Pro View\" hidden — toggle its eye icon when view sharing."
+            } catch {
+                obsStatusText = error.localizedDescription
+            }
+        }
     }
 
     init() {
@@ -161,8 +217,10 @@ final class BroadcastServerManager {
         rtspServerCert: \(certPath)
 
         # WebRTC output, localhost only: add OBS Browser Sources at
-        #   http://127.0.0.1:8889/visionpro?controls=false&muted=true
-        #   http://127.0.0.1:8889/visionpro-view?controls=false&muted=true
+        #   http://127.0.0.1:8889/visionpro?controls=false&muted=false
+        #   http://127.0.0.1:8889/visionpro-view?controls=false&muted=false
+        # (enable "Control audio via OBS" on each source for mixer audio —
+        # or use the companion's "Add Sources to OBS" button)
         webrtc: yes
         webrtcAddress: 127.0.0.1:8889
         webrtcLocalUDPAddress: 127.0.0.1:8189

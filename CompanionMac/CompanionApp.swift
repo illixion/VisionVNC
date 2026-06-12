@@ -193,18 +193,39 @@ struct CompanionMenuView: View {
                 }
 
                 Text(broadcastServer.mediamtxInstalled
-                     ? "AirDrop the pairing link to auto-fill VisionVNC's Broadcast tab. Streams land in OBS via Browser Sources at http://127.0.0.1:8889/visionpro and …/visionpro-view."
+                     ? "AirDrop the pairing link to auto-fill VisionVNC's Broadcast tab. To add the stream sources to OBS: enable Tools → WebSocket Server Settings in OBS, press Show Connect Info → Copy Password, then click the button below — it picks the password up from the clipboard."
                      : "Install the server first: brew install mediamtx")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
 
-                Button(broadcastServer.isWorking ? "Configuring…" : "Set Up Broadcast Server") {
-                    broadcastServer.setUpServer()
+                HStack(spacing: 8) {
+                    Button(broadcastServer.isWorking ? "Configuring…" : "Set Up Broadcast Server") {
+                        broadcastServer.setUpServer()
+                    }
+                    .controlSize(.small)
+                    .disabled(!broadcastServer.mediamtxInstalled || broadcastServer.isWorking)
+                    .help("Writes the mediamtx config (encrypted RTSPS ingest, OBS-only output), generates credentials + TLS certificate, and restarts the service.")
+
+                    Button(broadcastServer.isOBSWorking ? "Adding…" : "Add Sources to OBS") {
+                        broadcastServer.addSourcesToOBS()
+                    }
+                    .controlSize(.small)
+                    .disabled(!broadcastServer.mediamtxInstalled || broadcastServer.isOBSWorking)
+                    .help("Creates \"Vision Pro Camera\" and \"Vision Pro View\" Browser Sources in the current OBS scene, with audio routed into the OBS mixer.")
+
+                    SecureField("OBS WS password", text: $broadcastServer.obsPassword)
+                        .controlSize(.small)
+                        .frame(width: 120)
+                        .help("The password from OBS → Tools → WebSocket Server Settings (leave empty if authentication is disabled).")
                 }
-                .controlSize(.small)
-                .disabled(!broadcastServer.mediamtxInstalled || broadcastServer.isWorking)
-                .help("Writes the mediamtx config (encrypted RTSPS ingest, OBS-only output), generates credentials + TLS certificate, and restarts the service.")
+
+                if let obsStatus = broadcastServer.obsStatusText {
+                    Text(obsStatus)
+                        .font(.caption)
+                        .foregroundStyle(obsStatus.hasPrefix("Added") ? AnyShapeStyle(.secondary) : AnyShapeStyle(.orange))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
 
             Divider()

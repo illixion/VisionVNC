@@ -154,11 +154,15 @@ The Broadcast feature streams the Vision Pro's Persona camera or your full view 
    brew install mediamtx
    ```
 2. **Configure it** from the VisionVNC Companion menu bar app: press **Set Up Broadcast Server**. This generates publish credentials and a TLS certificate, writes the mediamtx config (encrypted RTSPS ingest on port 8322; any pre-existing config is backed up as `mediamtx.yml.pre-visionvnc`), and restarts the service. Then press the share button next to it to **AirDrop the pairing link** to your Vision Pro — it auto-fills the server address (your Tailscale IP), credentials, and the pinned certificate in VisionVNC's Broadcast tab.
-3. **Add the streams to OBS** as Browser Sources:
-   - Persona/camera broadcast: `http://127.0.0.1:8889/visionpro?controls=false&muted=true`
-   - Mirror My View: `http://127.0.0.1:8889/visionpro-view?controls=false&muted=true`
+3. **Add the streams to OBS** — easiest automatically: in OBS, enable **Tools → WebSocket Server Settings → Enable WebSocket server** (Apply), press **Show Connect Info → Copy Password**, then press **Add Sources to OBS** in the companion — it picks the password up from the clipboard (and remembers it; you can also paste it into the field manually). This creates "Vision Pro Camera" and "Vision Pro View" Browser Sources in the current scene with audio already routed into the OBS mixer — camera visible on top, view hidden (both are full-canvas, and an idle stream's error page would cover the other source; toggle the eye icons to switch). Pressing the button again resets this layout.
 
-   Use **Start Virtual Camera** in OBS to feed the result into Google Meet, Zoom, etc. (mic audio comes through the Browser Source).
+   Or manually, as Browser Sources:
+   - Persona/camera broadcast: `http://127.0.0.1:8889/visionpro?controls=false&muted=false`
+   - Mirror My View: `http://127.0.0.1:8889/visionpro-view?controls=false&muted=false`
+
+   Keep `muted=false` (a muted page produces no audio at all) and check **"Control audio via OBS"** on each source so the stream's audio lands in the OBS mixer instead of playing on the desktop.
+
+   Use **Start Virtual Camera** in OBS to feed the result into Google Meet, Zoom, etc.
 
 On the headset, the Broadcast tab starts the camera stream; the **Mirror My View** button opens the system View Sharing picker, which streams everything you see — including while VisionVNC is in the background.
 
