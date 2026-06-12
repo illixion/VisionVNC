@@ -32,7 +32,7 @@ Moonlight is an **optional build-time feature** controlled by the `MOONLIGHT_ENA
 
 ### Dependency Setup (CI + local)
 
-**CI builds with Moonlight DISABLED** — enet doesn't compile on the GitHub runner image. The workflow (`.github/workflows/build.yml`, triggers on push to main + manual dispatch) stubs out the moonlight-common-c and opus packages with empty SPM packages (same product names, nothing compiled), clones+patches RoyalVNC only, and archives without `MOONLIGHT_ENABLED`. It releases the unsigned visionOS IPA and an unsigned macOS Companion zip.
+**CI builds both IPAs on one runner** (`.github/workflows/build.yml`, triggers on push to main + manual dispatch). Order matters for licensing: it first archives the **MIT IPA** with the moonlight-common-c and opus packages stubbed out as empty SPM packages (same product names, nothing compiled — guarantees no GPL code links in), plus the unsigned macOS Companion zip; then swaps the stubs for the real patched dependencies (`rm -rf` the two stub dirs + `scripts/setup-deps.sh`, which skips the already-present RoyalVNC) and archives the **GPLv3 Moonlight-enabled IPA** with `MOONLIGHT_ENABLED`. The Moonlight build is a required step, not best-effort (a historical enet compile failure on the runner image turned out to be an unsynced patch — see the patch-export REQUIREMENT above). One release gets all three artifacts via `gh release create`.
 
 **Local Moonlight-enabled builds** use `scripts/setup-deps.sh` (idempotent, `--force` to redo), which recreates the full dependency setup in gitignored `repos/`:
 - `royalvnc-visionvnc.patch` — Static linking + VisionVNC API additions (see Build Configuration above)
