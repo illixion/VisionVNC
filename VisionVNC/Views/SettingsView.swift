@@ -11,6 +11,11 @@ struct SettingsView: View {
     // Audio
     @AppStorage(ConnectionDefaults.Keys.audioPort) private var audioPort = ConnectionType.audio.defaultPort
 
+    // Terminal (applies live to open terminal windows, unlike the
+    // new-connection defaults above)
+    @AppStorage(ConnectionDefaults.Keys.terminalFontSize) private var terminalFontSize = ConnectionDefaults.terminalFontSizeDefault
+    @AppStorage(ConnectionDefaults.Keys.terminalQuickKeys) private var quickKeysRaw = TerminalQuickKey.defaultSelectionStored
+
     #if MOONLIGHT_ENABLED
     @AppStorage(ConnectionDefaults.Keys.moonlightPort) private var moonlightPort = ConnectionType.moonlight.defaultPort
     @AppStorage(ConnectionDefaults.Keys.moonlightResolution) private var moonlightResolutionRaw = MoonlightResolution.r1080p.rawValue
@@ -46,6 +51,21 @@ struct SettingsView: View {
 
                 Section("Audio Stream") {
                     portField("Port", value: $audioPort)
+                }
+
+                Section("Terminal") {
+                    LabeledContent("Font Size") {
+                        Stepper(value: $terminalFontSize, in: 10...24, step: 1) {
+                            Text("\(Int(terminalFontSize)) pt")
+                                .monospacedDigit()
+                        }
+                    }
+                    DisclosureGroup("Quick Keys") {
+                        quickKeyToggles
+                    }
+                    Text("Applies to open terminal windows immediately.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
 
                 #if MOONLIGHT_ENABLED
@@ -114,6 +134,29 @@ struct SettingsView: View {
             return "\(version) (\(commitHash))"
         }
         return version
+    }
+
+    /// One toggle per catalog key, shown with its row glyph. The enabled set
+    /// round-trips through the comma-joined id string the terminal row reads.
+    private var quickKeyToggles: some View {
+        ForEach(TerminalQuickKey.catalog) { key in
+            Toggle(isOn: Binding(
+                get: { TerminalQuickKey.enabledIDs(from: quickKeysRaw).contains(key.id) },
+                set: { on in
+                    var enabled = TerminalQuickKey.enabledIDs(from: quickKeysRaw)
+                    if on { enabled.insert(key.id) } else { enabled.remove(key.id) }
+                    quickKeysRaw = TerminalQuickKey.encodeSelection(enabled)
+                }
+            )) {
+                HStack(spacing: 12) {
+                    Text(key.label)
+                        .font(.system(.body, design: .monospaced))
+                        .frame(minWidth: 44, alignment: .leading)
+                    Text(key.name)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
     }
 
     private func portField(_ title: String, value: Binding<Int>) -> some View {

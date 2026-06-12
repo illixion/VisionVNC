@@ -10,6 +10,8 @@ enum ConnectionDefaults {
         static let vncTouchMode = "default_vnc_touch_mode"
         static let vncPort = "default_vnc_port"
         static let audioPort = "default_audio_port"
+        static let terminalFontSize = "default_terminal_font_size"
+        static let terminalQuickKeys = "terminal_quick_keys"
         #if MOONLIGHT_ENABLED
         static let moonlightPort = "default_ml_port"
         static let moonlightResolution = "default_ml_resolution"
@@ -29,6 +31,14 @@ enum ConnectionDefaults {
 
     static var vncTouchMode: TouchMode {
         TouchMode(rawValue: defaults.string(forKey: Keys.vncTouchMode) ?? "") ?? .relative
+    }
+
+    /// SwiftTerm's default is 12 pt; stored 0/absent means "not customized".
+    static let terminalFontSizeDefault: Double = 12
+
+    static var terminalFontSize: Double {
+        let stored = defaults.double(forKey: Keys.terminalFontSize)
+        return stored > 0 ? stored : terminalFontSizeDefault
     }
 
     /// Default port for a connection type, honoring Settings overrides.

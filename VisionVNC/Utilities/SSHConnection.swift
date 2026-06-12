@@ -1,4 +1,5 @@
 import Foundation
+import Network
 import NIOCore
 import NIOTransportServices
 import NIOSSH
@@ -57,15 +58,42 @@ final class SSHConnection: @unchecked Sendable {
     private nonisolated(unsafe) var sessionChannel: Channel?
     private nonisolated(unsafe) var closed = false
 
+    /// Latest size requested by the terminal view. SwiftTerm's first
+    /// `sizeChanged` fires during the window's initial layout pass — before the
+    /// SSH session channel exists — so the size must be remembered here and
+    /// applied when the channel opens, or the PTY is stuck at the config size.
+    private let sizeLock = NSLock()
+    private nonisolated(unsafe) var desiredCols: Int
+    private nonisolated(unsafe) var desiredRows: Int
+
     nonisolated init(config: Config, privateKey: NIOSSHPrivateKey, group: NIOTSEventLoopGroup) {
         self.config = config
         self.privateKey = privateKey
         self.group = group
+        self.desiredCols = config.cols
+        self.desiredRows = config.rows
+    }
+
+    private nonisolated func desiredSize() -> (cols: Int, rows: Int) {
+        sizeLock.lock()
+        defer { sizeLock.unlock() }
+        return (desiredCols, desiredRows)
     }
 
     nonisolated func start() {
         let auth = SSHKeyAuthDelegate(username: config.username, privateKey: privateKey)
+        // TCP keepalive is the dead-connection detector: after the app resumes
+        // from suspension (visionOS tracking loss), a connection the system
+        // silently killed fails within ~20 s, firing `closeFuture` → `.closed`
+        // → the session's auto-reconnect. SSH-level keepalive pings aren't
+        // possible — swift-nio-ssh exposes no API for arbitrary global requests.
+        let tcp = NWProtocolTCP.Options()
+        tcp.enableKeepalive = true
+        tcp.keepaliveIdle = 10
+        tcp.keepaliveInterval = 5
+        tcp.keepaliveCount = 2
         let bootstrap = NIOTSConnectionBootstrap(group: group)
+            .tcpOptions(tcp)
             .channelInitializer { channel in
                 channel.eventLoop.makeCompletedFuture {
                     let handler = NIOSSHHandler(
@@ -96,7 +124,9 @@ final class SSHConnection: @unchecked Sendable {
     }
 
     private nonisolated func openSession(on channel: Channel) {
-        let cols = config.cols, rows = config.rows
+        // Use the most recent size from the view, not the config default — the
+        // first layout pass usually lands before the channel opens.
+        let (cols, rows) = desiredSize()
         let command = config.command
         let onData: @Sendable ([UInt8]) -> Void = { [weak self] bytes in self?.emit(.output(bytes)) }
         let onReady: @Sendable () -> Void = { [weak self] in self?.emit(.ready) }
@@ -123,24 +153,39 @@ final class SSHConnection: @unchecked Sendable {
                 self.emit(.failed("Session open failed: \(error)"))
             case .success(let child):
                 self.sessionChannel = child
+                // A resize may have landed between building the PTY request and
+                // the channel opening — replay the latest size if it differs.
+                let (latestCols, latestRows) = self.desiredSize()
+                if latestCols != cols || latestRows != rows {
+                    self.resize(cols: latestCols, rows: latestRows)
+                }
             }
         }
     }
 
-    /// Send raw bytes as PTY stdin.
-    nonisolated func send(_ bytes: [UInt8]) {
-        guard !bytes.isEmpty, let child = sessionChannel else { return }
+    /// Send raw bytes as PTY stdin. Returns `false` when the session channel
+    /// isn't up (input would be silently lost) so callers can keep the text.
+    @discardableResult
+    nonisolated func send(_ bytes: [UInt8]) -> Bool {
+        guard !bytes.isEmpty, let child = sessionChannel else { return false }
         child.eventLoop.execute {
             var buffer = child.allocator.buffer(capacity: bytes.count)
             buffer.writeBytes(bytes)
             let data = SSHChannelData(type: .channel, data: .byteBuffer(buffer))
             child.writeAndFlush(data, promise: nil)
         }
+        return true
     }
 
-    /// Notify the remote PTY of a new window size (SIGWINCH).
+    /// Notify the remote PTY of a new window size (SIGWINCH). Sizes arriving
+    /// before the session channel opens are recorded and applied at open.
     nonisolated func resize(cols: Int, rows: Int) {
-        guard cols > 0, rows > 0, let child = sessionChannel else { return }
+        guard cols > 0, rows > 0 else { return }
+        sizeLock.lock()
+        desiredCols = cols
+        desiredRows = rows
+        sizeLock.unlock()
+        guard let child = sessionChannel else { return }
         child.eventLoop.execute {
             let event = SSHChannelRequestEvent.WindowChangeRequest(
                 terminalCharacterWidth: cols, terminalRowHeight: rows,

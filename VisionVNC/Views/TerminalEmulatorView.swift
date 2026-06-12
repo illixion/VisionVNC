@@ -8,6 +8,7 @@ import UIKit
 /// quick-key row in `SSHTerminalView`; this view is the display surface.
 struct TerminalEmulatorView: UIViewRepresentable {
     let session: SSHSession
+    var fontSize: Double = ConnectionDefaults.terminalFontSizeDefault
 
     func makeUIView(context: Context) -> TerminalView {
         let terminal = TerminalView(frame: .zero)
@@ -17,11 +18,19 @@ struct TerminalEmulatorView: UIViewRepresentable {
         terminal.nativeBackgroundColor = dark
         terminal.backgroundColor = dark
         terminal.isOpaque = true
+        terminal.font = .monospacedSystemFont(ofSize: fontSize, weight: .regular)
         session.attach(terminal)
         return terminal
     }
 
-    func updateUIView(_ uiView: TerminalView, context: Context) {}
+    func updateUIView(_ uiView: TerminalView, context: Context) {
+        // SwiftTerm's font setter recomputes cell metrics, resizes the grid,
+        // and re-fires sizeChanged → PTY resize — live font changes propagate
+        // end-to-end with no extra plumbing.
+        if uiView.font.pointSize != fontSize {
+            uiView.font = .monospacedSystemFont(ofSize: fontSize, weight: .regular)
+        }
+    }
 
     static func dismantleUIView(_ uiView: TerminalView, coordinator: Coordinator) {
         coordinator.detach()

@@ -42,6 +42,7 @@ struct ConnectionFormView: View {
     @State private var sshLaunchCommand: String = ""
     @State private var sshClientCommand: String = ""
     @State private var sshEnvVars: String = ""
+    @State private var sshUseTmux: Bool = true
 
     private enum Field: Hashable {
         case hostname, port, username, password, label, audioToken, sshUsername, sshLaunchCommand
@@ -345,6 +346,12 @@ struct ConnectionFormView: View {
             Text("Optional command to run on connect. Empty = an interactive login shell. To run Claude in a project folder, use the Projects tab instead.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
+
+            Toggle("Persist session with tmux", isOn: $sshUseTmux)
+
+            Text("Wraps the session in tmux on the host so it survives drops (e.g. visionOS tracking loss) and reconnects right where you left off. Falls back to a plain shell if tmux isn't installed.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
         }
 
         Section("Managed Session (Projects tab)") {
@@ -518,6 +525,7 @@ struct ConnectionFormView: View {
         sshLaunchCommand = saved.sshLaunchCommand
         sshClientCommand = saved.sshClientCommand
         sshEnvVars = saved.sshEnvVars
+        sshUseTmux = saved.sshUseTmux
 
         #if MOONLIGHT_ENABLED
         // Moonlight fields
@@ -601,6 +609,7 @@ struct ConnectionFormView: View {
             connection.sshLaunchCommand = sshLaunchCommand.trimmingCharacters(in: .whitespacesAndNewlines)
             connection.sshClientCommand = sshClientCommand.trimmingCharacters(in: .whitespacesAndNewlines)
             connection.sshEnvVars = sshEnvVars.trimmingCharacters(in: .whitespacesAndNewlines)
+            connection.sshUseTmux = sshUseTmux
         }
     }
 

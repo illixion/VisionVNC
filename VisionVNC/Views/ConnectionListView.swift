@@ -205,7 +205,8 @@ struct ConnectionListView: View {
                 username: connection.sshUsername,
                 displayName: connection.displayName,
                 command: connection.sshLaunchCommand,
-                environment: connection.sshEnvironmentVariables()
+                environment: connection.sshEnvironmentVariables(),
+                useTmux: connection.sshUseTmux
             )
             openWindow(id: "ssh-terminal", value: id)
         } catch {

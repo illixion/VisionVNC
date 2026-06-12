@@ -48,10 +48,32 @@ final class SSHSession: Identifiable {
     private var pendingOutput: [UInt8] = []
     private var connection: SSHConnection?
 
+    /// Last size reported by the terminal view; reconnects open the PTY at
+    /// this size instead of the config default.
+    private var lastCols = 80
+    private var lastRows = 24
+
     // Retained so `restart()` can rebuild the connection with the same launch.
     private var config: SSHConnection.Config?
     private var privateKey: NIOSSHPrivateKey?
     private var group: NIOTSEventLoopGroup?
+
+    // Auto-reconnect (mirrors AudioStreamManager's idioms): a drop while the
+    // session's window is visible schedules a capped-backoff retry; scene
+    // activation retries immediately. tmux on the host makes this lossless.
+    private var retryTask: Task<Void, Never>?
+    private var retryDelay: TimeInterval = 2
+    private var pendingDetachTask: Task<Void, Never>?
+    private var windowVisible = false
+    private var userTerminated = false
+    /// True while a drop-triggered reconnect is pending or in flight (drives
+    /// the "Reconnecting…" status row).
+    private(set) var isAutoReconnecting = false
+
+    /// Backoff: doubled per consecutive failure, capped at 30 s.
+    static func nextRetryDelay(_ current: TimeInterval) -> TimeInterval {
+        min(current * 2, 30)
+    }
 
     init(id: SSHSessionID, title: String, host: String, username: String,
          kind: Kind, cwd: String?) {
@@ -70,10 +92,14 @@ final class SSHSession: Identifiable {
         connect()
     }
 
-    /// Manual reconnect after a drop or a wedged launch. Re-runs the original
-    /// launch command: tmux `new -A` re-attaches a surviving remote session, or
-    /// creates a fresh one if the program exited (e.g. claude after Ctrl+C).
+    /// Reconnect after a drop or a wedged launch (manual button or auto-retry).
+    /// Re-runs the original launch command: tmux `new -A` re-attaches a
+    /// surviving remote session, or creates a fresh one if the program exited
+    /// (e.g. claude after Ctrl+C).
     func restart() {
+        userTerminated = false
+        retryTask?.cancel()
+        retryTask = nil
         connection?.close()
         // Full terminal reset (RIS) so stale output from the dead connection
         // doesn't mix with the relaunch.
@@ -83,9 +109,68 @@ final class SSHSession: Identifiable {
         connect()
     }
 
+    /// Window became visible (appear / scene re-activation): revive a dead
+    /// connection immediately — scene activation shouldn't wait out backoff.
+    /// A connection killed silently during suspension surfaces via TCP
+    /// keepalive within seconds and routes through `.closed` → retry.
+    func ensureConnected() {
+        pendingDetachTask?.cancel()
+        pendingDetachTask = nil
+        windowVisible = true
+        guard !userTerminated else { return }
+        switch state {
+        case .closed, .failed:
+            retryDelay = 2
+            isAutoReconnecting = true
+            restart()
+        case .connecting, .ready:
+            break
+        }
+    }
+
+    /// Window went away. visionOS fires transient `onDisappear` during space
+    /// restoration, so visibility flips only after a 2 s grace (same idiom as
+    /// `AudioStreamManager.windowDisappeared`). The connection itself is kept —
+    /// sessions outlive windows by design — only auto-retry stops.
+    func windowDisappeared() {
+        pendingDetachTask?.cancel()
+        pendingDetachTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(2))
+            guard let self, !Task.isCancelled else { return }
+            self.windowVisible = false
+            self.retryTask?.cancel()
+            self.retryTask = nil
+            self.isAutoReconnecting = false
+        }
+    }
+
+    private func scheduleRetry() {
+        guard windowVisible, !userTerminated else { return }
+        retryTask?.cancel()
+        let delay = retryDelay
+        retryDelay = Self.nextRetryDelay(retryDelay)
+        isAutoReconnecting = true
+        retryTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(delay))
+            guard let self, !Task.isCancelled else { return }
+            guard self.windowVisible, !self.userTerminated else {
+                self.isAutoReconnecting = false
+                return
+            }
+            switch self.state {
+            case .closed, .failed:
+                self.restart()
+            case .connecting, .ready:
+                break
+            }
+        }
+    }
+
     private func connect() {
-        guard let config, let privateKey, let group else { return }
+        guard var config, let privateKey, let group else { return }
         state = .connecting
+        config.cols = lastCols
+        config.rows = lastRows
         let conn = SSHConnection(config: config, privateKey: privateKey, group: group)
         // Events are dropped unless they come from the *current* connection, so
         // a discarded connection's close can't clobber a restarted session.
@@ -103,6 +188,15 @@ final class SSHSession: Identifiable {
         switch event {
         case .ready:
             state = .ready
+            retryDelay = 2
+            isAutoReconnecting = false
+            // Belt-and-braces: replay the live size in case the PTY opened at
+            // the config default (idempotent — tmux ignores no-op resizes).
+            connection?.resize(cols: lastCols, rows: lastRows)
+            if let queued = queuedComposerText {
+                queuedComposerText = nil
+                sendText(queued + "\r")
+            }
         case .output(let bytes):
             if let view = terminalView {
                 view.feed(byteArray: bytes[...])
@@ -111,8 +205,10 @@ final class SSHSession: Identifiable {
             }
         case .closed(let reason):
             state = .closed(reason)
+            scheduleRetry()
         case .failed(let message):
             state = .failed(message)
+            scheduleRetry()
         }
     }
 
@@ -127,10 +223,51 @@ final class SSHSession: Identifiable {
 
     func detach() { terminalView = nil }
 
-    func sendBytes(_ bytes: [UInt8]) { connection?.send(bytes) }
-    func sendText(_ text: String) { connection?.send(Array(text.utf8)) }
-    func resize(cols: Int, rows: Int) { connection?.resize(cols: cols, rows: rows) }
-    func terminate() { connection?.close() }
+    var isReady: Bool { state == .ready }
+
+    /// Composer text that couldn't be delivered (connection down), shown as a
+    /// pending chip in the UI and flushed on the next `.ready`. Historically
+    /// this text was silently dropped and the composer cleared — lost input.
+    private(set) var queuedComposerText: String?
+
+    @discardableResult
+    func sendBytes(_ bytes: [UInt8]) -> Bool { connection?.send(bytes) ?? false }
+
+    @discardableResult
+    func sendText(_ text: String) -> Bool { connection?.send(Array(text.utf8)) ?? false }
+
+    /// Send composer text (CR-terminated — what a PTY treats as Enter), or
+    /// queue it for delivery on the next `.ready` when the connection is down.
+    /// Returns whether it was sent immediately.
+    @discardableResult
+    func sendComposerText(_ text: String) -> Bool {
+        if sendText(text + "\r") {
+            queuedComposerText = nil
+            return true
+        }
+        queuedComposerText = text
+        return false
+    }
+
+    /// Drop queued composer text (user changed their mind).
+    func clearQueuedComposerText() { queuedComposerText = nil }
+
+    func resize(cols: Int, rows: Int) {
+        guard cols > 0, rows > 0 else { return }
+        lastCols = cols
+        lastRows = rows
+        connection?.resize(cols: cols, rows: rows)
+    }
+
+    func terminate() {
+        userTerminated = true
+        retryTask?.cancel()
+        retryTask = nil
+        pendingDetachTask?.cancel()
+        pendingDetachTask = nil
+        isAutoReconnecting = false
+        connection?.close()
+    }
 }
 
 /// Owns the device SSH key, the shared NIO event-loop group, and the set of
@@ -157,14 +294,22 @@ final class SSHTerminalManager {
     }
 
     /// Open or re-attach a generic interactive SSH terminal. Empty `command`
-    /// requests a login shell; a non-empty command is exec'd verbatim.
+    /// requests a login shell; a non-empty command is exec'd verbatim. With
+    /// `useTmux` (default) the session is tmux-backed — same drop-survival as
+    /// Claude sessions — falling back to a plain shell on hosts without tmux.
     @discardableResult
     func newShellSession(host: String, port: Int, username: String,
                          displayName: String, command: String,
-                         environment: [(name: String, value: String)] = []) throws -> SSHSessionID {
+                         environment: [(name: String, value: String)] = [],
+                         useTmux: Bool = true) throws -> SSHSessionID {
         let title = displayName.isEmpty ? host : displayName
-        let launch = Self.shellCommand(launch: command, environment: environment)
-        return try startSession(slug: Self.slug(title), title: title, host: host, port: port,
+        let slug = Self.slug(title)
+        // "vnc-" namespaces terminal sessions apart from Claude project slugs.
+        let launch = useTmux
+            ? Self.persistentShellCommand(tmuxSession: "vnc-\(slug)", launch: command,
+                                          environment: environment)
+            : Self.shellCommand(launch: command, environment: environment)
+        return try startSession(slug: slug, title: title, host: host, port: port,
                                 username: username, command: launch, kind: .shell, cwd: nil)
     }
 
@@ -232,12 +377,13 @@ final class SSHTerminalManager {
         "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 
-    static func claudeCommand(tmuxSession: String, folder: String,
-                              clientCommand: String = "claude",
-                              environment: [(name: String, value: String)] = []) -> String {
-        let client = clientCommand.isEmpty ? "claude" : clientCommand
+    /// The tmux create-or-attach line shared by managed Claude sessions and
+    /// persistent shell sessions. Empty `client` → tmux runs its default shell.
+    private static func tmuxLaunchLine(tmuxSession: String, folder: String,
+                                       client: String,
+                                       environment: [(name: String, value: String)]) -> String {
         let vars = environment.filter { !$0.name.isEmpty }
-        var inner = ""
+        var line = ""
         // A tmux server started before these vars existed snapshots an env
         // without them, and new sessions inherit that snapshot. Registering the
         // names in update-environment makes tmux import them from this client
@@ -245,20 +391,47 @@ final class SSHTerminalManager {
         // server is already running, while staying scoped to this session (not
         // the server's global env). Verified on tmux 3.6.
         for v in vars {
-            inner += "tmux set -gqa update-environment \(shellSingleQuote(v.name)) >/dev/null 2>&1; "
+            line += "tmux set -gqa update-environment \(shellSingleQuote(v.name)) >/dev/null 2>&1; "
         }
         // Inline assignments scope the secret to the short-lived `tmux new`
         // child's environment — never written to disk, and macOS redacts a
         // process's env from other (non-root) processes.
         for v in vars {
-            inner += "\(v.name)=\(shellSingleQuote(v.value)) "
+            line += "\(v.name)=\(shellSingleQuote(v.value)) "
         }
-        inner += "tmux new -A -d -s \(tmuxSession)"
-        if !folder.isEmpty { inner += " -c \(shellSingleQuote(folder))" }
-        inner += " \(client); "
+        line += "tmux new -A -d -s \(tmuxSession)"
+        if !folder.isEmpty { line += " -c \(shellSingleQuote(folder))" }
+        if !client.isEmpty { line += " \(client)" }
+        line += "; "
         // `exec` replaces this shell with the attach client, so the token-
         // bearing argv of `tmux new` is shed within milliseconds of launch.
-        inner += "exec tmux attach -t \(tmuxSession)"
+        // `attach -d` detaches stale clients left behind by dropped connections
+        // (tracking loss) so they can't pin the tmux window at the old size —
+        // it also displaces any other legitimately attached client, accepted
+        // for this app's one-window-per-session model.
+        line += "exec tmux attach -d -t \(tmuxSession)"
+        return line
+    }
+
+    static func claudeCommand(tmuxSession: String, folder: String,
+                              clientCommand: String = "claude",
+                              environment: [(name: String, value: String)] = []) -> String {
+        let client = clientCommand.isEmpty ? "claude" : clientCommand
+        let inner = tmuxLaunchLine(tmuxSession: tmuxSession, folder: folder,
+                                   client: client, environment: environment)
+        return "zsh -lic \(shellSingleQuote(inner))"
+    }
+
+    /// tmux-wrapped generic terminal session: survives connection drops like a
+    /// Claude session, with a runtime fallback to a plain (non-persistent)
+    /// shell on hosts without tmux installed.
+    static func persistentShellCommand(tmuxSession: String, launch: String,
+                                       environment: [(name: String, value: String)] = []) -> String {
+        let tmuxPath = tmuxLaunchLine(tmuxSession: tmuxSession, folder: "",
+                                      client: launch, environment: environment)
+        var fallback = shellCommand(launch: launch, environment: environment)
+        if fallback.isEmpty { fallback = "exec \"$SHELL\" -l" }
+        let inner = "if command -v tmux >/dev/null 2>&1; then \(tmuxPath); else \(fallback); fi"
         return "zsh -lic \(shellSingleQuote(inner))"
     }
 

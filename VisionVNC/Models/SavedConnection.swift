@@ -244,6 +244,12 @@ final class SavedConnection {
     /// SwiftData; this is only a UI flag. Default false for safe migration.
     var sshHasAuthToken: Bool = false
 
+    /// Wrap terminal sessions in tmux so they survive connection drops
+    /// (visionOS tracking loss suspends the app and kills the TCP link). Falls
+    /// back to a plain shell at launch when tmux isn't installed on the host.
+    /// Default true (with a default value so lightweight migration is safe).
+    var sshUseTmux: Bool = true
+
     var quality: ConnectionQuality {
         get { ConnectionQuality(rawValue: qualityRawValue) ?? .high }
         set { qualityRawValue = newValue.rawValue }
