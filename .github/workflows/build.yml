@@ -22,7 +22,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Select Xcode
-        run: sudo xcode-select -s /Applications/Xcode_26.4.app/Contents/Developer
+        run: sudo xcode-select -s /Applications/Xcode_26.5.app/Contents/Developer
 
       - name: Clone and patch RoyalVNC
         run: |
@@ -203,7 +203,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Select Xcode
-        run: sudo xcode-select -s /Applications/Xcode_26.4.app/Contents/Developer
+        run: sudo xcode-select -s /Applications/Xcode_26.5.app/Contents/Developer
 
       # Real dependencies this time (no stubs): clone + patch RoyalVNC,
       # moonlight-common-c (+ enet, CommonCrypto/FEC patches) and Opus. This is
