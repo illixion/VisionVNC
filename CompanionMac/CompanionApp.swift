@@ -11,6 +11,7 @@ import os
 @main
 struct CompanionApp: App {
     @State private var controller = AudioStreamerController()
+    @State private var broadcastServer = BroadcastServerManager()
 
     init() {
         // Surface the Local Network permission prompt at launch rather than
@@ -23,7 +24,7 @@ struct CompanionApp: App {
 
     var body: some Scene {
         MenuBarExtra {
-            CompanionMenuView(controller: controller)
+            CompanionMenuView(controller: controller, broadcastServer: broadcastServer)
         } label: {
             // Priority: injecting > now-playing track > audio idle/active.
             if controller.isInjecting {
@@ -35,32 +36,33 @@ struct CompanionApp: App {
             }
         }
         .menuBarExtraStyle(.window)
+
+        // Sidebar + detail panes with all configuration. A Settings scene
+        // (not a Window) keeps the app menu-bar-only: it never auto-opens
+        // at launch and isn't restored on relaunch — it only appears from
+        // the popover's button. While open, the activation policy flips to
+        // .regular (dock icon, Cmd-Tab, standard focus) and reverts to
+        // .accessory on close, so there's no permanent dock presence.
+        Settings {
+            CompanionWindowView(controller: controller, broadcastServer: broadcastServer)
+                .onAppear {
+                    NSApp.setActivationPolicy(.regular)
+                    NSApp.activate(ignoringOtherApps: true)
+                }
+                .onDisappear {
+                    NSApp.setActivationPolicy(.accessory)
+                }
+        }
     }
 }
 
+/// Slim quick-controls popover for the menu bar — the everyday audio toggles
+/// and live status. Everything else (token, broadcast/OBS, SSH keys,
+/// keyboard control) lives in the companion window.
 struct CompanionMenuView: View {
     @Bindable var controller: AudioStreamerController
-    @State private var broadcastServer = BroadcastServerManager()
-    @State private var copied = false
-    @State private var broadcastLinkCopied = false
-
-    private func copyToken() {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(controller.token, forType: .string)
-        copied = true
-        Task {
-            try? await Task.sleep(for: .seconds(1.5))
-            copied = false
-        }
-    }
-
-    /// Opens the AirDrop sheet with the token's x-callback URL. AirDropping
-    /// it to the Vision Pro launches VisionVNC and auto-fills the token.
-    private func shareToken() {
-        guard let url = controller.tokenShareURL,
-              let service = NSSharingService(named: .sendViaAirDrop) else { return }
-        service.perform(withItems: [url])
-    }
+    @Bindable var broadcastServer: BroadcastServerManager
+    @Environment(\.openSettings) private var openSettings
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -99,219 +101,11 @@ struct CompanionMenuView: View {
 
             Divider()
 
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Access Token")
-                    .font(.subheadline.weight(.semibold))
-
-                HStack(spacing: 8) {
-                    Text(controller.token)
-                        .font(.system(.caption, design: .monospaced))
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
-
-                    Button {
-                        copyToken()
-                    } label: {
-                        Image(systemName: copied ? "checkmark" : "doc.on.doc")
-                    }
-                    .help("Copy the token to the clipboard")
-
-                    Button {
-                        shareToken()
-                    } label: {
-                        Image(systemName: "square.and.arrow.up")
-                    }
-                    .help("Send the token to your Vision Pro via AirDrop")
-                }
-
-                Text("Enter this token in VisionVNC, or AirDrop it to auto-fill. The token both authorizes the connection and encrypts it (TLS) — no VPN needed. Keep it secret; regenerate to revoke access.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                Button("Regenerate Token", role: .destructive) {
-                    controller.regenerateToken()
-                }
-                .controlSize(.small)
+            Button("Open Companion Window…") {
+                openSettings()
+                NSApp.activate(ignoringOtherApps: true)
             }
-
-            Divider()
-
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Broadcast Server (OBS)")
-                    .font(.subheadline.weight(.semibold))
-
-                // Mirrors the Access Token row: expanding status pill, then
-                // copy and share buttons in the same order.
-                HStack(spacing: 8) {
-                    Text(broadcastServer.statusText)
-                        .font(.system(.caption, design: .monospaced))
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
-
-                    Button {
-                        guard let url = broadcastServer.shareURL else { return }
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(url.absoluteString, forType: .string)
-                        broadcastLinkCopied = true
-                        Task {
-                            try? await Task.sleep(for: .seconds(1.5))
-                            broadcastLinkCopied = false
-                        }
-                    } label: {
-                        Image(systemName: broadcastLinkCopied ? "checkmark" : "doc.on.doc")
-                    }
-                    .disabled(broadcastServer.shareURL == nil)
-                    .help("Copy the pairing link to the clipboard")
-
-                    Button {
-                        guard let url = broadcastServer.shareURL,
-                              let service = NSSharingService(named: .sendViaAirDrop) else { return }
-                        service.perform(withItems: [url])
-                    } label: {
-                        Image(systemName: "square.and.arrow.up")
-                    }
-                    .disabled(broadcastServer.shareURL == nil)
-                    .help("Send the pairing link to your Vision Pro via AirDrop")
-                }
-
-                if let error = broadcastServer.lastError {
-                    Text(error)
-                        .font(.caption)
-                        .foregroundStyle(.red)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-
-                Text(broadcastServer.mediamtxInstalled
-                     ? "AirDrop the pairing link to auto-fill VisionVNC's Broadcast tab. To add the stream sources to OBS: enable Tools → WebSocket Server Settings in OBS, press Show Connect Info → Copy Password, then click the button below — it picks the password up from the clipboard."
-                     : "Install the server first: brew install mediamtx")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                HStack(spacing: 8) {
-                    Button(broadcastServer.isWorking ? "Configuring…" : "Set Up Broadcast Server") {
-                        broadcastServer.setUpServer()
-                    }
-                    .controlSize(.small)
-                    .disabled(!broadcastServer.mediamtxInstalled || broadcastServer.isWorking)
-                    .help("Writes the mediamtx config (encrypted RTSPS ingest, OBS-only output), generates credentials + TLS certificate, and restarts the service.")
-
-                    Button(broadcastServer.isOBSWorking ? "Adding…" : "Add Sources to OBS") {
-                        broadcastServer.addSourcesToOBS()
-                    }
-                    .controlSize(.small)
-                    .disabled(!broadcastServer.mediamtxInstalled || broadcastServer.isOBSWorking)
-                    .help("Creates \"Vision Pro Camera\" and \"Vision Pro View\" Browser Sources in the current OBS scene, with audio routed into the OBS mixer.")
-
-                    SecureField("OBS WS password", text: $broadcastServer.obsPassword)
-                        .controlSize(.small)
-                        .frame(width: 120)
-                        .help("The password from OBS → Tools → WebSocket Server Settings (leave empty if authentication is disabled).")
-                }
-
-                if let obsStatus = broadcastServer.obsStatusText {
-                    Text(obsStatus)
-                        .font(.caption)
-                        .foregroundStyle(obsStatus.hasPrefix("Added") ? AnyShapeStyle(.secondary) : AnyShapeStyle(.orange))
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-
-            Divider()
-
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Remote Control (SSH)")
-                    .font(.subheadline.weight(.semibold))
-
-                if let fingerprint = controller.macHostFingerprint {
-                    Text("This Mac: \(fingerprint)")
-                        .font(.system(.caption2, design: .monospaced))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                }
-
-                Button("Add Vision Pro Key from Clipboard") {
-                    controller.addKeyFromClipboard()
-                }
-                .controlSize(.small)
-
-                if let status = controller.keyActionStatus {
-                    Text(status)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-
-                ForEach(controller.installedVisionKeys) { key in
-                    HStack(spacing: 6) {
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text(key.comment.isEmpty ? key.type : key.comment)
-                                .font(.caption)
-                            Text(key.fingerprint)
-                                .font(.system(.caption2, design: .monospaced))
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                                .truncationMode(.middle)
-                        }
-                        Spacer()
-                        Button(role: .destructive) {
-                            controller.removeKey(key)
-                        } label: {
-                            Image(systemName: "trash")
-                        }
-                        .controlSize(.small)
-                    }
-                }
-
-                Text("Copy the key from VisionVNC (Projects → Copy Public Key), then add it here. Enable Remote Login in System Settings → General → Sharing for SSH to work.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            Divider()
-
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Keyboard Control")
-                    .font(.subheadline.weight(.semibold))
-
-                Toggle("Allow keyboard control", isOn: $controller.injectionEnabled)
-                    .toggleStyle(.switch)
-                    .help("Lets a paired Vision Pro type text into the frontmost Mac app over an encrypted channel. Text and backspace only — never shortcuts or modifier keys.")
-
-                if controller.injectionEnabled && !controller.injection.accessibilityTrusted {
-                    Text("Needs Accessibility permission to type.")
-                        .font(.caption)
-                        .foregroundStyle(.orange)
-                    Button("Grant Accessibility…") {
-                        controller.grantAccessibility()
-                    }
-                    .controlSize(.small)
-                } else if controller.injectionEnabled {
-                    Text("Ready — remote typing routes through this Mac.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-
-                Text("Text-only injection (no modifier keys) keeps remote typing from triggering shortcuts. In VisionVNC, link this companion to a VNC connection to use it.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            Divider()
+            .help("Access token, broadcast server (OBS), SSH keys, and keyboard control.")
 
             Button("Quit") {
                 controller.stop()
@@ -320,10 +114,6 @@ struct CompanionMenuView: View {
         }
         .padding(12)
         .frame(width: 280)
-        .onAppear {
-            controller.refreshKeys()
-            controller.injection.refreshAccessibility()
-        }
     }
 }
 

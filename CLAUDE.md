@@ -268,7 +268,8 @@ BroadcastExtension/                     — VisionVNCBroadcast target (ReplayKit
 └── SampleHandler.swift                 — Mirror My View + mic → BroadcastCore pipeline → mediamtx
 
 CompanionMac/                           — macOS menu bar companion target (VisionVNCCompanion)
-├── CompanionApp.swift                  — MenuBarExtra UI (CompanionApp + CompanionMenuView) + AudioStreamerController
+├── CompanionApp.swift                  — MenuBarExtra (slim quick-controls popover) + Settings scene + AudioStreamerController
+├── CompanionWindowView.swift           — multi-pane companion window (sidebar + grouped forms: audio/token/broadcast/SSH/keyboard); Settings scene keeps the app menu-bar-only (no auto-open at launch), activation policy flips .regular↔.accessory with the window
 ├── AudioStreamServer.swift             — Single-client TCP server, metadata replay, command rx
 ├── SystemAudioTap.swift                — Core Audio process tap
 ├── MusicAppBridge.swift                — Music.app metadata/control (notifications + AppleScript)
