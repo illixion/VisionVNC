@@ -56,6 +56,10 @@ else
         cp ../../ci/deps/moonlight-common-c/Package.swift .
         mkdir -p include
         cp src/Limelight.h include/
+        # Explicit modulemap for enet: declares enet/time.h as a module header so
+        # its ENET_TIME_* macros stay visible under Xcode's explicit-modules C
+        # builds (SPM's auto-generated umbrella module loses them otherwise)
+        cp ../../ci/deps/moonlight-common-c/enet-module.modulemap enet/include/module.modulemap
         # Apply FEC recovery crash fixes for newer Sunshine versions
         git apply ../../ci/patches/moonlight-common-c-fec-fix.patch
         git apply ../../ci/patches/moonlight-common-c-audio-fec-fix.patch

@@ -47,6 +47,7 @@ let package = Package(
             dependencies: ["enet"],
             path: ".",
             exclude: [
+                "enet",
                 "nanors",
                 "cmake",
                 ".github",
@@ -61,7 +62,6 @@ let package = Package(
             publicHeadersPath: "include",
             cSettings: [
                 .headerSearchPath("src"),
-                .headerSearchPath("enet/include"),
                 .headerSearchPath("nanors"),
                 .headerSearchPath("nanors/deps"),
                 .headerSearchPath("nanors/deps/obl"),
