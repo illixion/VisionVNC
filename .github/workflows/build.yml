@@ -3,6 +3,13 @@ name: Build VisionVNC
 on:
   push:
     branches: [main]
+  # Build-only check for PRs that touch the Windows companion (e.g. Dependabot
+  # electron bumps). The macOS release jobs are skipped on PRs; build-windows runs
+  # both arches without attesting or uploading — just proves the installer builds.
+  pull_request:
+    paths:
+      - 'CompanionWindows/**'
+      - '.github/workflows/build.yml'
   workflow_dispatch:
 
 # Pinned dependency versions (keep in sync with scripts/setup-deps.sh)
@@ -14,6 +21,8 @@ env:
 jobs:
   build-and-release:
     runs-on: macos-26
+    # Release pipeline runs only on main — not on PR build-only checks.
+    if: github.ref == 'refs/heads/main'
     permissions:
       contents: write
 
@@ -262,7 +271,10 @@ jobs:
   # off so one arch failing doesn't cancel the other.
   build-windows:
     needs: build-and-release
-    if: github.ref == 'refs/heads/main'
+    # Run on PRs (build-only check) and on main (after the release exists, to
+    # attest + upload). !cancelled() lets it run even though build-and-release is
+    # skipped on PRs; on main it waits for that job to succeed first.
+    if: ${{ !cancelled() && (github.event_name == 'pull_request' || needs.build-and-release.result == 'success') }}
     permissions:
       contents: write       # upload the installer to the existing release
       id-token: write       # OIDC token used to sign the provenance attestation
@@ -330,12 +342,25 @@ jobs:
           sha256sum "${{ steps.win.outputs.installer }}" | tee -a "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
 
+      # Make the installer downloadable from the run page (both PR and main) so it
+      # can be smoke-tested without compiling locally on Windows.
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: VisionVNCHotspotCompanion-${{ matrix.arch }}
+          path: ${{ steps.win.outputs.installer }}
+          retention-days: 14
+
+      # Attestation + release upload only on main; PRs are build-only checks
+      # (and Dependabot PRs run with a restricted token without these permissions).
       - name: Attest build provenance
+        if: github.event_name != 'pull_request'
         uses: actions/attest-build-provenance@v2
         with:
           subject-path: ${{ steps.win.outputs.installer }}
 
       - name: Attach installer to release
+        if: github.event_name != 'pull_request'
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
