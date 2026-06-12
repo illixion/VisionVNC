@@ -153,8 +153,8 @@ The Broadcast feature streams the Vision Pro's Persona camera or your full view 
    ```bash
    brew install mediamtx
    ```
-2. **Configure it** from the VisionVNC Companion menu bar app: press **Set Up Broadcast Server**. This generates publish credentials and a TLS certificate, writes the mediamtx config (encrypted RTSPS ingest on port 8322; any pre-existing config is backed up as `mediamtx.yml.pre-visionvnc`), and restarts the service. Then press the share button next to it to **AirDrop the pairing link** to your Vision Pro — it auto-fills the server address (your Tailscale IP), credentials, and the pinned certificate in VisionVNC's Broadcast tab.
-3. **Add the streams to OBS** — easiest automatically: in OBS, enable **Tools → WebSocket Server Settings → Enable WebSocket server** (Apply), press **Show Connect Info → Copy Password**, then press **Add Sources to OBS** in the companion — it picks the password up from the clipboard (and remembers it; you can also paste it into the field manually). This creates "Vision Pro Camera" and "Vision Pro View" Browser Sources in the current scene with audio already routed into the OBS mixer — camera visible on top, view hidden (both are full-canvas, and an idle stream's error page would cover the other source; toggle the eye icons to switch). Pressing the button again resets this layout.
+2. **Configure it** from the VisionVNC Companion: click the menu bar icon → **Open Companion Window…** → **Broadcast (OBS)**, and press **Set Up Broadcast Server**. This generates publish credentials and a TLS certificate, writes the mediamtx config (encrypted RTSPS ingest on port 8322; any pre-existing config is backed up as `mediamtx.yml.pre-visionvnc`), and restarts the service. Then press **AirDrop** next to it to send the pairing link to your Vision Pro — it auto-fills the server address (your Tailscale IP), credentials, and the pinned certificate in VisionVNC's Broadcast tab.
+3. **Add the streams to OBS** — easiest automatically: in OBS, enable **Tools → WebSocket Server Settings → Enable WebSocket server** (Apply), press **Show Connect Info → Copy Password**, then press **Add Sources to OBS** in the same companion pane — it picks the password up from the clipboard (and remembers it; you can also paste it into the field manually). This creates "Vision Pro Camera" and "Vision Pro View" Browser Sources in the current scene with audio already routed into the OBS mixer — camera visible on top, view hidden (both are full-canvas, and an idle stream's error page would cover the other source; toggle the eye icons to switch). Pressing the button again resets this layout.
 
    Or manually, as Browser Sources:
    - Persona/camera broadcast: `http://127.0.0.1:8889/visionpro?controls=false&muted=false`
@@ -221,6 +221,12 @@ VisionVNCApp
 │   ├── AudioStreamReceiver       — NWConnection → AVAudioEngine playback
 │   └── AudioStreamView           — Stream status window
 │
+├── Broadcast Path
+│   ├── BroadcastManager          — Capture/encode/publish orchestrator, @Observable
+│   ├── BroadcastCore/            — Shared pipeline: VideoToolbox H.264 + native Opus → RTP/RTSP(S)
+│   ├── BroadcastExtension/       — ReplayKit upload extension ("Mirror My View", runs in background)
+│   └── BroadcastView             — Broadcast tab: preview, settings, view-sharing picker
+│
 └── Shared
     ├── SavedConnection           — SwiftData model (VNC + Moonlight settings)
     ├── ConnectionListView        — Unified server list, routes by type
@@ -228,8 +234,11 @@ VisionVNCApp
 
 CompanionMac/ → VisionVNCCompanion (macOS menu bar app)
 ├── SystemAudioTap                — Core Audio process tap + aggregate device
-├── AudioStreamServer             — TCP server, Float32 PCM frames
-└── CompanionApp                  — MenuBarExtra UI
+├── AudioStreamServer             — TCP server, int24 PCM frames
+├── BroadcastServerManager        — One-button mediamtx setup + pairing link + OBS provisioning
+├── OBSWebSocketClient            — obs-websocket v5: creates the OBS Browser Sources
+├── CompanionApp                  — Menu bar popover (quick audio controls)
+└── CompanionWindowView           — Multi-pane companion window (token / broadcast / SSH / keyboard)
 
 CompanionWindows/ (PoC, Node + .NET) — "VisionVNC Hotspot Companion"
 ├── backend/                      — .NET 8 worker: Mobile Hotspot AP+NAT, named-pipe RPC
