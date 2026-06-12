@@ -11,17 +11,19 @@ env:
   MOONLIGHT_COMMON_C_REF: '7b026e77be62175104640e7e722b758df6d3d0d7'
   OPUS_REF: '788cc89ce4f2c42025d8c70ec1b4457dc89cd50f'
 
+# Build jobs only upload workflow artifacts; the release job at the bottom
+# creates the GitHub Release with ALL assets in a single `gh release create`
+# — required because releases are immutable (assets can't be added after
+# publish).
 jobs:
-  # Builds both visionOS IPAs and the macOS companion on one runner.
+  # Both visionOS IPAs and the macOS companion, on one runner.
   #
   # Order matters for licensing: the MIT IPA is archived first, while the
   # Moonlight packages are empty stubs, so no GPL code can end up linked
   # into it. The stubs are then swapped for the real (patched) dependencies
   # and the GPLv3 Moonlight-enabled IPA is archived second.
-  build-and-release:
+  build-apple:
     runs-on: macos-26
-    permissions:
-      contents: write
 
     steps:
       - name: Checkout
@@ -143,75 +145,32 @@ jobs:
           cd $RUNNER_TEMP/MoonlightPayload
           zip -r $RUNNER_TEMP/VisionVNC-moonlight-unsigned.ipa Payload
 
-      - name: Create a version string from git SHA
-        id: version
+      - name: Collect versioned artifacts
         run: |
           VERSION="0.1.0-${GITHUB_SHA::8}"
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          mkdir -p dist
+          cp $RUNNER_TEMP/VisionVNC-unsigned.ipa "dist/VisionVNC-${VERSION}-unsigned.ipa"
+          cp $RUNNER_TEMP/VisionVNC-moonlight-unsigned.ipa "dist/VisionVNC-${VERSION}-moonlight-unsigned.ipa"
+          cp $RUNNER_TEMP/VisionVNCCompanion-unsigned.zip "dist/VisionVNCCompanion-${VERSION}-unsigned.zip"
 
-      - name: Rename artifacts with version
-        id: artifacts
-        run: |
-          VERSION="${{ steps.version.outputs.version }}"
-          cp $RUNNER_TEMP/VisionVNC-unsigned.ipa "VisionVNC-${VERSION}-unsigned.ipa"
-          cp $RUNNER_TEMP/VisionVNC-moonlight-unsigned.ipa "VisionVNC-${VERSION}-moonlight-unsigned.ipa"
-          cp $RUNNER_TEMP/VisionVNCCompanion-unsigned.zip "VisionVNCCompanion-${VERSION}-unsigned.zip"
-
-      - name: Create GitHub Release
-        if: github.ref == 'refs/heads/main'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          VERSION="${{ steps.version.outputs.version }}"
-          cat > release-notes.md <<EOF
-          Built from \`$VERSION\`.
-
-          **Assets**
-          - \`VisionVNC-…-unsigned.ipa\` — VNC + Audio only (Moonlight disabled). All MIT-compatible.
-          - \`VisionVNC-…-moonlight-unsigned.ipa\` — the Moonlight-enabled build (**GPLv3** — see below).
-          - \`VisionVNCCompanion-…-unsigned.zip\` — the macOS companion app.
-          - \`VisionVNCHotspotCompanion-…-x64-Setup.exe\` / \`…-arm64-Setup.exe\` — *if present*, the Windows Hotspot Companion installer (**Beta**), built natively for Intel/AMD (x64) and Windows-on-ARM (arm64). Ships with a signed build-provenance attestation; verify before running with \`gh attestation verify <file> --repo ${{ github.repository }}\`.
-
-          **Running the macOS Companion**
-
-          The companion zip is unsigned, so Gatekeeper blocks it on first launch
-          ("damaged / can't be opened"). After unzipping into \`/Applications\`,
-          clear the quarantine flag and re-sign it ad-hoc:
-
-          \`\`\`sh
-          xattr -dr com.apple.quarantine /Applications/VisionVNCCompanion.app
-          codesign --force --deep --sign - /Applications/VisionVNCCompanion.app
-          \`\`\`
-
-          Then open it normally. (If you build the companion yourself with a real
-          Apple Development identity, you can skip this.)
-
-          ⚠️ **Licensing note:** the Moonlight-enabled IPA links
-          [moonlight-common-c](https://github.com/moonlight-stream/moonlight-common-c),
-          which is **GPLv3**. That artifact is therefore distributed under the GPLv3,
-          not the project's MIT terms. The VNC-only IPA and Companion contain no
-          GPL code. See [LICENSE](LICENSE.txt) for details.
-          EOF
-          gh release create "$VERSION" \
-            --title "$VERSION" \
-            --notes-file release-notes.md \
-            "VisionVNC-${VERSION}-unsigned.ipa" \
-            "VisionVNC-${VERSION}-moonlight-unsigned.ipa" \
-            "VisionVNCCompanion-${VERSION}-unsigned.zip"
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: apple-artifacts
+          path: dist/*
+          if-no-files-found: error
 
   # Windows Hotspot Companion (Beta) installers — built natively per architecture:
   # x64 on windows-latest, arm64 on windows-11-arm (Snapdragon X-class laptops are
-  # increasingly common). Self-contained .NET backend + Electron/NSIS installer,
-  # attached to the release build-and-release created. Each emits a signed
-  # build-provenance attestation so anyone can prove the installer was produced by
-  # this workflow from this commit and wasn't tampered with:
-  # `gh attestation verify <exe> --repo <owner>/<repo>`. fail-fast is off so one
-  # arch failing doesn't cancel the other.
+  # increasingly common). Self-contained .NET backend + Electron/NSIS installer.
+  # Each emits a signed build-provenance attestation so anyone can prove the
+  # installer was produced by this workflow from this commit and wasn't tampered
+  # with: `gh attestation verify <exe> --repo <owner>/<repo>`. fail-fast is off so
+  # one arch failing doesn't cancel the other.
   build-windows:
-    needs: build-and-release
     if: github.ref == 'refs/heads/main'
     permissions:
-      contents: write       # upload the installer to the existing release
+      contents: read
       id-token: write       # OIDC token used to sign the provenance attestation
       attestations: write   # store the attestation
     strategy:
@@ -262,9 +221,9 @@ jobs:
         run: |
           VERSION="0.1.0-${GITHUB_SHA::8}"
           SRC=$(ls CompanionWindows/app/dist/*.exe | head -n1)
-          DEST="VisionVNCHotspotCompanion-${VERSION}-${{ matrix.arch }}-Setup.exe"
+          mkdir -p dist-out
+          DEST="dist-out/VisionVNCHotspotCompanion-${VERSION}-${{ matrix.arch }}-Setup.exe"
           cp "$SRC" "$DEST"
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "installer=$DEST" >> "$GITHUB_OUTPUT"
 
       # Record the checksum in the immutable build log + run summary as an extra,
@@ -282,8 +241,69 @@ jobs:
         with:
           subject-path: ${{ steps.win.outputs.installer }}
 
-      - name: Attach installer to release
-        shell: bash
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-${{ matrix.arch }}
+          path: dist-out/*
+          if-no-files-found: error
+
+  # Creates the (immutable) release with every asset in one shot. Runs even if
+  # a Windows arch failed — the Apple artifacts are the release-critical ones,
+  # and a missing installer can never be attached later, so ship what built
+  # (the release notes mark the Windows installers "if present").
+  release:
+    needs: [build-apple, build-windows]
+    if: ${{ !cancelled() && github.ref == 'refs/heads/main' && needs.build-apple.result == 'success' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release upload "${{ steps.win.outputs.version }}" --clobber "${{ steps.win.outputs.installer }}"
+        run: |
+          VERSION="0.1.0-${GITHUB_SHA::8}"
+          cat > release-notes.md <<EOF
+          Built from \`$VERSION\`.
+
+          **Assets**
+          - \`VisionVNC-…-unsigned.ipa\` — VNC + Audio only (Moonlight disabled). All MIT-compatible.
+          - \`VisionVNC-…-moonlight-unsigned.ipa\` — the Moonlight-enabled build (**GPLv3** — see below).
+          - \`VisionVNCCompanion-…-unsigned.zip\` — the macOS companion app.
+          - \`VisionVNCHotspotCompanion-…-x64-Setup.exe\` / \`…-arm64-Setup.exe\` — *if present*, the Windows Hotspot Companion installer (**Beta**), built natively for Intel/AMD (x64) and Windows-on-ARM (arm64). Ships with a signed build-provenance attestation; verify before running with \`gh attestation verify <file> --repo ${{ github.repository }}\`.
+
+          **Running the macOS Companion**
+
+          The companion zip is unsigned, so Gatekeeper blocks it on first launch
+          ("damaged / can't be opened"). After unzipping into \`/Applications\`,
+          clear the quarantine flag and re-sign it ad-hoc:
+
+          \`\`\`sh
+          xattr -dr com.apple.quarantine /Applications/VisionVNCCompanion.app
+          codesign --force --deep --sign - /Applications/VisionVNCCompanion.app
+          \`\`\`
+
+          Then open it normally. (If you build the companion yourself with a real
+          Apple Development identity, you can skip this.)
+
+          ⚠️ **Licensing note:** the Moonlight-enabled IPA links
+          [moonlight-common-c](https://github.com/moonlight-stream/moonlight-common-c),
+          which is **GPLv3**. That artifact is therefore distributed under the GPLv3,
+          not the project's MIT terms. The VNC-only IPA and Companion contain no
+          GPL code. See [LICENSE](LICENSE.txt) for details.
+          EOF
+          gh release create "$VERSION" \
+            --title "$VERSION" \
+            --notes-file release-notes.md \
+            dist/*
