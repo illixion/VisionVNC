@@ -1,101 +1,39 @@
 import SwiftUI
 import AppKit
 
-/// The companion's main window: sidebar navigation + grouped-form detail
-/// panes. All configuration lives here; the menu bar popover keeps only the
+/// The companion's main window: a tabbed Settings layout (the canonical macOS
+/// System Settings look — icon toolbar across the top, one grouped-form pane
+/// per tab). All configuration lives here; the menu bar popover keeps only the
 /// quick audio controls and a button that opens this window.
+///
+/// Using `TabView` (rather than a `NavigationSplitView`) lets the Settings
+/// window manage its own title bar: the selected tab's label becomes the
+/// centered window title automatically, so there's no need to hide or
+/// reposition it (an earlier sidebar version fought SwiftUI over
+/// `titleVisibility` via KVO, which pegged a CPU core whenever the window was
+/// open).
 struct CompanionWindowView: View {
-
-    enum Pane: String, CaseIterable, Identifiable {
-        case audio, accessToken, broadcast, remoteControl, keyboard
-
-        var id: String { rawValue }
-
-        var title: String {
-            switch self {
-            case .audio: "Audio Streaming"
-            case .accessToken: "Access Token"
-            case .broadcast: "Broadcast (OBS)"
-            case .remoteControl: "Remote Control"
-            case .keyboard: "Keyboard Control"
-            }
-        }
-
-        var icon: String {
-            switch self {
-            case .audio: "speaker.wave.2"
-            case .accessToken: "key"
-            case .broadcast: "dot.radiowaves.left.and.right"
-            case .remoteControl: "terminal"
-            case .keyboard: "keyboard"
-            }
-        }
-    }
-
     @Bindable var controller: AudioStreamerController
     @Bindable var broadcastServer: BroadcastServerManager
-    @State private var selection: Pane = .audio
 
     var body: some View {
-        NavigationSplitView {
-            List(Pane.allCases, selection: $selection) { pane in
-                Label(pane.title, systemImage: pane.icon)
-                    .tag(pane)
-            }
-            .navigationSplitViewColumnWidth(min: 180, ideal: 200, max: 240)
-            // No toolbar exists in a Settings window for the automatic
-            // sidebar-collapse button to dock into, so it free-floats over
-            // the sidebar — remove it (the sidebar shouldn't collapse anyway).
-            .toolbar(removing: .sidebarToggle)
-        } detail: {
-            Group {
-                switch selection {
-                case .audio: AudioPane(controller: controller)
-                case .accessToken: AccessTokenPane(controller: controller)
-                case .broadcast: BroadcastPane(broadcastServer: broadcastServer)
-                case .remoteControl: RemoteControlPane(controller: controller)
-                case .keyboard: KeyboardPane(controller: controller)
-                }
-            }
-            .formStyle(.grouped)
-            // No navigationTitle: with no toolbar in a Settings window it
-            // renders off-center over the detail column, and the selected
-            // sidebar item already labels the pane.
+        TabView {
+            AudioPane(controller: controller)
+                .tabItem { Label("Audio", systemImage: "speaker.wave.2") }
+            AccessTokenPane(controller: controller)
+                .tabItem { Label("Token", systemImage: "key") }
+            BroadcastPane(broadcastServer: broadcastServer)
+                .tabItem { Label("Broadcast", systemImage: "dot.radiowaves.left.and.right") }
+            RemoteControlPane(controller: controller)
+                .tabItem { Label("Remote", systemImage: "terminal") }
+            KeyboardPane(controller: controller)
+                .tabItem { Label("Keyboard", systemImage: "keyboard") }
         }
-        .frame(minWidth: 640, minHeight: 440)
-        .background(HideWindowTitle())
+        .formStyle(.grouped)
+        .frame(minWidth: 620, minHeight: 440)
         .onAppear {
             controller.refreshKeys()
             controller.injection.refreshAccessibility()
-        }
-    }
-}
-
-/// Hides the hosting window's title text: a Settings window has no toolbar,
-/// so both navigationTitle and the default "… Settings" fallback render
-/// off-center over the detail column. The title stays set for accessibility
-/// and Mission Control — it's just not drawn. SwiftUI flips titleVisibility
-/// back to .visible on every sidebar navigation (the title update re-asserts
-/// it), so a one-shot hide isn't enough — KVO re-hides it each time.
-private struct HideWindowTitle: NSViewRepresentable {
-    func makeNSView(context: Context) -> NSView {
-        TitleHidingView()
-    }
-
-    func updateNSView(_ nsView: NSView, context: Context) {}
-}
-
-private final class TitleHidingView: NSView {
-    private var observation: NSKeyValueObservation?
-
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        observation = nil
-        guard let window else { return }
-        window.titleVisibility = .hidden
-        observation = window.observe(\.titleVisibility, options: [.new]) { window, change in
-            guard change.newValue != .hidden else { return }
-            DispatchQueue.main.async { window.titleVisibility = .hidden }
         }
     }
 }
