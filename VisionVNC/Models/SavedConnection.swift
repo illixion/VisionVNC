@@ -46,6 +46,94 @@ enum ConnectionType: String, CaseIterable, Codable {
     }
 }
 
+// MARK: - Managed-session agent
+
+/// A CLI coding agent the Projects tab can launch on a host over SSH. Each agent
+/// authenticates headlessly via a long-lived token injected inline as an
+/// environment variable (the macOS Keychain is unreachable over SSH). A host
+/// stores a token per agent and remembers which one to launch by default.
+enum SSHAgent: String, CaseIterable, Identifiable, Sendable {
+    /// Claude Code — `claude setup-token` mints a one-year `CLAUDE_CODE_OAUTH_TOKEN`.
+    case claude
+    /// GitHub Copilot CLI (`@github/copilot`) — auths off `COPILOT_GITHUB_TOKEN`
+    /// (preferred over `GH_TOKEN`/`GITHUB_TOKEN` so it can't clobber other tools).
+    case copilot
+    /// Any other CLI: free-form command + token env-var name, set per host.
+    case custom
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .claude: "Claude"
+        case .copilot: "Copilot"
+        case .custom: "Custom"
+        }
+    }
+
+    /// SF Symbol for pickers / login rows.
+    var systemImage: String {
+        switch self {
+        case .claude: "sparkles"
+        case .copilot: "chevron.left.forwardslash.chevron.right"
+        case .custom: "terminal"
+        }
+    }
+
+    /// Built-in launch command. Empty for `.custom` (the user supplies it).
+    var defaultCommand: String {
+        switch self {
+        case .claude: "claude"
+        case .copilot: "copilot"
+        case .custom: ""
+        }
+    }
+
+    /// Built-in env-var name the token is injected as. Empty for `.custom`.
+    var defaultEnvName: String {
+        switch self {
+        case .claude: "CLAUDE_CODE_OAUTH_TOKEN"
+        case .copilot: "COPILOT_GITHUB_TOKEN"
+        case .custom: ""
+        }
+    }
+
+    /// Title for the per-agent login/setup sheet.
+    var setupTitle: String {
+        switch self {
+        case .claude: "Set up Claude"
+        case .copilot: "Set up Copilot"
+        case .custom: "Set up Token"
+        }
+    }
+
+    /// Whether this agent supports the in-app GitHub OAuth device flow to mint
+    /// its token (Copilot is a public GitHub App client). Others paste a token.
+    var supportsDeviceFlow: Bool { self == .copilot }
+
+    /// The command the user runs on the Mac to mint a token (shown monospaced).
+    /// Empty when an in-app flow replaces it.
+    var tokenGenerateCommand: String {
+        switch self {
+        case .claude: "claude setup-token"
+        case .copilot: ""
+        case .custom: ""
+        }
+    }
+
+    /// Step-by-step instructions for obtaining the token, shown in the sheet.
+    func setupInstructions(envName: String) -> String {
+        switch self {
+        case .claude:
+            "In Terminal on the Mac, run `claude setup-token` once. Log in via the browser it opens, then copy the one-year token it prints (it isn't saved anywhere automatically)."
+        case .copilot:
+            "Sign in with GitHub below — VisionVNC runs the device-authorization flow on this headset, captures the token, and injects it into each session as \(envName). The Mac's keychain is never touched. (Prefer a token? Paste a fine-grained PAT with the “Copilot Requests” permission instead — classic ghp_ tokens aren't supported.)"
+        case .custom:
+            "Paste the credential your CLI reads from \(envName). It's stored only on this device and injected into each session as that environment variable."
+        }
+    }
+}
+
 // MARK: - VNC Quality
 
 /// Quality presets mapping to VNC color depth, JPEG quality, and compression level.
@@ -239,10 +327,22 @@ final class SavedConnection {
     /// before the macOS Keychain, which is unreachable in an SSH session).
     var sshAuthEnvName: String = ""
 
-    /// Whether an auth token is stored in the Keychain for this connection.
-    /// The token *value* lives in `KeychainStore` (keyed by `id`), never in
-    /// SwiftData; this is only a UI flag. Default false for safe migration.
+    /// Whether a **Claude** auth token is stored in the Keychain for this
+    /// connection. The token *value* lives in `KeychainStore` (keyed by `id`),
+    /// never in SwiftData; this is only a UI flag. Kept under its original name
+    /// (no rename) so existing stores migrate without touching the column.
+    /// Per-agent siblings below cover Copilot/Custom. Default false.
     var sshHasAuthToken: Bool = false
+
+    /// UI flag: a **Copilot** token is stored in the Keychain. Default false.
+    var sshHasCopilotToken: Bool = false
+
+    /// UI flag: a **Custom**-agent token is stored in the Keychain. Default false.
+    var sshHasCustomToken: Bool = false
+
+    /// Which managed agent the Projects tab launches by default for this host.
+    /// Empty → `.claude`. Remembered across launches; flippable before launch.
+    var sshAgentRawValue: String = ""
 
     /// Wrap terminal sessions in tmux so they survive connection drops
     /// (visionOS tracking loss suspends the app and kills the TCP link). Falls
@@ -264,26 +364,79 @@ final class SavedConnection {
 
     private static let sshAuthTokenService = "com.illixion.VisionVNC.sshAuthToken"
 
-    /// Client command for managed (Projects-tab) sessions — `claude` by default.
-    var effectiveSSHClientCommand: String {
-        sshClientCommand.isEmpty ? "claude" : sshClientCommand
+    /// The remembered default agent for managed (Projects-tab) sessions.
+    var sshAgent: SSHAgent {
+        get { SSHAgent(rawValue: sshAgentRawValue) ?? .claude }
+        set { sshAgentRawValue = newValue.rawValue }
     }
 
-    /// Env var name the auth token is injected as.
-    var effectiveSSHAuthEnvName: String {
-        sshAuthEnvName.isEmpty ? "CLAUDE_CODE_OAUTH_TOKEN" : sshAuthEnvName
-    }
-
-    /// The per-connection auth token, stored in the Keychain (not SwiftData).
-    /// Setting it also updates the `sshHasAuthToken` flag; an empty/nil value
-    /// clears the stored secret.
-    var sshAuthToken: String? {
-        get { KeychainStore.get(service: Self.sshAuthTokenService, account: id.uuidString) }
-        set {
-            let v = (newValue ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-            KeychainStore.set(service: Self.sshAuthTokenService, account: id.uuidString, value: v)
-            sshHasAuthToken = !v.isEmpty
+    /// Command launched in the project folder for `agent`. Built-ins use their
+    /// fixed command; `.custom` uses the free-form `sshClientCommand` field.
+    func effectiveCommand(for agent: SSHAgent) -> String {
+        switch agent {
+        case .claude, .copilot:
+            return agent.defaultCommand
+        case .custom:
+            return sshClientCommand.isEmpty ? SSHAgent.claude.defaultCommand : sshClientCommand
         }
+    }
+
+    /// Env-var name `agent`'s token is injected as. Built-ins use their fixed
+    /// name; `.custom` uses the free-form `sshAuthEnvName` field.
+    func effectiveEnvName(for agent: SSHAgent) -> String {
+        switch agent {
+        case .claude, .copilot:
+            return agent.defaultEnvName
+        case .custom:
+            return sshAuthEnvName.isEmpty ? SSHAgent.claude.defaultEnvName : sshAuthEnvName
+        }
+    }
+
+    // Back-compat conveniences (Custom agent's free-form fields).
+    var effectiveSSHClientCommand: String { effectiveCommand(for: .custom) }
+    var effectiveSSHAuthEnvName: String { effectiveEnvName(for: .custom) }
+
+    /// Keychain account for `agent`'s token. Claude keeps the bare UUID (so
+    /// tokens stored before multi-agent support are preserved untouched); other
+    /// agents are suffixed.
+    private func tokenAccount(_ agent: SSHAgent) -> String {
+        agent == .claude ? id.uuidString : "\(id.uuidString).\(agent.rawValue)"
+    }
+
+    /// Whether a token is stored for `agent` (the per-agent UI flag).
+    func hasToken(for agent: SSHAgent) -> Bool {
+        switch agent {
+        case .claude: sshHasAuthToken
+        case .copilot: sshHasCopilotToken
+        case .custom: sshHasCustomToken
+        }
+    }
+
+    private func setHasToken(_ present: Bool, for agent: SSHAgent) {
+        switch agent {
+        case .claude: sshHasAuthToken = present
+        case .copilot: sshHasCopilotToken = present
+        case .custom: sshHasCustomToken = present
+        }
+    }
+
+    /// The stored token for `agent`, read from the Keychain (not SwiftData).
+    func sshAuthToken(for agent: SSHAgent) -> String? {
+        KeychainStore.get(service: Self.sshAuthTokenService, account: tokenAccount(agent))
+    }
+
+    /// Store (or clear) `agent`'s token in the Keychain and update its UI flag.
+    /// An empty/nil value clears the stored secret.
+    func setSSHAuthToken(_ value: String?, for agent: SSHAgent) {
+        let v = (value ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        KeychainStore.set(service: Self.sshAuthTokenService, account: tokenAccount(agent), value: v)
+        setHasToken(!v.isEmpty, for: agent)
+    }
+
+    /// Back-compat alias for the Claude token (used by older call sites/tests).
+    var sshAuthToken: String? {
+        get { sshAuthToken(for: .claude) }
+        set { setSSHAuthToken(newValue, for: .claude) }
     }
 
     /// Non-secret environment from the `sshEnvVars` lines (validated names).
@@ -304,17 +457,23 @@ final class SavedConnection {
         return env
     }
 
-    /// Full environment for a managed (Claude) session: the non-secret vars
-    /// plus the stored auth token under its env name (token wins on conflict).
-    func resolvedSSHEnvironment() -> [(name: String, value: String)] {
+    /// Full environment for a managed session running `agent`: the non-secret
+    /// vars plus `agent`'s stored token under its env name (token wins on
+    /// conflict).
+    func resolvedSSHEnvironment(for agent: SSHAgent) -> [(name: String, value: String)] {
         var env = sshEnvironmentVariables()
-        if sshHasAuthToken, let token = sshAuthToken, !token.isEmpty {
-            let name = effectiveSSHAuthEnvName
+        if hasToken(for: agent), let token = sshAuthToken(for: agent), !token.isEmpty {
+            let name = effectiveEnvName(for: agent)
             guard Self.isValidEnvName(name) else { return env }
             env.removeAll { $0.name == name }
             env.append((name: name, value: token))
         }
         return env
+    }
+
+    /// Back-compat: the Claude session environment.
+    func resolvedSSHEnvironment() -> [(name: String, value: String)] {
+        resolvedSSHEnvironment(for: .claude)
     }
 
     /// POSIX environment-variable name (`[A-Za-z_][A-Za-z0-9_]*`). Guards the

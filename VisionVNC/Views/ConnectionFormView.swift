@@ -354,7 +354,7 @@ struct ConnectionFormView: View {
                 .foregroundStyle(.secondary)
         }
 
-        Section("Managed Session (Projects tab)") {
+        Section("Custom Agent Command (Projects tab)") {
             TextField("claude", text: $sshClientCommand)
                 .font(.system(.body, design: .monospaced))
                 .autocorrectionDisabled()
@@ -364,7 +364,7 @@ struct ConnectionFormView: View {
                 .contentShape(.rect)
                 .onTapGesture { focusedField = .sshClientCommand }
 
-            Text("Client command launched in the project folder via tmux from the Projects tab. Default: claude. Swap in another CLI to reuse the same workflow.")
+            Text("Command for the Projects tab's “Custom” agent — point it at any CLI. Claude and Copilot are built in with fixed commands. Pick the agent and set its login in the Projects tab.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
@@ -378,7 +378,7 @@ struct ConnectionFormView: View {
                 .focused($focusedField, equals: .sshEnvVars)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
-            Text("Injected before the command runs (inline; readable by your own processes on the Mac, so keep these non-secret). The Claude login token is set separately — Projects tab → Set up Claude — and kept in this device's keychain.")
+            Text("Injected before the command runs (inline; readable by your own processes on the Mac, so keep these non-secret). Agent login tokens (Claude / Copilot / Custom) are set separately per agent in the Projects tab and kept in this device's keychain.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
