@@ -2,16 +2,29 @@ import SwiftUI
 import SwiftTerm
 import UIKit
 
-/// SwiftTerm's `TerminalView` makes itself the first responder on tap (to show
-/// its own keyboard and capture hardware keys). In VisionVNC all input is routed
-/// through the composer + quick-key row, so the terminal never needs to be first
-/// responder — and must not become it: on visionOS an accidental gaze-pinch on
-/// the output while dictating into the composer would otherwise resign the
-/// composer's first responder and abort dictation mid-sentence. Scrolling the
-/// scrollback (a UIScrollView gesture) doesn't need first responder, so it's
-/// unaffected.
-final class DisplayOnlyTerminalView: TerminalView {
-    override var canBecomeFirstResponder: Bool { false }
+/// SwiftTerm's `TerminalView` makes itself the first responder on tap to capture
+/// hardware-keyboard input and start text selection. That's wanted for a
+/// Bluetooth keyboard / shortcuts — but on visionOS an *accidental* gaze-pinch on
+/// the output while dictating into the composer would resign the composer and
+/// abort dictation mid-sentence. So first-responder is gated behind an explicit
+/// toggle (`keyboardFocusEnabled`): off by default (display-only, dictation-safe),
+/// flipped on deliberately when the user wants to drive the terminal directly.
+final class VisionTerminalView: TerminalView {
+    var keyboardFocusEnabled = false
+
+    override var canBecomeFirstResponder: Bool { keyboardFocusEnabled }
+
+    /// Apply the desired keyboard-focus state, grabbing or releasing first
+    /// responder to match. Idempotent.
+    func setKeyboardFocus(_ on: Bool) {
+        guard on != keyboardFocusEnabled else { return }
+        keyboardFocusEnabled = on
+        if on {
+            _ = becomeFirstResponder()
+        } else if isFirstResponder {
+            _ = resignFirstResponder()
+        }
+    }
 }
 
 /// Hosts a SwiftTerm `TerminalView` for an `SSHSession`. The view renders the
@@ -21,9 +34,12 @@ final class DisplayOnlyTerminalView: TerminalView {
 struct TerminalEmulatorView: UIViewRepresentable {
     let session: SSHSession
     var fontSize: Double = ConnectionDefaults.terminalFontSizeDefault
+    /// When true, the terminal grabs first responder for direct hardware-keyboard
+    /// input and text selection; when false it's display-only (dictation-safe).
+    var keyboardFocused: Bool = false
 
     func makeUIView(context: Context) -> TerminalView {
-        let terminal = DisplayOnlyTerminalView(frame: .zero)
+        let terminal = VisionTerminalView(frame: .zero)
         terminal.terminalDelegate = context.coordinator
         // Opaque dark backdrop — visionOS glass washes out ANSI colors.
         let dark = UIColor(white: 0.07, alpha: 1.0)
@@ -31,12 +47,13 @@ struct TerminalEmulatorView: UIViewRepresentable {
         terminal.backgroundColor = dark
         terminal.isOpaque = true
         terminal.font = .monospacedSystemFont(ofSize: fontSize, weight: .regular)
-        // Keep scrollback scrolling local to the view: ignore the agent's
-        // mouse-mode requests so a gaze pinch-drag scrolls history instead of
-        // being forwarded to the remote program as mouse events. VisionVNC
-        // sends no mouse input to the agent (input is the composer + quick-key
-        // row), so nothing is lost and the scrollback becomes scrollable.
+        // Ignore the agent's mouse-mode requests: VisionVNC sends no mouse input
+        // to the agent (input is the composer + quick-key row), and this keeps
+        // taps as local selection rather than forwarded mouse clicks. Scrollback
+        // is driven by the Scroll ▲▼ controls (SwiftTerm's public pageUp/Down),
+        // not the UIScrollView drag, which doesn't move the yDisp-based view.
         terminal.allowMouseReporting = false
+        terminal.setKeyboardFocus(keyboardFocused)
         session.attach(terminal)
         return terminal
     }
@@ -48,6 +65,7 @@ struct TerminalEmulatorView: UIViewRepresentable {
         if uiView.font.pointSize != fontSize {
             uiView.font = .monospacedSystemFont(ofSize: fontSize, weight: .regular)
         }
+        (uiView as? VisionTerminalView)?.setKeyboardFocus(keyboardFocused)
     }
 
     static func dismantleUIView(_ uiView: TerminalView, coordinator: Coordinator) {

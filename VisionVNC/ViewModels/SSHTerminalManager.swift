@@ -238,6 +238,12 @@ final class SSHSession: Identifiable {
 
     func detach() { terminalView = nil }
 
+    /// Scroll the terminal scrollback a page. SwiftTerm's iOS view scrolls via
+    /// the terminal's yDisp (driven by this public API), not the UIScrollView
+    /// drag — so explicit controls are the way to reach history.
+    func scrollPageUp() { terminalView?.pageUp() }
+    func scrollPageDown() { terminalView?.pageDown() }
+
     var isReady: Bool { state == .ready }
 
     /// Composer text that couldn't be delivered (connection down), shown as a

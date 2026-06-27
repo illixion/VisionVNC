@@ -18,6 +18,11 @@ struct SSHTerminalView: View {
     /// matching control character (e.g. ⌃ + "b" → 0x02 — tmux prefix).
     @State private var ctrlLatched = false
 
+    /// Hands first responder to the terminal for direct hardware-keyboard input
+    /// and text selection. Off by default so an accidental gaze-tap can't steal
+    /// the composer's focus and abort dictation; the user enables it deliberately.
+    @State private var keyboardFocused = false
+
     @AppStorage(ConnectionDefaults.Keys.terminalFontSize)
     private var terminalFontSize: Double = ConnectionDefaults.terminalFontSizeDefault
     @AppStorage(ConnectionDefaults.Keys.terminalQuickKeys)
@@ -47,7 +52,8 @@ struct SSHTerminalView: View {
     private func content(_ session: SSHSession) -> some View {
         VStack(spacing: 0) {
             statusRow(session)
-            TerminalEmulatorView(session: session, fontSize: terminalFontSize)
+            TerminalEmulatorView(session: session, fontSize: terminalFontSize,
+                                 keyboardFocused: keyboardFocused)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             quickKeyRow(session)
             composerBar(session)
@@ -71,11 +77,40 @@ struct SSHTerminalView: View {
             Text(statusText(session))
                 .font(.caption)
                 .foregroundStyle(.secondary)
+            scrollControls(session)
+            keyboardFocusToggle
             reloadButton(session)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
         .background(.bar)
+    }
+
+    /// Scrollback paging — the terminal's history scrolls via these (SwiftTerm's
+    /// yDisp), not the UIScrollView drag.
+    @ViewBuilder
+    private func scrollControls(_ session: SSHSession) -> some View {
+        Button { session.scrollPageUp() } label: {
+            Image(systemName: "chevron.up")
+        }
+        .buttonStyle(.borderless)
+        Button { session.scrollPageDown() } label: {
+            Image(systemName: "chevron.down")
+        }
+        .buttonStyle(.borderless)
+    }
+
+    /// Hand the keyboard to the terminal (BT keyboard, shortcuts, text
+    /// selection). Off by default keeps dictation in the composer safe.
+    private var keyboardFocusToggle: some View {
+        Button {
+            keyboardFocused.toggle()
+        } label: {
+            Image(systemName: keyboardFocused ? "keyboard.fill" : "keyboard")
+        }
+        .buttonStyle(.borderless)
+        .tint(keyboardFocused ? .accentColor : nil)
+        .help(keyboardFocused ? "Terminal has the keyboard — tap to release" : "Send keyboard input to the terminal")
     }
 
     /// Manual relaunch — always reachable so a wedged launch can be kicked, and
