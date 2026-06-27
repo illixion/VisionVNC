@@ -2,6 +2,18 @@ import SwiftUI
 import SwiftTerm
 import UIKit
 
+/// SwiftTerm's `TerminalView` makes itself the first responder on tap (to show
+/// its own keyboard and capture hardware keys). In VisionVNC all input is routed
+/// through the composer + quick-key row, so the terminal never needs to be first
+/// responder — and must not become it: on visionOS an accidental gaze-pinch on
+/// the output while dictating into the composer would otherwise resign the
+/// composer's first responder and abort dictation mid-sentence. Scrolling the
+/// scrollback (a UIScrollView gesture) doesn't need first responder, so it's
+/// unaffected.
+final class DisplayOnlyTerminalView: TerminalView {
+    override var canBecomeFirstResponder: Bool { false }
+}
+
 /// Hosts a SwiftTerm `TerminalView` for an `SSHSession`. The view renders the
 /// PTY stream and reports size changes (→ SIGWINCH) and any first-responder
 /// keystrokes back to the session. Input primarily comes from the composer +
@@ -11,7 +23,7 @@ struct TerminalEmulatorView: UIViewRepresentable {
     var fontSize: Double = ConnectionDefaults.terminalFontSizeDefault
 
     func makeUIView(context: Context) -> TerminalView {
-        let terminal = TerminalView(frame: .zero)
+        let terminal = DisplayOnlyTerminalView(frame: .zero)
         terminal.terminalDelegate = context.coordinator
         // Opaque dark backdrop — visionOS glass washes out ANSI colors.
         let dark = UIColor(white: 0.07, alpha: 1.0)
@@ -19,6 +31,12 @@ struct TerminalEmulatorView: UIViewRepresentable {
         terminal.backgroundColor = dark
         terminal.isOpaque = true
         terminal.font = .monospacedSystemFont(ofSize: fontSize, weight: .regular)
+        // Keep scrollback scrolling local to the view: ignore the agent's
+        // mouse-mode requests so a gaze pinch-drag scrolls history instead of
+        // being forwarded to the remote program as mouse events. VisionVNC
+        // sends no mouse input to the agent (input is the composer + quick-key
+        // row), so nothing is lost and the scrollback becomes scrollable.
+        terminal.allowMouseReporting = false
         session.attach(terminal)
         return terminal
     }
