@@ -27,6 +27,7 @@ final class SSHSession: Identifiable {
     let id: SSHSessionID
     let title: String
     let host: String
+    let port: Int
     let username: String
     let kind: Kind
     /// Working directory for managed Claude sessions (nil for plain shells).
@@ -75,11 +76,12 @@ final class SSHSession: Identifiable {
         min(current * 2, 30)
     }
 
-    init(id: SSHSessionID, title: String, host: String, username: String,
+    init(id: SSHSessionID, title: String, host: String, port: Int, username: String,
          kind: Kind, cwd: String?) {
         self.id = id
         self.title = title
         self.host = host
+        self.port = port
         self.username = username
         self.kind = kind
         self.cwd = cwd
@@ -90,6 +92,18 @@ final class SSHSession: Identifiable {
         self.privateKey = privateKey
         self.group = group
         connect()
+    }
+
+    /// Register a session that should connect lazily — when its window first
+    /// appears — rather than immediately. Used for sessions rediscovered on the
+    /// host after an app restart: marking the state `.closed` makes the window's
+    /// `onAppear` (`ensureConnected`) bring up the stored launch command, so we
+    /// don't open an SSH connection for every live session the user never views.
+    func prepareLazy(config: SSHConnection.Config, privateKey: NIOSSHPrivateKey, group: NIOTSEventLoopGroup) {
+        self.config = config
+        self.privateKey = privateKey
+        self.group = group
+        state = .closed(nil)
     }
 
     /// Reconnect after a drop or a wedged launch (manual button or auto-retry).
@@ -195,7 +209,8 @@ final class SSHSession: Identifiable {
             connection?.resize(cols: lastCols, rows: lastRows)
             if let queued = queuedComposerText {
                 queuedComposerText = nil
-                sendText(queued + "\r")
+                _ = sendText(queued)
+                sendSubmitReturn()
             }
         case .output(let bytes):
             if let view = terminalView {
@@ -236,17 +251,31 @@ final class SSHSession: Identifiable {
     @discardableResult
     func sendText(_ text: String) -> Bool { connection?.send(Array(text.utf8)) ?? false }
 
-    /// Send composer text (CR-terminated — what a PTY treats as Enter), or
-    /// queue it for delivery on the next `.ready` when the connection is down.
-    /// Returns whether it was sent immediately.
+    /// Send composer text and submit it, or queue it for delivery on the next
+    /// `.ready` when the connection is down. Returns whether it was sent
+    /// immediately.
     @discardableResult
     func sendComposerText(_ text: String) -> Bool {
-        if sendText(text + "\r") {
+        if sendText(text) {
+            sendSubmitReturn()
             queuedComposerText = nil
             return true
         }
         queuedComposerText = text
         return false
+    }
+
+    /// Send a lone carriage return (Enter) as its own delayed write. TUI agents
+    /// like claude/copilot detect pastes by chunk content: a CR arriving in the
+    /// same PTY read() as the message text is inserted as a literal newline
+    /// instead of submitting. Delivering Enter on a separate, slightly-delayed
+    /// read makes it register as a submit keypress (matches what sending a bare
+    /// Return from the quick-key row does).
+    private func sendSubmitReturn() {
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(40))
+            self?.sendBytes([0x0D])
+        }
     }
 
     /// Drop queued composer text (user changed their mind).
@@ -350,7 +379,7 @@ final class SSHTerminalManager {
             host: host, port: port, username: username,
             command: command, cols: 80, rows: 24
         )
-        let session = SSHSession(id: id, title: title, host: host, username: username, kind: kind, cwd: cwd)
+        let session = SSHSession(id: id, title: title, host: host, port: port, username: username, kind: kind, cwd: cwd)
         sessions.append(session)
         session.start(config: config, privateKey: key.nioPrivateKey, group: group)
         log.info("Opened SSH session \(slug, privacy: .public) to \(host, privacy: .public)")
@@ -360,6 +389,22 @@ final class SSHTerminalManager {
     func remove(_ id: SSHSessionID) {
         session(id)?.terminate()
         sessions.removeAll { $0.id == id }
+    }
+
+    /// Stop a session from the UI. For managed agent sessions this also kills
+    /// the tmux session on the host, so the agent actually exits (a plain
+    /// disconnect leaves it running — the user previously had to Ctrl+C on the
+    /// Mac) and it isn't resurrected by the next rediscovery pass.
+    func stopSession(_ id: SSHSessionID) {
+        if let s = session(id), s.kind == .claude {
+            let host = s.host, port = s.port, user = s.username, name = id.raw
+            Task { [weak self] in
+                _ = try? await self?.runCommand(
+                    host: host, port: port, username: user,
+                    command: "tmux kill-session -t \(Self.shellSingleQuote(name)) 2>/dev/null")
+            }
+        }
+        remove(id)
     }
 
     /// tmux-safe session name: alphanumerics, dashes collapsed, never empty.
@@ -412,6 +457,10 @@ final class SSHTerminalManager {
         if !folder.isEmpty { line += " -c \(shellSingleQuote(folder))" }
         if !client.isEmpty { line += " \(client)" }
         line += "; "
+        // Tag sessions this app creates with a user option so rediscovery after
+        // an app restart can tell them apart from the user's own stray tmux
+        // sessions (which it must never list or offer to kill).
+        line += "tmux set-option -t \(tmuxSession) @visionvnc 1 >/dev/null 2>&1; "
         // `exec` replaces this shell with the attach client, so the token-
         // bearing argv of `tmux new` is shed within milliseconds of launch.
         // `attach -d` detaches stale clients left behind by dropped connections
@@ -429,6 +478,13 @@ final class SSHTerminalManager {
         let inner = tmuxLaunchLine(tmuxSession: tmuxSession, folder: folder,
                                    client: client, environment: environment)
         return "zsh -lic \(shellSingleQuote(inner))"
+    }
+
+    /// Re-attach an already-running tmux session — no create, no command, no
+    /// token (the live session already carries the agent and its env). Used to
+    /// reconnect to sessions rediscovered on the host after an app restart.
+    static func attachCommand(tmuxSession: String) -> String {
+        "zsh -lic \(shellSingleQuote("exec tmux attach -d -t \(tmuxSession)"))"
     }
 
     /// tmux-wrapped generic terminal session: survives connection drops like a
@@ -472,6 +528,55 @@ final class SSHTerminalManager {
         let command = "ls -1p -- \(Self.shellSingleQuote(absolutePath))"
         let out = try await runCommand(host: host, port: port, username: username, command: command)
         return Self.parseLsEntries(out)
+    }
+
+    // MARK: - Session rediscovery (after app restart)
+
+    /// The in-memory `sessions` list doesn't survive an app relaunch, but the
+    /// agents' tmux sessions keep running on the host. Query the host's tmux
+    /// server and register a lazily-connecting `SSHSession` for each agent
+    /// session not already tracked, so they reappear under "Running Sessions"
+    /// and a tap re-attaches. Generic shell sessions (`vnc-` prefix) are skipped.
+    /// Silent on any failure (no tmux, no server, host unreachable).
+    func discoverClaudeSessions(host: String, port: Int, username: String) async {
+        // Tab-separated so paths with spaces survive; `2>/dev/null` keeps the
+        // "no server running" stderr out of the parsed output. The `@visionvnc`
+        // marker (set on every session this app creates) filters out the user's
+        // own stray tmux sessions; shell sessions (`vnc-` prefix) are skipped too.
+        let command = "tmux list-sessions -F '#{session_name}\t#{session_path}\t#{@visionvnc}' 2>/dev/null"
+        guard let out = try? await runCommand(host: host, port: port, username: username, command: command) else {
+            return
+        }
+        let key = try? deviceKey()
+        for raw in out.split(separator: "\n") {
+            // name \t path \t marker — marker is the last field; the middle is
+            // rejoined so a (pathological) tab in the path can't shift it.
+            let parts = raw.split(separator: "\t", omittingEmptySubsequences: false).map(String.init)
+            guard parts.count >= 3 else { continue }
+            let name = parts[0]
+            guard !name.isEmpty, !name.hasPrefix("vnc-"), parts[parts.count - 1] == "1" else { continue }
+            let id = SSHSessionID(raw: name)
+            guard session(id) == nil else { continue }
+            let folder = parts[1..<(parts.count - 1)].joined(separator: "\t")
+            let base = folder.isEmpty ? name : Self.folderName(folder)
+            // Surface the agent suffix (`proj-copilot` → "proj (Copilot)") so two
+            // agents launched in the same folder are distinguishable as rows.
+            var title = base
+            let baseSlug = Self.slug(base)
+            if name != baseSlug, name.hasPrefix(baseSlug + "-") {
+                title = "\(base) (\(name.dropFirst(baseSlug.count + 1).capitalized))"
+            }
+            let session = SSHSession(id: id, title: title, host: host, port: port, username: username,
+                                     kind: .claude, cwd: folder.isEmpty ? nil : folder)
+            if let key {
+                let config = SSHConnection.Config(host: host, port: port, username: username,
+                                                  command: Self.attachCommand(tmuxSession: name),
+                                                  cols: 80, rows: 24)
+                session.prepareLazy(config: config, privateKey: key.nioPrivateKey, group: group)
+            }
+            sessions.append(session)
+            log.info("Rediscovered tmux session \(name, privacy: .public) on \(host, privacy: .public)")
+        }
     }
 
     private func runCommand(host: String, port: Int, username: String, command: String) async throws -> String {

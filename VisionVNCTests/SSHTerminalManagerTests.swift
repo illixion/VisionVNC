@@ -27,6 +27,15 @@ final class SSHTerminalManagerTests: XCTestCase {
         XCTAssertTrue(cmd.contains("TOK='\\''secret'\\'' tmux new"))
     }
 
+    func testAttachCommandReattachesWithoutCreatingOrToken() {
+        let cmd = SSHTerminalManager.attachCommand(tmuxSession: "proj-copilot")
+        XCTAssertTrue(cmd.hasPrefix("zsh -lic '"))
+        // Rediscovered sessions only re-attach: no `tmux new`, no env/token.
+        XCTAssertFalse(cmd.contains("tmux new"))
+        XCTAssertFalse(cmd.contains("="))
+        XCTAssertTrue(cmd.contains("exec tmux attach -d -t proj-copilot"))
+    }
+
     // MARK: - persistentShellCommand
 
     func testPersistentShellCommandFallsBackWithoutTmux() {

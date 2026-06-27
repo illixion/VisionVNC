@@ -112,7 +112,10 @@ struct ProjectsView: View {
                 .disabled(selectedHost == nil || path.isEmpty || loading)
             }
         }
-        .task(id: selectedHost?.id) { await loadHome() }
+        .task(id: selectedHost?.id) {
+            await loadHome()
+            await discoverSessions()
+        }
         .sheet(isPresented: $showingAgentSetup) {
             if let host = selectedHost {
                 NavigationStack { AgentSetupSheet(host: host, agent: agent) }
@@ -211,7 +214,7 @@ struct ProjectsView: View {
                     }
                     .swipeActions(edge: .trailing) {
                         Button(role: .destructive) {
-                            sshManager.remove(session.id)
+                            sshManager.stopSession(session.id)
                         } label: {
                             Label("Stop", systemImage: "stop.fill")
                         }
@@ -301,6 +304,13 @@ struct ProjectsView: View {
             self.error = "\(error)"
         }
         loading = false
+    }
+
+    /// Repopulate "Running Sessions" with agent tmux sessions still alive on the
+    /// host (the in-memory list is lost on app relaunch).
+    private func discoverSessions() async {
+        guard let host = selectedHost else { return }
+        await sshManager.discoverClaudeSessions(host: host.hostname, port: host.port, username: host.sshUsername)
     }
 
     private func reload() async {
