@@ -55,6 +55,32 @@ final class SSHTerminalManagerTests: XCTestCase {
         XCTAssertTrue(cmd.contains("else FOO='\\''bar'\\'' exec \"$SHELL\" -l; fi"))
     }
 
+    // MARK: - Per-agent session slugs
+
+    func testAgentSessionKeysKeepClaudeBareAndSuffixOthers() {
+        // Claude stays bare so tmux sessions / SSHSessionIDs created before
+        // multi-agent support keep working; others are suffixed.
+        XCTAssertEqual(SSHAgent.claude.sessionKey, "")
+        XCTAssertEqual(SSHAgent.copilot.sessionKey, "copilot")
+        XCTAssertEqual(SSHAgent.custom.sessionKey, "custom")
+    }
+
+    func testAgentKeyYieldsDistinctSlugsPerAgent() {
+        let base = SSHTerminalManager.slug("my-project")
+        // Mirror newClaudeSession's composition: empty key → bare slug, else suffixed.
+        func slug(_ key: String) -> String {
+            key.isEmpty ? base : SSHTerminalManager.slug("\(base)-\(key)")
+        }
+        let claude = slug(SSHAgent.claude.sessionKey)
+        let copilot = slug(SSHAgent.copilot.sessionKey)
+        let custom = slug(SSHAgent.custom.sessionKey)
+        XCTAssertEqual(claude, "my-project")
+        XCTAssertEqual(copilot, "my-project-copilot")
+        XCTAssertEqual(custom, "my-project-custom")
+        // Distinct slugs are what stop the manager re-attaching the wrong agent's session.
+        XCTAssertEqual(Set([claude, copilot, custom]).count, 3)
+    }
+
     // MARK: - Retry backoff
 
     func testNextRetryDelayDoublesAndCaps() {

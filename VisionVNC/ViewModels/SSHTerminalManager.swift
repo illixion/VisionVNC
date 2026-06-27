@@ -316,13 +316,22 @@ final class SSHTerminalManager {
     /// Open or re-attach a managed Claude session in `folder`, tmux-backed so it
     /// survives disconnects (`-A` = attach-or-create) under a login+interactive
     /// shell (brew/nvm/bun PATHs resolve).
+    ///
+    /// `agentKey` distinguishes agents launched in the same folder: it's folded
+    /// into both the tmux session name and the `SSHSessionID`, so switching from
+    /// (say) Claude to Copilot starts a separate tmux session instead of
+    /// re-attaching the one still running the previous agent (`tmux new -A`
+    /// would otherwise ignore the new command/token). Empty for the default
+    /// agent so pre-existing sessions keep their bare slug.
     @discardableResult
     func newClaudeSession(host: String, port: Int, username: String,
                           folder: String, projectName: String,
                           clientCommand: String = "claude",
+                          agentKey: String = "",
                           environment: [(name: String, value: String)] = []) throws -> SSHSessionID {
         let title = projectName.isEmpty ? Self.folderName(folder) : projectName
-        let slug = Self.slug(title)
+        let base = Self.slug(title)
+        let slug = agentKey.isEmpty ? base : Self.slug("\(base)-\(agentKey)")
         let command = Self.claudeCommand(tmuxSession: slug, folder: folder,
                                          clientCommand: clientCommand,
                                          environment: environment)

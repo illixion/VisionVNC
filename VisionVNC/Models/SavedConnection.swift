@@ -111,6 +111,19 @@ enum SSHAgent: String, CaseIterable, Identifiable, Sendable {
     /// its token (Copilot is a public GitHub App client). Others paste a token.
     var supportsDeviceFlow: Bool { self == .copilot }
 
+    /// Slug component that distinguishes this agent's managed sessions for the
+    /// same folder. Claude is bare (so tmux sessions / `SSHSessionID`s created
+    /// before multi-agent support keep working, mirroring `tokenAccount`); the
+    /// others are suffixed so switching agent gives a distinct tmux session
+    /// rather than re-attaching the one still running the previous agent.
+    var sessionKey: String {
+        switch self {
+        case .claude: ""
+        case .copilot: "copilot"
+        case .custom: "custom"
+        }
+    }
+
     /// The command the user runs on the Mac to mint a token (shown monospaced).
     /// Empty when an in-app flow replaces it.
     var tokenGenerateCommand: String {

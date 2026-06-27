@@ -337,6 +337,7 @@ struct ProjectsView: View {
                 host: host.hostname, port: host.port, username: host.sshUsername,
                 folder: folder, projectName: "",
                 clientCommand: host.effectiveCommand(for: agent),
+                agentKey: agent.sessionKey,
                 environment: host.resolvedSSHEnvironment(for: agent)
             )
             addRecent(host: host.hostname, folder: folder)
