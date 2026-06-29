@@ -291,6 +291,11 @@ final class SavedConnection {
     var savedPassword: String = ""
     var vncTouchModeRawValue: String = TouchMode.relative.rawValue
 
+    /// macOS only: hide the local (system) pointer while it's over the remote
+    /// view, so only the remote's own cursor shows. Default false (show), safe
+    /// for lightweight migration. Ignored on visionOS (no system cursor).
+    var hideLocalCursor: Bool = false
+
     // MARK: Audio-specific
 
     /// Static auth token presented to the VisionVNC Companion. Default

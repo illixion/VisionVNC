@@ -4,7 +4,11 @@ import SwiftUI
 /// Displays pairing status and PIN for Moonlight server pairing.
 struct MoonlightPairingView: View {
     @Environment(\.dismiss) private var dismiss
+    #if os(visionOS)
     @Environment(\.pushWindow) private var pushWindow
+    #else
+    @Environment(\.openWindow) private var openWindow
+    #endif
     @Environment(MoonlightConnectionManager.self) private var manager
 
     let connection: SavedConnection
@@ -39,6 +43,11 @@ struct MoonlightPairingView: View {
                 }
             }
             .padding(32)
+            // macOS sheets size to content; pin a stable size so switching
+            // between pairing / app-list states doesn't jump and the list has room.
+            #if os(macOS)
+            .frame(width: 460, height: 580)
+            #endif
             .navigationTitle(connection.displayName)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -146,7 +155,11 @@ struct MoonlightPairingView: View {
                         // Push so the connection manager returns when the
                         // stream window closes.
                         manager.openedViaPush = true
+                        #if os(visionOS)
                         pushWindow(id: "moonlight-stream")
+                        #else
+                        openWindow(id: "moonlight-stream")
+                        #endif
                         dismiss()
                     } label: {
                         HStack {
@@ -180,7 +193,10 @@ struct MoonlightPairingView: View {
                     }
                 }
                 .listStyle(.plain)
-                .frame(maxHeight: 400)
+                // A List has no intrinsic height inside a VStack/sheet on macOS,
+                // so without a minHeight it collapses and the rows (which ARE
+                // there) don't show. minHeight forces it to take space.
+                .frame(minHeight: 260, maxHeight: 400)
             }
         }
     }

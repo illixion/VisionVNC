@@ -1,8 +1,10 @@
 #if MOONLIGHT_ENABLED
 import Foundation
 import os
+#if canImport(UIKit)
 import GameController
 import UIKit
+#endif
 @preconcurrency import MoonlightCommonC
 
 /// Reads the hardware keyboard via the GameController framework (`GCKeyboard`)
@@ -17,6 +19,7 @@ import UIKit
 /// `GCKeyCode` raw values are USB HID usage IDs — identical to
 /// `UIKeyboardHIDUsage` raw values — so the existing `MoonlightKeyCodes`
 /// HID→Windows-VK mapping is reused directly.
+#if canImport(UIKit)
 @Observable
 final class MoonlightKeyboardManager: @unchecked Sendable {
 
@@ -78,4 +81,15 @@ final class MoonlightKeyboardManager: @unchecked Sendable {
         if !pressed && modFlag != 0 { activeModifiers &= ~modFlag }
     }
 }
+#else
+/// macOS captures the hardware keyboard via `NSEvent` in `MacKeyCaptureView`
+/// (a normal AppKit window gets first responder without GameController stealing
+/// it, unlike visionOS). So the GCKeyboard bridge is a no-op here, keeping the
+/// `MoonlightConnectionManager` call sites identical across platforms.
+@Observable
+final class MoonlightKeyboardManager: @unchecked Sendable {
+    func startListening() {}
+    func stopListening() {}
+}
+#endif
 #endif

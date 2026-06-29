@@ -7,16 +7,42 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		113284DC80125D93B7CC0FC3 /* RoyalVNCKit in Frameworks */ = {isa = PBXBuildFile; productRef = FEC92747F5953D917428BFA0 /* RoyalVNCKit */; };
 		1D8097B22F7FCBED00C67700 /* MoonlightCommonC in Frameworks */ = {isa = PBXBuildFile; productRef = 1D8097B12F7FCBED00C67700 /* MoonlightCommonC */; };
 		1D8097B52F7FCBFA00C67700 /* Opus in Frameworks */ = {isa = PBXBuildFile; productRef = 1D8097B42F7FCBFA00C67700 /* Opus */; };
 		1DC83C3D2F74587300BF0482 /* RoyalVNCKit in Frameworks */ = {isa = PBXBuildFile; productRef = 1DC83C3C2F74587300BF0482 /* RoyalVNCKit */; };
+		3BA03F5288F95924772DDA27 /* NIOSSH in Frameworks */ = {isa = PBXBuildFile; productRef = 3EE005FAD790F309FE32B768 /* NIOSSH */; };
+		5424084CF0D36736292A5164 /* SwiftTerm in Frameworks */ = {isa = PBXBuildFile; productRef = 94FADC3940AECE01CB760632 /* SwiftTerm */; };
 		5511C0DE0000000000000021 /* SwiftTerm in Frameworks */ = {isa = PBXBuildFile; productRef = 5511C0DE0000000000000011 /* SwiftTerm */; };
 		5511C0DE0000000000000022 /* NIOSSH in Frameworks */ = {isa = PBXBuildFile; productRef = 5511C0DE0000000000000012 /* NIOSSH */; };
 		5511C0DE0000000000000023 /* NIOCore in Frameworks */ = {isa = PBXBuildFile; productRef = 5511C0DE0000000000000013 /* NIOCore */; };
 		5511C0DE0000000000000024 /* NIOTransportServices in Frameworks */ = {isa = PBXBuildFile; productRef = 5511C0DE0000000000000014 /* NIOTransportServices */; };
 		5511C0DE0000000000000025 /* Crypto in Frameworks */ = {isa = PBXBuildFile; productRef = 5511C0DE0000000000000015 /* Crypto */; };
+		5FCDCC2C45E796069E924C00 /* Cocoa.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A9B918A25E70DE211DA3B92A /* Cocoa.framework */; };
+		6BE47025BE61D679828FC56B /* Crypto in Frameworks */ = {isa = PBXBuildFile; productRef = E2246283F8893437C72C6C86 /* Crypto */; };
+		84BD67D2FAD41E9B3AC33CA3 /* NIOTransportServices in Frameworks */ = {isa = PBXBuildFile; productRef = 7C1DCE971E2AEA7BCF9DF77F /* NIOTransportServices */; };
+		933A925D98B6C0EA8BD90F0C /* NIOCore in Frameworks */ = {isa = PBXBuildFile; productRef = A33BCB940A750B8D538136F2 /* NIOCore */; };
+		A2CD5A8858F7828762675B5E /* MoonlightCommonC in Frameworks */ = {isa = PBXBuildFile; productRef = 3BBC1BE052346B5319DA0A43 /* MoonlightCommonC */; };
 		CCBB0000000000000000000E /* VisionVNCBroadcast.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = CCBB00000000000000000001 /* VisionVNCBroadcast.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		F8A70081F839F9E06B341A4E /* Opus in Frameworks */ = {isa = PBXBuildFile; productRef = BCF95F097C7D2DFE3EF72400 /* Opus */; };
 /* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		BBAA0000000000000000000D /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 1DC83C1F2F74524200BF0482 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 1DC83C262F74524200BF0482;
+			remoteInfo = VisionVNC;
+		};
+		CCBB0000000000000000000B /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 1DC83C1F2F74524200BF0482 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = CCBB00000000000000000005;
+			remoteInfo = VisionVNCBroadcast;
+		};
+/* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
 		CCBB0000000000000000000D /* Embed Foundation Extensions */ = {
@@ -34,6 +60,8 @@
 
 /* Begin PBXFileReference section */
 		1DC83C272F74524200BF0482 /* VisionVNC.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = VisionVNC.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A5B135754F5FB6AA031143FD /* VisionVNCMac.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = VisionVNCMac.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A9B918A25E70DE211DA3B92A /* Cocoa.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Cocoa.framework; path = Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.0.sdk/System/Library/Frameworks/Cocoa.framework; sourceTree = DEVELOPER_DIR; };
 		AA10AD100000000000000001 /* VisionVNCCompanion.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = VisionVNCCompanion.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		AA10AD10000000000000000C /* VisionVNC.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; name = VisionVNC.xcconfig; path = Configuration/VisionVNC.xcconfig; sourceTree = "<group>"; };
 		BBAA00000000000000000001 /* VisionVNCTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = VisionVNCTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -49,13 +77,13 @@
 			);
 			target = 1DC83C262F74524200BF0482 /* VisionVNC */;
 		};
-		CCBB00000000000000000004 /* Exceptions for "BroadcastExtension" folder in "VisionVNCBroadcast" target */ = {
+		98D80EF04956D1B38B397658 /* Exceptions for "CompanionMac" folder in "VisionVNCMac" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
+				CompanionApp.swift,
 				Info.plist,
-				BroadcastExtension.entitlements,
 			);
-			target = CCBB00000000000000000005 /* VisionVNCBroadcast */;
+			target = 228F25EB1D6A2BB4D767CB5C /* VisionVNCMac */;
 		};
 		AA10AD100000000000000003 /* Exceptions for "CompanionMac" folder in "VisionVNCCompanion" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
@@ -64,6 +92,36 @@
 			);
 			target = AA10AD100000000000000005 /* VisionVNCCompanion */;
 		};
+		CCBB00000000000000000004 /* Exceptions for "BroadcastExtension" folder in "VisionVNCBroadcast" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+				BroadcastExtension.entitlements,
+			);
+			target = CCBB00000000000000000005 /* VisionVNCBroadcast */;
+		};
+		E1B1516E30873CEEFF63C73D /* Exceptions for "VisionVNC" folder in "VisionVNCMac" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				AppDelegate.swift,
+				VisionVNCApp.swift,
+				Info.plist,
+				VisionVNC.entitlements,
+				Assets.xcassets,
+				Broadcast/BroadcastCaptureSession.swift,
+				Broadcast/BroadcastManager.swift,
+				Views/BroadcastView.swift,
+				Views/MainView.swift,
+				Views/MainTabBar.swift,
+				Views/HomeOrnamentModifier.swift,
+				Views/RemoteDesktopView.swift,
+				Views/MoonlightStreamView.swift,
+				Views/HardwareKeyboardView.swift,
+				Views/MoonlightHardwareKeyboardView.swift,
+				Views/TerminalEmulatorView.swift,
+			);
+			target = 228F25EB1D6A2BB4D767CB5C /* VisionVNCMac */;
+		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -71,6 +129,7 @@
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
 				1DC83C352F74524300BF0482 /* Exceptions for "VisionVNC" folder in "VisionVNC" target */,
+				E1B1516E30873CEEFF63C73D /* Exceptions for "VisionVNC" folder in "VisionVNCMac" target */,
 			);
 			path = VisionVNC;
 			sourceTree = "<group>";
@@ -79,17 +138,36 @@
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
 				AA10AD100000000000000003 /* Exceptions for "CompanionMac" folder in "VisionVNCCompanion" target */,
+				98D80EF04956D1B38B397658 /* Exceptions for "CompanionMac" folder in "VisionVNCMac" target */,
 			);
 			path = CompanionMac;
 			sourceTree = "<group>";
 		};
 		AA10AD100000000000000004 /* Shared */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+			);
 			path = Shared;
+			sourceTree = "<group>";
+		};
+		B7EF0442D34BCA5FCA56413D /* VisionVNCMac */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+			);
+			path = VisionVNCMac;
+			sourceTree = "<group>";
+		};
+		BBAA00000000000000000002 /* VisionVNCTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+			);
+			path = VisionVNCTests;
 			sourceTree = "<group>";
 		};
 		CCBB00000000000000000002 /* BroadcastCore */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+			);
 			path = BroadcastCore;
 			sourceTree = "<group>";
 		};
@@ -99,11 +177,6 @@
 				CCBB00000000000000000004 /* Exceptions for "BroadcastExtension" folder in "VisionVNCBroadcast" target */,
 			);
 			path = BroadcastExtension;
-			sourceTree = "<group>";
-		};
-		BBAA00000000000000000002 /* VisionVNCTests */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			path = VisionVNCTests;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -145,6 +218,22 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		F3582F8517BABECC627C9924 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				5FCDCC2C45E796069E924C00 /* Cocoa.framework in Frameworks */,
+				113284DC80125D93B7CC0FC3 /* RoyalVNCKit in Frameworks */,
+				A2CD5A8858F7828762675B5E /* MoonlightCommonC in Frameworks */,
+				F8A70081F839F9E06B341A4E /* Opus in Frameworks */,
+				5424084CF0D36736292A5164 /* SwiftTerm in Frameworks */,
+				3BA03F5288F95924772DDA27 /* NIOSSH in Frameworks */,
+				933A925D98B6C0EA8BD90F0C /* NIOCore in Frameworks */,
+				84BD67D2FAD41E9B3AC33CA3 /* NIOTransportServices in Frameworks */,
+				6BE47025BE61D679828FC56B /* Crypto in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -168,6 +257,8 @@
 				1DC83C2A2F74524200BF0482 /* Packages */,
 				1DC83C282F74524200BF0482 /* Products */,
 				1D1D4D672FD30B7000952C39 /* Recovered References */,
+				998E98D0771424FCCB2F2C1A /* Frameworks */,
+				B7EF0442D34BCA5FCA56413D /* VisionVNCMac */,
 			);
 			sourceTree = "<group>";
 		};
@@ -178,6 +269,7 @@
 				AA10AD100000000000000001 /* VisionVNCCompanion.app */,
 				BBAA00000000000000000001 /* VisionVNCTests.xctest */,
 				CCBB00000000000000000001 /* VisionVNCBroadcast.appex */,
+				A5B135754F5FB6AA031143FD /* VisionVNCMac.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -187,6 +279,22 @@
 			children = (
 			);
 			path = Packages;
+			sourceTree = "<group>";
+		};
+		3C586D3D7EC7880E95583A54 /* OS X */ = {
+			isa = PBXGroup;
+			children = (
+				A9B918A25E70DE211DA3B92A /* Cocoa.framework */,
+			);
+			name = "OS X";
+			sourceTree = "<group>";
+		};
+		998E98D0771424FCCB2F2C1A /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				3C586D3D7EC7880E95583A54 /* OS X */,
+			);
+			name = Frameworks;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -228,6 +336,39 @@
 			productReference = 1DC83C272F74524200BF0482 /* VisionVNC.app */;
 			productType = "com.apple.product-type.application";
 		};
+		228F25EB1D6A2BB4D767CB5C /* VisionVNCMac */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 28BD21E24A2BFA840DDA6DDF /* Build configuration list for PBXNativeTarget "VisionVNCMac" */;
+			buildPhases = (
+				589D9C822F2D180B311E2285 /* Sources */,
+				F3582F8517BABECC627C9924 /* Frameworks */,
+				8D1AAAAD70328F40F785B5B1 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				1DC83C292F74524200BF0482 /* VisionVNC */,
+				AA10AD100000000000000004 /* Shared */,
+				B7EF0442D34BCA5FCA56413D /* VisionVNCMac */,
+				AA10AD100000000000000002 /* CompanionMac */,
+			);
+			name = VisionVNCMac;
+			packageProductDependencies = (
+				FEC92747F5953D917428BFA0 /* RoyalVNCKit */,
+				3BBC1BE052346B5319DA0A43 /* MoonlightCommonC */,
+				BCF95F097C7D2DFE3EF72400 /* Opus */,
+				94FADC3940AECE01CB760632 /* SwiftTerm */,
+				3EE005FAD790F309FE32B768 /* NIOSSH */,
+				A33BCB940A750B8D538136F2 /* NIOCore */,
+				7C1DCE971E2AEA7BCF9DF77F /* NIOTransportServices */,
+				E2246283F8893437C72C6C86 /* Crypto */,
+			);
+			productName = VisionVNCMac;
+			productReference = A5B135754F5FB6AA031143FD /* VisionVNCMac.app */;
+			productType = "com.apple.product-type.application";
+		};
 		AA10AD100000000000000005 /* VisionVNCCompanion */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = AA10AD100000000000000009 /* Build configuration list for PBXNativeTarget "VisionVNCCompanion" */;
@@ -245,8 +386,6 @@
 				AA10AD100000000000000004 /* Shared */,
 			);
 			name = VisionVNCCompanion;
-			packageProductDependencies = (
-			);
 			productName = VisionVNCCompanion;
 			productReference = AA10AD100000000000000001 /* VisionVNCCompanion.app */;
 			productType = "com.apple.product-type.application";
@@ -268,8 +407,6 @@
 				BBAA00000000000000000002 /* VisionVNCTests */,
 			);
 			name = VisionVNCTests;
-			packageProductDependencies = (
-			);
 			productName = VisionVNCTests;
 			productReference = BBAA00000000000000000001 /* VisionVNCTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
@@ -290,8 +427,6 @@
 				CCBB00000000000000000002 /* BroadcastCore */,
 			);
 			name = VisionVNCBroadcast;
-			packageProductDependencies = (
-			);
 			productName = VisionVNCBroadcast;
 			productReference = CCBB00000000000000000001 /* VisionVNCBroadcast.appex */;
 			productType = "com.apple.product-type.app-extension";
@@ -328,9 +463,9 @@
 			mainGroup = 1DC83C1E2F74524200BF0482;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
-				1DC83C3B2F74587300BF0482 /* XCLocalSwiftPackageReference "repos/royalvnc" */,
-				1D8097B02F7FCBED00C67700 /* XCLocalSwiftPackageReference "repos/moonlight-common-c" */,
-				1D8097B32F7FCBFA00C67700 /* XCLocalSwiftPackageReference "repos/opus" */,
+				1DC83C3B2F74587300BF0482 /* XCLocalSwiftPackageReference "royalvnc" */,
+				1D8097B02F7FCBED00C67700 /* XCLocalSwiftPackageReference "moonlight-common-c" */,
+				1D8097B32F7FCBFA00C67700 /* XCLocalSwiftPackageReference "opus" */,
 				5511C0DE0000000000000001 /* XCRemoteSwiftPackageReference "SwiftTerm" */,
 				5511C0DE0000000000000002 /* XCRemoteSwiftPackageReference "swift-nio-ssh" */,
 				5511C0DE0000000000000003 /* XCRemoteSwiftPackageReference "swift-nio" */,
@@ -346,12 +481,20 @@
 				AA10AD100000000000000005 /* VisionVNCCompanion */,
 				BBAA00000000000000000005 /* VisionVNCTests */,
 				CCBB00000000000000000005 /* VisionVNCBroadcast */,
+				228F25EB1D6A2BB4D767CB5C /* VisionVNCMac */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
 		1DC83C252F74524200BF0482 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		8D1AAAAD70328F40F785B5B1 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -405,7 +548,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		CCBB00000000000000000006 /* Sources */ = {
+		589D9C822F2D180B311E2285 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -426,24 +569,14 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		CCBB00000000000000000006 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
-
-/* Begin PBXContainerItemProxy section */
-		BBAA0000000000000000000D /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = 1DC83C1F2F74524200BF0482 /* Project object */;
-			proxyType = 1;
-			remoteGlobalIDString = 1DC83C262F74524200BF0482;
-			remoteInfo = VisionVNC;
-		};
-		CCBB0000000000000000000B /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = 1DC83C1F2F74524200BF0482 /* Project object */;
-			proxyType = 1;
-			remoteGlobalIDString = CCBB00000000000000000005;
-			remoteInfo = VisionVNCBroadcast;
-		};
-/* End PBXContainerItemProxy section */
 
 /* Begin PBXTargetDependency section */
 		1DC83C532F745D6600BF0482 /* PBXTargetDependency */ = {
@@ -750,6 +883,70 @@
 			};
 			name = Release;
 		};
+		C25ECCC3D06C79B452007207 /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = AA10AD10000000000000000C /* VisionVNC.xcconfig */;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 9T5F88VJFL;
+				ENABLE_HARDENED_RUNTIME = NO;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = VisionVNCMac/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.2;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.illixion.VisionVNCMac;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SUPPORTED_PLATFORMS = macosx;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "$(inherited) MOONLIGHT_ENABLED";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		C4757567585BA531F61486D5 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = AA10AD10000000000000000C /* VisionVNC.xcconfig */;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 9T5F88VJFL;
+				ENABLE_HARDENED_RUNTIME = NO;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = VisionVNCMac/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.2;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.illixion.VisionVNCMac;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SUPPORTED_PLATFORMS = macosx;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "$(inherited) MOONLIGHT_ENABLED";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
 		CCBB00000000000000000009 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -829,6 +1026,15 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
+		28BD21E24A2BFA840DDA6DDF /* Build configuration list for PBXNativeTarget "VisionVNCMac" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				C25ECCC3D06C79B452007207 /* Release */,
+				C4757567585BA531F61486D5 /* Debug */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 		AA10AD100000000000000009 /* Build configuration list for PBXNativeTarget "VisionVNCCompanion" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
@@ -859,15 +1065,15 @@
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */
-		1D8097B02F7FCBED00C67700 /* XCLocalSwiftPackageReference "repos/moonlight-common-c" */ = {
+		1D8097B02F7FCBED00C67700 /* XCLocalSwiftPackageReference "moonlight-common-c" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = "repos/moonlight-common-c";
 		};
-		1D8097B32F7FCBFA00C67700 /* XCLocalSwiftPackageReference "repos/opus" */ = {
+		1D8097B32F7FCBFA00C67700 /* XCLocalSwiftPackageReference "opus" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = repos/opus;
 		};
-		1DC83C3B2F74587300BF0482 /* XCLocalSwiftPackageReference "repos/royalvnc" */ = {
+		1DC83C3B2F74587300BF0482 /* XCLocalSwiftPackageReference "royalvnc" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = repos/royalvnc;
 		};
@@ -932,8 +1138,16 @@
 		};
 		1DC83C522F745D6600BF0482 /* RoyalVNCKit */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = 1DC83C3B2F74587300BF0482 /* XCLocalSwiftPackageReference "repos/royalvnc" */;
+			package = 1DC83C3B2F74587300BF0482 /* XCLocalSwiftPackageReference "royalvnc" */;
 			productName = RoyalVNCKit;
+		};
+		3BBC1BE052346B5319DA0A43 /* MoonlightCommonC */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = MoonlightCommonC;
+		};
+		3EE005FAD790F309FE32B768 /* NIOSSH */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = NIOSSH;
 		};
 		5511C0DE0000000000000011 /* SwiftTerm */ = {
 			isa = XCSwiftPackageProductDependency;
@@ -959,6 +1173,30 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 5511C0DE0000000000000005 /* XCRemoteSwiftPackageReference "swift-crypto" */;
 			productName = Crypto;
+		};
+		7C1DCE971E2AEA7BCF9DF77F /* NIOTransportServices */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = NIOTransportServices;
+		};
+		94FADC3940AECE01CB760632 /* SwiftTerm */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = SwiftTerm;
+		};
+		A33BCB940A750B8D538136F2 /* NIOCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = NIOCore;
+		};
+		BCF95F097C7D2DFE3EF72400 /* Opus */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = Opus;
+		};
+		E2246283F8893437C72C6C86 /* Crypto */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = Crypto;
+		};
+		FEC92747F5953D917428BFA0 /* RoyalVNCKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = RoyalVNCKit;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

@@ -1,13 +1,20 @@
 #if MOONLIGHT_ENABLED
+#if canImport(UIKit)
 import UIKit
+#endif
 @preconcurrency import MoonlightCommonC
 
 /// Maps UIKeyboardHIDUsage (from hardware/Bluetooth keyboards) to Windows Virtual Key codes
 /// for use with Moonlight's LiSendKeyboardEvent().
 ///
 /// Key code values sourced from moonlight-qt keyboard.cpp and Windows VK constants.
+///
+/// The `UIKeyboardHIDUsage`-keyed lookups exist only where UIKit does (visionOS/iOS);
+/// macOS captures the keyboard via `NSEvent` and maps it in `MacKeyCaptureView`.
+/// The `Character`-based lookup (soft keyboard) is cross-platform.
 enum MoonlightKeyCodes {
 
+    #if canImport(UIKit)
     /// Returns the Windows VK code for a given HID usage, or nil if unmapped.
     static func windowsKeyCode(for usage: UIKeyboardHIDUsage) -> Int16? {
         switch usage {
@@ -140,6 +147,7 @@ enum MoonlightKeyCodes {
             return nil
         }
     }
+    #endif
 
     /// Returns the Windows VK code for a typed character (for soft keyboard).
     static func windowsKeyCode(for character: Character) -> Int16? {
@@ -174,6 +182,7 @@ enum MoonlightKeyCodes {
         }
     }
 
+    #if canImport(UIKit)
     /// Checks if a HID usage is a modifier-only key.
     static func isModifier(_ usage: UIKeyboardHIDUsage) -> Bool {
         switch usage {
@@ -204,5 +213,6 @@ enum MoonlightKeyCodes {
             return 0
         }
     }
+    #endif
 }
 #endif

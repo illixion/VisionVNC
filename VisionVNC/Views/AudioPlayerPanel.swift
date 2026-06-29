@@ -62,7 +62,7 @@ struct AudioPlayerPanel: View {
     private var artworkPane: some View {
         ZStack {
             if let artwork = audioManager.artworkImage {
-                Image(uiImage: artwork)
+                Image(platformImage: artwork)
                     .resizable()
                     .aspectRatio(contentMode: .fill)
             } else {

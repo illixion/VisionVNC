@@ -1,6 +1,5 @@
 import SwiftUI
 import OSLog
-import UIKit
 
 /// Console tab: live view of the app's os_log output (subsystem-filtered),
 /// polled from OSLogStore while visible.
@@ -63,9 +62,9 @@ struct ConsoleView: View {
                     }
 
                     Button {
-                        UIPasteboard.general.string = logStore.filteredEntries
+                        Pasteboard.copy(logStore.filteredEntries
                             .map { "\($0.date.formatted(Self.timeFormat)) \($0.category) \($0.message)" }
-                            .joined(separator: "\n")
+                            .joined(separator: "\n"))
                     } label: {
                         Label("Copy All", systemImage: "doc.on.doc")
                     }

@@ -72,6 +72,9 @@ class MoonlightConnectionManager: MoonlightStreamDelegate {
     var statusMessage: String = ""
     /// Touch mode for the active connection (relative trackpad vs absolute positioning).
     var touchMode: TouchMode = .relative
+    /// macOS: hide the system pointer while it's over the stream (set from the
+    /// connection). Ignored on visionOS.
+    var hideLocalCursor: Bool = false
     /// Stream resolution for coordinate mapping in absolute mode.
     var streamWidth: Int = 1920
     var streamHeight: Int = 1080
@@ -125,6 +128,7 @@ class MoonlightConnectionManager: MoonlightStreamDelegate {
         apps = []
         serverInfo = nil
         activeConnection = connection
+        hideLocalCursor = connection.hideLocalCursor
 
         let hostname = connection.hostname
         let port = UInt16(connection.port)
@@ -289,6 +293,9 @@ class MoonlightConnectionManager: MoonlightStreamDelegate {
                 let effectiveFPS = displayOverride?.refreshRate ?? connection.moonlightFPS
 
                 // Launch or resume the app via HTTP
+                let launchPath = info.currentGameId == app.id ? "resume"
+                    : (info.currentGameId != 0 ? "quit+launch" : "launch")
+                AppLog.moonlightStream.line("Launch app=\(app.id) '\(app.name)' path=\(launchPath) currentGameId=\(info.currentGameId) mode=\(effectiveWidth)x\(effectiveHeight)x\(effectiveFPS) bitrate=\(connection.moonlightBitrate) hdr=\(enableHDR) videoFormats=0x\(String(videoFormats, radix: 16))")
                 let sessionUrl: String
                 if info.currentGameId == app.id {
                     // App already running — resume
@@ -355,7 +362,13 @@ class MoonlightConnectionManager: MoonlightStreamDelegate {
                     self.audioRenderer = audio
                     self.displayLayer = layer
                     self.isStreamActive = true
+                    // A Mac has a real pointer — relative "touchpad" mode makes no
+                    // sense there, so always use absolute positioning.
+                    #if os(macOS)
+                    self.touchMode = .absolute
+                    #else
                     self.touchMode = connection.moonlightTouchMode
+                    #endif
                     self.streamWidth = effectiveWidth
                     self.streamHeight = effectiveHeight
                     self.streamStats = StreamStats(
@@ -405,6 +418,7 @@ class MoonlightConnectionManager: MoonlightStreamDelegate {
                     }
                 }
             } catch {
+                AppLog.moonlightStream.line("Launch failed: \(error.localizedDescription)")
                 await MainActor.run {
                     self.connectionState = .error("Launch failed: \(error.localizedDescription)")
                     self.statusMessage = "Launch failed"
@@ -510,7 +524,7 @@ class MoonlightConnectionManager: MoonlightStreamDelegate {
             self?.updateStreamFrame()
         }
         displayLinkProxy = proxy
-        let link = CADisplayLink(target: proxy, selector: #selector(DisplayLinkProxy.displayLinkFired))
+        guard let link = DisplayLinkFactory.make(target: proxy, selector: #selector(DisplayLinkProxy.displayLinkFired)) else { return }
         link.preferredFrameRateRange = CAFrameRateRange(minimum: 30, maximum: 120, preferred: 60)
         link.add(to: .main, forMode: .common)
         streamDisplayLink = link

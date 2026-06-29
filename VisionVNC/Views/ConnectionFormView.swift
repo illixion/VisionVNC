@@ -32,6 +32,10 @@ struct ConnectionFormView: View {
     @State private var password: String = ""
     @State private var vncTouchMode: TouchMode = ConnectionDefaults.vncTouchMode
     @State private var linkedAudioConnectionID: UUID?
+    /// macOS: hide the system pointer over the remote view. Default depends on
+    /// type — Moonlight hides (games draw their own cursor), VNC shows (the
+    /// remote may not draw one). See `defaultHideLocalCursor(for:)`.
+    @State private var hideLocalCursor: Bool = false
 
     // Audio
     @State private var audioToken: String = ""
@@ -125,6 +129,15 @@ struct ConnectionFormView: View {
             labelSection
         }
         .navigationTitle(isEditing ? "Edit Connection" : "New Connection")
+        // macOS: the default `.columns` form style right-aligns field titles in a
+        // narrow column that clips long labels ("Hostname or IP Address"); grouped
+        // style lays them out cleanly. And sheets size to content, so switching
+        // connection type would jump the window — pin a stable size (the Form
+        // scrolls for tall Moonlight content).
+        #if os(macOS)
+        .formStyle(.grouped)
+        .frame(width: 540, height: 620)
+        #endif
         .toolbar {
             ToolbarItem(placement: .confirmationAction) {
                 Button("Save") {
@@ -135,11 +148,15 @@ struct ConnectionFormView: View {
         }
         .onAppear {
             loadFromSavedConnection()
+            if !isEditing { hideLocalCursor = defaultHideLocalCursor(for: connectionType) }
             consumePendingImportedToken()
             prefillHotspotHostIfAvailable()
         }
         .onChange(of: connectionType) { _, newType in
             port = String(ConnectionDefaults.port(for: newType))
+            // New connections only (type is locked when editing): apply the
+            // type-appropriate local-cursor default.
+            hideLocalCursor = defaultHideLocalCursor(for: newType)
             // Re-evaluate the hotspot pre-fill for the newly selected type; clear a stale hint.
             if hostname.isEmpty { didDetectHotspotHost = false }
             prefillHotspotHostIfAvailable()
@@ -247,6 +264,11 @@ struct ConnectionFormView: View {
         }
 
         Section("Input") {
+            #if os(macOS)
+            // A Mac uses absolute pointing (its real cursor) — no touch mode.
+            Toggle("Hide local cursor over the screen", isOn: $hideLocalCursor)
+                .help("Hide the Mac pointer while it's over the remote screen, so only the remote cursor shows.")
+            #else
             Picker("Touch Mode", selection: $vncTouchMode) {
                 ForEach(TouchMode.allCases, id: \.self) { mode in
                     Text(mode.label).tag(mode)
@@ -258,6 +280,7 @@ struct ConnectionFormView: View {
                 : "Tap and drag directly on the remote screen. Double-tap for right-click.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
+            #endif
         }
 
         Section("Audio Companion") {
@@ -461,11 +484,17 @@ struct ConnectionFormView: View {
 
     private var moonlightInputSection: some View {
         Section("Input") {
+            #if os(macOS)
+            // A Mac uses absolute pointing (its real cursor) — no touch mode.
+            Toggle("Hide local cursor over the stream", isOn: $hideLocalCursor)
+                .help("Hide the Mac pointer while it's over the stream, so only the game/remote cursor shows.")
+            #else
             Picker("Touch Mode", selection: $moonlightTouchMode) {
                 ForEach(TouchMode.allCases, id: \.self) { mode in
                     Text(mode.label).tag(mode)
                 }
             }
+            #endif
 
             Toggle("Multi-Controller Support", isOn: $moonlightMultiController)
             Toggle("Swap A/B and X/Y Buttons", isOn: $moonlightSwapABXY)
@@ -504,8 +533,20 @@ struct ConnectionFormView: View {
 
     // MARK: - Load / Save
 
+    /// Default local-cursor behavior for a new connection of the given type.
+    /// macOS: Moonlight hides (games render their own cursor), other types show.
+    /// visionOS: always show (there's no system cursor — the value is ignored).
+    private func defaultHideLocalCursor(for type: ConnectionType) -> Bool {
+        #if os(macOS)
+        return type == .moonlight
+        #else
+        return false
+        #endif
+    }
+
     private func loadFromSavedConnection() {
         guard let saved = savedConnection else { return }
+        hideLocalCursor = saved.hideLocalCursor
 
         connectionType = saved.connectionType
         hostname = saved.hostname
@@ -572,6 +613,7 @@ struct ConnectionFormView: View {
     }
 
     private func saveTypeSpecificFields(to connection: SavedConnection) {
+        connection.hideLocalCursor = hideLocalCursor
         switch connectionType {
         case .vnc:
             connection.quality = quality

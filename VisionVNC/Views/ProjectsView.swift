@@ -1,6 +1,5 @@
 import SwiftUI
 import SwiftData
-import UIKit
 
 /// The managed-Claude tab: choose an SSH host, browse its folders, and launch
 /// `claude` (tmux-backed) in a project directory. Reuses saved `.ssh`
@@ -360,7 +359,7 @@ struct ProjectsView: View {
     private func copyPublicKey() {
         do {
             let key = try sshManager.deviceKey()
-            UIPasteboard.general.string = key.openSSHPublicKeyLine(comment: "visionvnc")
+            Pasteboard.copy(key.openSSHPublicKeyLine(comment: "visionvnc"))
             keyStatus = "Copied (\(key.sshFingerprint())). Add to ~/.ssh/authorized_keys on the host."
         } catch {
             keyStatus = "Key error: \(error)"
@@ -474,7 +473,7 @@ private struct AgentSetupSheet: View {
                         .textSelection(.enabled)
                     Spacer()
                     Button {
-                        UIPasteboard.general.string = code.userCode
+                        Pasteboard.copy(code.userCode)
                     } label: { Image(systemName: "doc.on.doc") }
                         .buttonStyle(.borderless)
                 }

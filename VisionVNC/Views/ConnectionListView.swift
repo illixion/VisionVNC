@@ -4,7 +4,9 @@ import SwiftData
 struct ConnectionListView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.openWindow) private var openWindow
+    #if os(visionOS)
     @Environment(\.pushWindow) private var pushWindow
+    #endif
     @Environment(VNCConnectionManager.self) private var connectionManager
     @Environment(AudioStreamManager.self) private var audioManager
     @Environment(SSHTerminalManager.self) private var sshManager
@@ -259,6 +261,14 @@ struct ConnectionListView: View {
         }
 
         connectionManager.pendingSavedConnection = connection
+        connectionManager.hideLocalCursor = connection.hideLocalCursor
+        // A Mac has a real pointer — relative "touchpad" mode makes no sense
+        // there, so always use absolute positioning.
+        #if os(macOS)
+        let effectiveTouchMode: TouchMode = .absolute
+        #else
+        let effectiveTouchMode = connection.vncTouchMode
+        #endif
         connectionManager.connect(
             hostname: connection.hostname,
             port: UInt16(connection.port),
@@ -267,7 +277,7 @@ struct ConnectionListView: View {
             colorDepth: connection.quality.vncColorDepth,
             jpegQualityLevel: connection.quality.jpegQualityLevel,
             compressionLevel: connection.quality.compressionLevel,
-            touchMode: connection.vncTouchMode,
+            touchMode: effectiveTouchMode,
             trackpadOnly: connection.quality == .trackpadOnly,
             title: connection.displayName,
             audioCompanion: audioCompanion,
@@ -277,7 +287,17 @@ struct ConnectionListView: View {
         // Push so the connection manager goes into the back stack and
         // reappears automatically when the remote desktop window closes.
         connectionManager.openedViaPush = true
-        pushWindow(id: "remote-desktop")
+        presentSessionWindow(id: "remote-desktop")
+    }
+
+    /// Opens a session window. visionOS pushes (so the manager window goes into
+    /// the back stack and restores on dismiss); macOS opens a sibling window.
+    private func presentSessionWindow(id: String) {
+        #if os(visionOS)
+        pushWindow(id: id)
+        #else
+        openWindow(id: id)
+        #endif
     }
 
     #if MOONLIGHT_ENABLED
@@ -296,6 +316,6 @@ struct ConnectionListView: View {
             lowLatency: connection.lowLatencyAudio
         )
         audioManager.openedViaPush = true
-        pushWindow(id: "audio-stream")
+        presentSessionWindow(id: "audio-stream")
     }
 }

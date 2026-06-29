@@ -30,7 +30,9 @@ struct CompanionWindowView: View {
                 .tabItem { Label("Keyboard", systemImage: "keyboard") }
         }
         .formStyle(.grouped)
-        .frame(minWidth: 620, minHeight: 440)
+        // Fixed window size (System Settings convention) so tall panes scroll
+        // *inside* the grouped Form instead of growing the window off-screen.
+        .frame(width: 640, height: 520)
         .onAppear {
             controller.refreshKeys()
             controller.injection.refreshAccessibility()
@@ -40,7 +42,7 @@ struct CompanionWindowView: View {
 
 // MARK: - Audio
 
-private struct AudioPane: View {
+struct AudioPane: View {
     @Bindable var controller: AudioStreamerController
 
     var body: some View {
@@ -74,7 +76,7 @@ private struct AudioPane: View {
 
 // MARK: - Access Token
 
-private struct AccessTokenPane: View {
+struct AccessTokenPane: View {
     @Bindable var controller: AudioStreamerController
     @State private var copied = false
 
@@ -126,7 +128,7 @@ private struct AccessTokenPane: View {
 
 // MARK: - Broadcast (OBS)
 
-private struct BroadcastPane: View {
+struct BroadcastPane: View {
     @Bindable var broadcastServer: BroadcastServerManager
     @State private var linkCopied = false
 
@@ -215,7 +217,7 @@ private struct BroadcastPane: View {
 
 // MARK: - Remote Control (SSH)
 
-private struct RemoteControlPane: View {
+struct RemoteControlPane: View {
     @Bindable var controller: AudioStreamerController
 
     var body: some View {
@@ -274,7 +276,7 @@ private struct RemoteControlPane: View {
 
 // MARK: - Keyboard Control
 
-private struct KeyboardPane: View {
+struct KeyboardPane: View {
     @Bindable var controller: AudioStreamerController
 
     var body: some View {

@@ -3,7 +3,11 @@ import os
 import Network
 import AVFoundation
 import Observation
+#if canImport(UIKit)
 import UIKit
+#elseif canImport(AppKit)
+import AppKit
+#endif
 import MediaPlayer
 
 /// How the receiver coexists with the rest of the system.
@@ -62,7 +66,7 @@ final class AudioStreamManager {
     /// Now-playing state mirrored from the Mac's Music.app (nil when
     /// nothing is playing or Music is closed).
     var nowPlaying: NowPlayingInfo?
-    var artworkImage: UIImage?
+    var artworkImage: PlatformImage?
     /// Local mute, derived from `volume`: true while the slider is at 0.
     /// Dropping the stream's audio on this end (no disconnect, no effect on
     /// Mac playback) is driven by the volume setter — there is no separate
@@ -367,7 +371,7 @@ final class AudioStreamManager {
             if info.artworkID == nil {
                 artworkImage = nil
             } else if let pendingArtwork {
-                artworkImage = UIImage(data: pendingArtwork)
+                artworkImage = PlatformImage(data: pendingArtwork)
             } // same artworkID as before and no new artwork frame: keep current image
             pendingArtwork = nil
             if audioMode == .music { updateNowPlayingInfo() }
@@ -666,6 +670,9 @@ final class AudioStreamReceiver: @unchecked Sendable {
         // button). The crucial case is interruption *began*: the app
         // loses its audio session the moment GMeet starts, with no
         // matching route-change or ended event until the call finishes.
+        // macOS has no AVAudioSession — audio plays through AVAudioEngine
+        // directly, with no interruption/route/silence-hint lifecycle to track.
+        #if canImport(UIKit)
         let center = NotificationCenter.default
         sessionObservers.append(center.addObserver(
             forName: AVAudioSession.interruptionNotification,
@@ -740,6 +747,7 @@ final class AudioStreamReceiver: @unchecked Sendable {
                 self.requestReload("silence-secondary-audio hint flipped")
             }
         })
+        #endif
     }
 
     /// Tears down this receiver and asks the manager to reload the stream
@@ -781,10 +789,12 @@ final class AudioStreamReceiver: @unchecked Sendable {
             }
             sessionObservers.removeAll()
             teardownAudio()
+            #if canImport(UIKit)
             if mode == .music {
                 // Release exclusive focus so other apps resume.
                 try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
             }
+            #endif
         }
     }
 
@@ -1063,6 +1073,10 @@ final class AudioStreamReceiver: @unchecked Sendable {
     // MARK: - Audio
 
     private nonisolated func setupAudio(header: AudioStreamHeader) -> Bool {
+        // macOS has no AVAudioSession; AVAudioEngine renders to the default
+        // output device directly, so the session category/activation/route
+        // dance below is visionOS/iOS-only.
+        #if canImport(UIKit)
         let session = AVAudioSession.sharedInstance()
 
         // Configure the session only once per receiver. Re-asserting the
@@ -1121,6 +1135,7 @@ final class AudioStreamReceiver: @unchecked Sendable {
             .map { "\($0.portType.rawValue):\($0.portName)" }
             .joined(separator: ",")
         AppLog.audioStream.line("Session activated — outputs=[\(outs)] silenceHint=\(session.secondaryAudioShouldBeSilencedHint) otherAudio=\(session.isOtherAudioPlaying)")
+        #endif
 
         // The wire format is interleaved int24, but AVAudioEngine requires
         // the standard (deinterleaved Float32) format on its graph — it

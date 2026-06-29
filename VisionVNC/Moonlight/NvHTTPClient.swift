@@ -93,7 +93,12 @@ actor NvHTTPClient {
 
         // Parse app list XML with specialized parser
         let parser = AppListXMLParser()
-        return parser.parse(data: data)
+        let result = parser.parse(data: data)
+        AppLog.nvHTTPClient.line("applist: \(data.count) bytes, status=\(parser.lastStatusCode ?? "none"), parsed \(result.count) app(s)")
+        if result.isEmpty, let body = String(data: data, encoding: .utf8) {
+            AppLog.nvHTTPClient.line("applist empty — body: \(body.prefix(600))")
+        }
+        return result
     }
 
     // MARK: - Launch / Resume / Quit
@@ -130,6 +135,7 @@ actor NvHTTPClient {
         }
 
         let xml = try await nwRequest("launch", args: args, port: httpsPort, useTLS: true, timeout: 120)
+        AppLog.nvHTTPClient.line("launch app=\(appId) mode=\(width)x\(height)x\(fps) sops=\(optimizeGameSettings) → status=\(xml.rootAttributes["status_code"] ?? "?") msg=\(xml.rootAttributes["status_message"] ?? xml.elements["status_message"] ?? "-") gamesession=\(xml.elements["gamesession"] ?? "-") sessionUrl0=\(xml.elements["sessionUrl0"] != nil)")
         try xml.verifyStatus()
 
         guard let sessionUrl = xml.elements["sessionUrl0"] else {
@@ -149,6 +155,7 @@ actor NvHTTPClient {
         ]
 
         let xml = try await nwRequest("resume", args: args, port: httpsPort, useTLS: true, timeout: 30)
+        AppLog.nvHTTPClient.line("resume → status=\(xml.rootAttributes["status_code"] ?? "?") msg=\(xml.rootAttributes["status_message"] ?? xml.elements["status_message"] ?? "-") sessionUrl0=\(xml.elements["sessionUrl0"] != nil)")
         try xml.verifyStatus()
 
         guard let sessionUrl = xml.elements["sessionUrl0"] else {
@@ -161,6 +168,7 @@ actor NvHTTPClient {
         guard serverCertDER != nil else { throw MoonlightError.notPaired }
 
         let xml = try await nwRequest("cancel", port: httpsPort, useTLS: true, timeout: 30)
+        AppLog.nvHTTPClient.line("quit → status=\(xml.rootAttributes["status_code"] ?? "?") msg=\(xml.rootAttributes["status_message"] ?? xml.elements["status_message"] ?? "-")")
         try xml.verifyStatus()
     }
 
@@ -500,11 +508,15 @@ private class AppListXMLParser: NSObject, XMLParserDelegate {
     private nonisolated(unsafe) var currentElement: String?
     private nonisolated(unsafe) var currentText: String = ""
     private nonisolated(unsafe) var rootAttributes: [String: String] = [:]
+    /// The root element's `status_code` attribute from the last parse (for diagnostics).
+    nonisolated(unsafe) var lastStatusCode: String?
 
     nonisolated func parse(data: Data) -> [MoonlightApp] {
         let parser = XMLParser(data: data)
         parser.delegate = self
         parser.parse()
+
+        lastStatusCode = rootAttributes["status_code"]
 
         // Verify status first
         if let statusStr = rootAttributes["status_code"],

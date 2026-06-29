@@ -1,7 +1,9 @@
 import Foundation
 @preconcurrency import RoyalVNCKit
 import QuartzCore
+#if canImport(UIKit)
 import UIKit
+#endif
 
 /// Connection state for the app UI
 enum AppConnectionState: Equatable {
@@ -50,6 +52,10 @@ final class VNCConnectionManager: NSObject, VNCConnectionDelegate {
     // Credential prompt state
     var isCredentialPromptPresented: Bool = false
     var credentialAuthType: VNCAuthenticationType = .vnc
+
+    /// macOS: hide the system pointer while it's over the remote view (set from
+    /// the connection). Ignored on visionOS.
+    var hideLocalCursor: Bool = false
 
     // Touch mode & virtual cursor
     var touchMode: TouchMode = .absolute
@@ -195,7 +201,7 @@ final class VNCConnectionManager: NSObject, VNCConnectionDelegate {
     private func startDisplayLink() {
         stopDisplayLink()
 
-        let link = CADisplayLink(target: self, selector: #selector(displayLinkFired))
+        guard let link = DisplayLinkFactory.make(target: self, selector: #selector(displayLinkFired)) else { return }
         link.preferredFrameRateRange = CAFrameRateRange(
             minimum: 30, maximum: 90, preferred: 60
         )

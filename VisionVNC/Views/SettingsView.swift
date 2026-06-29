@@ -27,7 +27,21 @@ struct SettingsView: View {
     #endif
 
     var body: some View {
+        // On macOS this is hosted in a Settings tab, which provides the title —
+        // a NavigationStack would add a redundant header. visionOS needs the
+        // stack for its navigation title.
+        #if os(macOS)
+        formContent
+        #else
         NavigationStack {
+            formContent
+                .navigationTitle("Settings")
+        }
+        #endif
+    }
+
+    @ViewBuilder
+    private var formContent: some View {
             Form {
                 Section {
                     Text("Defaults pre-filled when adding a new connection. Existing connections keep their own settings.")
@@ -120,8 +134,6 @@ struct SettingsView: View {
                     LabeledContent("Version", value: appVersionString)
                 }
             }
-            .navigationTitle("Settings")
-        }
     }
 
     /// "0.1.0 (abc1234)" — commit baked in by scripts/set-build-info.sh
@@ -165,6 +177,7 @@ struct SettingsView: View {
                 get: { String(value.wrappedValue) },
                 set: { value.wrappedValue = Int($0) ?? value.wrappedValue }
             ))
+            .labelsHidden()  // the LabeledContent already shows the title (avoids "Port Port")
             .keyboardType(.numberPad)
             .multilineTextAlignment(.trailing)
             .frame(maxWidth: 120)
