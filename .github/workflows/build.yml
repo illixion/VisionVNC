@@ -145,6 +145,28 @@ jobs:
           cd $RUNNER_TEMP/MoonlightPayload
           zip -r $RUNNER_TEMP/VisionVNC-moonlight-unsigned.ipa Payload
 
+      # The full macOS client (VNC + Moonlight + Audio + SSH + host/companion
+      # features). It links moonlight-common-c, so like the Moonlight IPA it is
+      # GPLv3 — built here in the real-dependency phase, never in the MIT phase.
+      # MOONLIGHT_ENABLED is baked into the VisionVNCMac target's build settings,
+      # so (unlike the visionOS scheme) we don't pass it on the command line.
+      - name: Build full macOS app (VisionVNCMac, Moonlight)
+        run: |
+          xcodebuild archive \
+            -project VisionVNC.xcodeproj \
+            -scheme VisionVNCMac \
+            -destination 'generic/platform=macOS' \
+            -archivePath $RUNNER_TEMP/VisionVNCMac.xcarchive \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY=""
+
+      - name: Zip full macOS app
+        run: |
+          cd $RUNNER_TEMP/VisionVNCMac.xcarchive/Products/Applications
+          # ditto preserves bundle structure/extended attributes
+          ditto -c -k --keepParent VisionVNCMac.app $RUNNER_TEMP/VisionVNCMac-unsigned.zip
+
       - name: Collect versioned artifacts
         run: |
           VERSION="0.1.0-${GITHUB_SHA::8}"
@@ -152,6 +174,7 @@ jobs:
           cp $RUNNER_TEMP/VisionVNC-unsigned.ipa "dist/VisionVNC-${VERSION}-unsigned.ipa"
           cp $RUNNER_TEMP/VisionVNC-moonlight-unsigned.ipa "dist/VisionVNC-${VERSION}-moonlight-unsigned.ipa"
           cp $RUNNER_TEMP/VisionVNCCompanion-unsigned.zip "dist/VisionVNCCompanion-${VERSION}-unsigned.zip"
+          cp $RUNNER_TEMP/VisionVNCMac-unsigned.zip "dist/VisionVNCMac-${VERSION}-unsigned.zip"
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -280,28 +303,32 @@ jobs:
           **Assets**
           - \`VisionVNC-…-unsigned.ipa\` — VNC + Audio only (Moonlight disabled). All MIT-compatible.
           - \`VisionVNC-…-moonlight-unsigned.ipa\` — the Moonlight-enabled build (**GPLv3** — see below).
-          - \`VisionVNCCompanion-…-unsigned.zip\` — the macOS companion app.
+          - \`VisionVNCCompanion-…-unsigned.zip\` — the small macOS companion (menu-bar host: audio streaming, now-playing, broadcast/OBS, keyboard injection, SSH keys). MIT.
+          - \`VisionVNCMac-…-unsigned.zip\` — the **full macOS app**: the VNC/Moonlight/Audio/SSH **client** plus all the companion host features in one app. Links Moonlight, so **GPLv3** (see below).
           - \`VisionVNCHotspotCompanion-…-x64-Setup.exe\` / \`…-arm64-Setup.exe\` — *if present*, the Windows Hotspot Companion installer (**Beta**), built natively for Intel/AMD (x64) and Windows-on-ARM (arm64). Ships with a signed build-provenance attestation; verify before running with \`gh attestation verify <file> --repo ${{ github.repository }}\`.
 
-          **Running the macOS Companion**
+          **Running the macOS apps**
 
-          The companion zip is unsigned, so Gatekeeper blocks it on first launch
+          The macOS \`.zip\`s are unsigned, so Gatekeeper blocks them on first launch
           ("damaged / can't be opened"). After unzipping into \`/Applications\`,
-          clear the quarantine flag and re-sign it ad-hoc:
+          clear the quarantine flag and re-sign ad-hoc (substitute the app you
+          downloaded — \`VisionVNCCompanion.app\` or \`VisionVNCMac.app\`):
 
           \`\`\`sh
-          xattr -dr com.apple.quarantine /Applications/VisionVNCCompanion.app
-          codesign --force --deep --sign - /Applications/VisionVNCCompanion.app
+          APP=/Applications/VisionVNCMac.app   # or VisionVNCCompanion.app
+          xattr -dr com.apple.quarantine "\$APP"
+          codesign --force --deep --sign - "\$APP"
           \`\`\`
 
-          Then open it normally. (If you build the companion yourself with a real
-          Apple Development identity, you can skip this.)
+          Then open it normally. (If you build it yourself with a real Apple
+          Development identity, you can skip this.)
 
-          ⚠️ **Licensing note:** the Moonlight-enabled IPA links
+          ⚠️ **Licensing note:** the Moonlight-enabled IPA and the full macOS app
+          (\`VisionVNCMac\`) link
           [moonlight-common-c](https://github.com/moonlight-stream/moonlight-common-c),
-          which is **GPLv3**. That artifact is therefore distributed under the GPLv3,
-          not the project's MIT terms. The VNC-only IPA and Companion contain no
-          GPL code. See [LICENSE](LICENSE.txt) for details.
+          which is **GPLv3**. Those artifacts are therefore distributed under the GPLv3,
+          not the project's MIT terms. The VNC-only IPA and the small Companion contain
+          no GPL code. See [LICENSE](LICENSE.txt) for details.
           EOF
           gh release create "$VERSION" \
             --title "$VERSION" \

@@ -1,14 +1,20 @@
 #!/bin/bash
 set -euo pipefail
 
-# Build the VisionVNC Companion (macOS menu-bar app), install it to
-# /Applications, and restart it — quitting the running copy first and
-# relaunching the freshly installed one. For a fast local rebuild-test loop:
-# TCC permissions (Accessibility, Screen/Audio Recording, Automation) and the
-# stored token live with the app in /Applications, not with Xcode's
-# DerivedData build, so running the installed copy is what you actually test.
+# Build a macOS VisionVNC app, install it to /Applications, and restart it —
+# quitting the running copy first and relaunching the freshly installed one. For
+# a fast local rebuild-test loop: TCC permissions (Accessibility, Screen/Audio
+# Recording, Automation) and the stored token live with the app in
+# /Applications, not with Xcode's DerivedData build, so running the installed
+# copy is what you actually test.
 #
-# Usage:   scripts/install-companion.sh
+# Builds the small menu-bar **companion** by default, or the **full** macOS app
+# (VisionVNCMac — full client + companion host features) when passed "full".
+#
+# Usage:   scripts/install-companion.sh [companion|full]   (default: companion)
+#   companion  the lightweight menu-bar host app (MIT)
+#   full       the full VisionVNCMac client+host app (links Moonlight → GPLv3;
+#              runs scripts/setup-deps.sh first to fetch the real dependencies)
 #
 # Why signing matters here: macOS ties TCC privacy grants (Accessibility,
 # Screen/Audio Recording, Automation) to the app's code-signing identity. An
@@ -33,14 +39,29 @@ set -euo pipefail
 # rename from "Audio Sender" (a different bundle id), macOS treats this as a new
 # app — re-grant permissions on first launch and re-pair the token.
 
-SCHEME="VisionVNCCompanion"
-APP_NAME="VisionVNCCompanion.app"
-EXEC_NAME="VisionVNCCompanion"
-BUNDLE_ID="com.illixion.VisionVNCCompanion"
+# Which app to build/install: the small menu-bar "companion" (default), or the
+# "full" macOS app (VisionVNCMac — the VNC/Moonlight/Audio/SSH client *plus* the
+# companion host features in one app). The full app links Moonlight (GPLv3), so
+# it needs the real dependencies cloned/patched into repos/ first (setup-deps.sh).
+KIND="${1:-companion}"
+case "$KIND" in
+  companion)
+    SCHEME="VisionVNCCompanion"; APP_NAME="VisionVNCCompanion.app"
+    EXEC_NAME="VisionVNCCompanion"; BUNDLE_ID="com.illixion.VisionVNCCompanion"
+    NEEDS_DEPS=0 ;;
+  full|mac|VisionVNCMac)
+    SCHEME="VisionVNCMac"; APP_NAME="VisionVNCMac.app"
+    EXEC_NAME="VisionVNCMac"; BUNDLE_ID="com.illixion.VisionVNCMac"
+    NEEDS_DEPS=1 ;;
+  -h|--help|help)
+    echo "usage: $0 [companion|full]   (default: companion)"; exit 0 ;;
+  *)
+    echo "✗ unknown app kind: '$KIND' (expected 'companion' or 'full')" >&2; exit 2 ;;
+esac
 CONFIG="${CONFIG:-Release}"
 
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-DERIVED="$PROJECT_DIR/build/companion-dd"   # build/ is gitignored
+DERIVED="$PROJECT_DIR/build/${SCHEME}-dd"   # build/ is gitignored
 DEST="/Applications/$APP_NAME"
 
 cd "$PROJECT_DIR"
@@ -62,8 +83,16 @@ if [ -z "${SIGN_IDENTITY:-}" ]; then
   fi
 fi
 
+# The full app links Moonlight, so make sure the real (patched) dependencies are
+# present in repos/ before building (idempotent; no-op once cloned). MOONLIGHT_ENABLED
+# is baked into the VisionVNCMac target, so no extra build flag is needed.
+if [ "$NEEDS_DEPS" -eq 1 ]; then
+  echo "▶ Ensuring Moonlight dependencies (setup-deps.sh)…"
+  ./scripts/setup-deps.sh
+fi
+
 # Manual signing with a real identity; automatic (Xcode-managed) only matters
-# for provisioning profiles, which a local menu-bar app doesn't need. Ad-hoc
+# for provisioning profiles, which a local app doesn't need. Ad-hoc
 # still requires CODE_SIGN_STYLE=Manual + a literal "-" identity.
 echo "▶ Building $SCHEME ($CONFIG, signing: $SIGN_IDENTITY)…"
 xcodebuild \
@@ -108,4 +137,4 @@ ditto "$BUILT" "$DEST"
 echo "▶ Launching…"
 open "$DEST"
 
-echo "✓ VisionVNC Companion ($CONFIG) installed to /Applications and relaunched."
+echo "✓ $SCHEME ($CONFIG) installed to /Applications and relaunched."
