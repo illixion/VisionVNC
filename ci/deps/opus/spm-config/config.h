@@ -35,15 +35,11 @@
 #define OPUS_ARM_MAY_HAVE_NEON_INTR 1
 #endif
 
-// x86 optimizations (for macOS on Intel / Simulator on Intel)
-#if defined(__x86_64__)
-#define OPUS_X86_MAY_HAVE_SSE 1
-#define OPUS_X86_MAY_HAVE_SSE2 1
-#define OPUS_X86_MAY_HAVE_SSE4_1 1
-#define OPUS_X86_MAY_HAVE_AVX 1
-#define OPUS_HAVE_RTCD 1
-#define CPU_INFO_BY_C 1
-#endif
+// x86_64 (Intel Mac): plain portable C, no RTCD. The vendored SSE/AVX
+// sources (celt/x86, silk/x86) are excluded from this SPM target's source
+// list (see Package.swift), so RTCD must stay off here — otherwise
+// cpu_support.h pulls in x86/x86cpu.h expecting opus_select_arch() from
+// x86cpu.c, which isn't compiled in, and the link fails.
 
 // Disable features we don't need
 // No DRED, no OSCE, no custom modes

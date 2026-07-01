@@ -40,6 +40,7 @@ Moonlight is an **optional build-time feature** controlled by the `MOONLIGHT_ENA
 - `moonlight-common-c-fec-fix.patch` — Fixes audio FEC recovery crash
 - `moonlight-common-c-audio-fec-fix.patch` — Compatibility with newer Sunshine pre-release server versions
 - `opus-spm-umbrella.patch` — Exposes `opus_multistream.h` via SPM umbrella header
+- `opus-x86_64-universal.patch` — Guards the ARM NEON intrinsic sources (`celt/arm/*_neon_intr.c`, `silk/arm/*_neon_intr.c`, `silk/arm/NSQ_neon.c`) behind `#if defined(__aarch64__) || defined(__arm64__)` so the single universal-binary source list no-ops them on x86_64 instead of failing to compile (needed for the universal `VisionVNCMac`/`VisionVNCCompanion` targets — see Known Constraints)
 
 Other scripts: `scripts/build-and-sign.sh` (config-driven device build+sign+deploy; reads gitignored `scripts/build-signing.conf`, runs setup-deps as pre-build hook, passes `MOONLIGHT_ENABLED` via `EXTRA_BUILD_SETTINGS`), `scripts/release.sh` (local Moonlight-enabled GitHub release via `gh`), `scripts/install-companion.sh` (build the macOS companion and install it to `/Applications`, quitting + relaunching it — TCC perms and the token live with the installed app, not Xcode's DerivedData build).
 
@@ -308,7 +309,8 @@ ci/
 │   ├── moonlight-common-c-commoncrypto.patch — Replace OpenSSL with CommonCrypto
 │   ├── moonlight-common-c-fec-fix.patch      — Audio FEC crash fix
 │   ├── moonlight-common-c-audio-fec-fix.patch — Newer Sunshine compat
-│   └── opus-spm-umbrella.patch               — Multistream header exposure
+│   ├── opus-spm-umbrella.patch               — Multistream header exposure
+│   └── opus-x86_64-universal.patch           — ARM NEON sources no-op on x86_64 (universal macOS targets)
 ```
 
 ## RoyalVNCKit API Quick Reference
@@ -390,7 +392,8 @@ ci/
 - visionOS app logs via `AppLog` (`os.Logger`, one category per component, `.line()` helper marks messages `.public` so OSLogStore shows them un-redacted — never use for secrets). `LogStore` polls the process-scoped OSLogStore (~1 s, viewer-refcounted, only while a Console view is visible) for the in-app Console tab/pop-out. The macOS sender uses local `os.Logger` instances (AppLog is visionOS-only).
 
 ### General
-- **The project is arm64-only** (`ARCHS = arm64` in the project-level build configs). Caveat: SPM packages do NOT inherit project build settings, so `-destination 'generic/platform=visionOS Simulator'` still builds Opus for x86_64 and fails (`_Builtin_intrinsics.arm.neon` modulemap error — the spm-config presumes NEON). Use a concrete simulator destination (`platform=visionOS Simulator,name=Apple Vision Pro`, builds active arch only) or pass `ARCHS=arm64` on the xcodebuild command line (overrides apply to packages too).
+- **visionOS targets (`VisionVNC`, `VisionVNCBroadcast`, `VisionVNCTests`) are arm64-only** (`ARCHS = arm64` in the project-level build configs — real visionOS hardware has no other arch). Caveat: SPM packages do NOT inherit project build settings, so `-destination 'generic/platform=visionOS Simulator'` still builds Opus for x86_64 and fails (`_Builtin_intrinsics.arm.neon` modulemap error — the spm-config presumes NEON). Use a concrete simulator destination (`platform=visionOS Simulator,name=Apple Vision Pro`, builds active arch only) or pass `ARCHS=arm64` on the xcodebuild command line (overrides apply to packages too).
+- **The macOS targets (`VisionVNCMac`, `VisionVNCCompanion`) are universal binaries** (`ARCHS = "arm64 x86_64"`, overriding the project-level arm64-only default), so they run on both Apple Silicon and Intel Macs. This is what `ci/patches/opus-x86_64-universal.patch` exists for — Opus's vendored ARM NEON intrinsic files (`celt/arm/*_neon_intr.c`, `silk/arm/*_neon_intr.c`, `silk/arm/NSQ_neon.c`) unconditionally `#include <arm_neon.h>` with no arch guard of their own (upstream's build system simply never adds them to the source list on non-ARM), and SPM's single source list has no per-architecture conditioning, so without the patch x86_64 compilation hard-fails the same way the visionOS-Simulator-on-Intel case above does. `ci/deps/opus/spm-config/config.h` also disables Opus's x86 RTCD path (the vendored SSE/AVX sources in `celt/x86`/`silk/x86` are excluded from the SPM target, so leaving x86 RTCD on causes an undefined-symbol link error for `opus_select_arch()`) — x86_64 Macs get plain portable-C Opus, which is plenty fast for Opus's bitrates. CI verifies both macOS archives are actually universal (`lipo -archs`) after building them, to catch a future regression. Verified end-to-end on a real Intel Mac running macOS Sequoia (`mbp`).
 - **SwiftData migrations** require default values on all new non-optional properties and `@Attribute(originalName:)` for renamed columns, or the store fails to load (CoreData error 134110).
 - **`navigationTitle` requires `NavigationStack`** on visionOS — without it, the title bar doesn't render.
 - **`dismissWindow(id:)`** is the correct API for closing `WindowGroup` windows on visionOS, not `dismiss()`.

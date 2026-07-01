@@ -1,0 +1,120 @@
+diff --git a/celt/arm/celt_neon_intr.c b/celt/arm/celt_neon_intr.c
+index 69b90d7..fa06364 100644
+--- a/celt/arm/celt_neon_intr.c
++++ b/celt/arm/celt_neon_intr.c
+@@ -35,6 +35,10 @@
+ #include "config.h"
+ #endif
+ 
++/* Only ever compiled in for arm64 targets; this whole file is a no-op
++ * elsewhere so a single universal-binary source list can include it
++ * unconditionally (see Package.swift) without breaking x86_64 builds. */
++#if defined(__aarch64__) || defined(__arm64__)
+ #include <arm_neon.h>
+ #include "../float_cast.h"
+ #include "../mathops.h"
+@@ -399,3 +403,4 @@ void celt_pitch_xcorr_float_neon(const opus_val16 *_x, const opus_val16 *_y,
+    }
+ }
+ #endif
++#endif /* __aarch64__ || __arm64__ */
+diff --git a/celt/arm/pitch_neon_intr.c b/celt/arm/pitch_neon_intr.c
+index 43885f5..e776050 100644
+--- a/celt/arm/pitch_neon_intr.c
++++ b/celt/arm/pitch_neon_intr.c
+@@ -29,6 +29,10 @@ POSSIBILITY OF SUCH DAMAGE.
+ #include "config.h"
+ #endif
+ 
++/* Only ever compiled in for arm64 targets; this whole file is a no-op
++ * elsewhere so a single universal-binary source list can include it
++ * unconditionally (see Package.swift) without breaking x86_64 builds. */
++#if defined(__aarch64__) || defined(__arm64__)
+ #include <arm_neon.h>
+ #include "pitch.h"
+ 
+@@ -286,3 +290,4 @@ void dual_inner_prod_neon(const opus_val16 *x, const opus_val16 *y01, const opus
+ }
+ 
+ #endif /* FIXED_POINT */
++#endif /* __aarch64__ || __arm64__ */
+diff --git a/silk/arm/LPC_inv_pred_gain_neon_intr.c b/silk/arm/LPC_inv_pred_gain_neon_intr.c
+index 726e666..a6cedd3 100644
+--- a/silk/arm/LPC_inv_pred_gain_neon_intr.c
++++ b/silk/arm/LPC_inv_pred_gain_neon_intr.c
+@@ -29,6 +29,10 @@ POSSIBILITY OF SUCH DAMAGE.
+ #include "config.h"
+ #endif
+ 
++/* Only ever compiled in for arm64 targets; this whole file is a no-op
++ * elsewhere so a single universal-binary source list can include it
++ * unconditionally (see Package.swift) without breaking x86_64 builds. */
++#if defined(__aarch64__) || defined(__arm64__)
+ #include <arm_neon.h>
+ #include "SigProc_FIX.h"
+ #include "define.h"
+@@ -286,3 +290,4 @@ opus_int32 silk_LPC_inverse_pred_gain_neon(         /* O   Returns inverse predi
+ 
+     return invGain_Q30;
+ }
++#endif /* __aarch64__ || __arm64__ */
+diff --git a/silk/arm/NSQ_del_dec_neon_intr.c b/silk/arm/NSQ_del_dec_neon_intr.c
+index 668dde6..3479f0a 100644
+--- a/silk/arm/NSQ_del_dec_neon_intr.c
++++ b/silk/arm/NSQ_del_dec_neon_intr.c
+@@ -29,6 +29,10 @@ POSSIBILITY OF SUCH DAMAGE.
+ #include "config.h"
+ #endif
+ 
++/* Only ever compiled in for arm64 targets; this whole file is a no-op
++ * elsewhere so a single universal-binary source list can include it
++ * unconditionally (see Package.swift) without breaking x86_64 builds. */
++#if defined(__aarch64__) || defined(__arm64__)
+ #include <arm_neon.h>
+ #ifdef OPUS_CHECK_ASM
+ # include <string.h>
+@@ -1136,3 +1140,4 @@ static OPUS_INLINE void silk_nsq_del_dec_scale_states_neon(
+         NSQ->prev_gain_Q16 = Gains_Q16[ subfr ];
+     }
+ }
++#endif /* __aarch64__ || __arm64__ */
+diff --git a/silk/arm/NSQ_neon.c b/silk/arm/NSQ_neon.c
+index 9642529..9e64c20 100644
+--- a/silk/arm/NSQ_neon.c
++++ b/silk/arm/NSQ_neon.c
+@@ -28,6 +28,10 @@ POSSIBILITY OF SUCH DAMAGE.
+ #include "config.h"
+ #endif
+ 
++/* Only ever compiled in for arm64 targets; this whole file is a no-op
++ * elsewhere so a single universal-binary source list can include it
++ * unconditionally (see Package.swift) without breaking x86_64 builds. */
++#if defined(__aarch64__) || defined(__arm64__)
+ #include <arm_neon.h>
+ #include "main.h"
+ #include "stack_alloc.h"
+@@ -110,3 +114,4 @@ opus_int32 silk_NSQ_noise_shape_feedback_loop_neon(const opus_int32 *data0, opus
+     }
+     return silk_NSQ_noise_shape_feedback_loop_c(data0, data1, coef, order);
+ }
++#endif /* __aarch64__ || __arm64__ */
+diff --git a/silk/arm/biquad_alt_neon_intr.c b/silk/arm/biquad_alt_neon_intr.c
+index 9715733..7cdf684 100644
+--- a/silk/arm/biquad_alt_neon_intr.c
++++ b/silk/arm/biquad_alt_neon_intr.c
+@@ -29,6 +29,10 @@ POSSIBILITY OF SUCH DAMAGE.
+ #include "config.h"
+ #endif
+ 
++/* Only ever compiled in for arm64 targets; this whole file is a no-op
++ * elsewhere so a single universal-binary source list can include it
++ * unconditionally (see Package.swift) without breaking x86_64 builds. */
++#if defined(__aarch64__) || defined(__arm64__)
+ #include <arm_neon.h>
+ #ifdef OPUS_CHECK_ASM
+ # include <string.h>
+@@ -154,3 +158,4 @@ void silk_biquad_alt_stride2_neon(
+     RESTORE_STACK;
+ #endif
+ }
++#endif /* __aarch64__ || __arm64__ */

@@ -93,6 +93,9 @@ jobs:
           cd $RUNNER_TEMP
           zip -r VisionVNC-unsigned.ipa Payload
 
+      # VisionVNCCompanion's ARCHS build setting is "arm64 x86_64" (project.pbxproj),
+      # so this single archive command produces a universal binary covering both
+      # Apple Silicon and Intel Macs — nothing extra needed on the command line.
       - name: Build Companion (macOS)
         run: |
           xcodebuild archive \
@@ -103,6 +106,13 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY=""
+
+      # Fail fast if a future project-settings change silently drops a slice.
+      - name: Verify Companion is a universal binary
+        run: |
+          ARCHS=$(lipo -archs "$RUNNER_TEMP/VisionVNCCompanion.xcarchive/Products/Applications/VisionVNCCompanion.app/Contents/MacOS/VisionVNCCompanion")
+          echo "Architectures: $ARCHS"
+          [[ "$ARCHS" == *arm64* && "$ARCHS" == *x86_64* ]] || { echo "::error::VisionVNCCompanion is not a universal arm64+x86_64 binary"; exit 1; }
 
       - name: Zip Companion app
         run: |
@@ -150,6 +160,11 @@ jobs:
       # GPLv3 — built here in the real-dependency phase, never in the MIT phase.
       # MOONLIGHT_ENABLED is baked into the VisionVNCMac target's build settings,
       # so (unlike the visionOS scheme) we don't pass it on the command line.
+      # ARCHS = "arm64 x86_64" is likewise baked in (project.pbxproj), so this
+      # produces a universal binary covering Apple Silicon and Intel Macs. The
+      # Opus dependency needs the ci/patches/opus-x86_64-universal.patch
+      # (applied by setup-deps.sh above) to compile for x86_64 at all — it
+      # guards the ARM NEON intrinsic sources to no-op on that arch.
       - name: Build full macOS app (VisionVNCMac, Moonlight)
         run: |
           xcodebuild archive \
@@ -160,6 +175,14 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY=""
+
+      # Fail fast if a future project-settings or dependency-patch change
+      # silently drops a slice.
+      - name: Verify VisionVNCMac is a universal binary
+        run: |
+          ARCHS=$(lipo -archs "$RUNNER_TEMP/VisionVNCMac.xcarchive/Products/Applications/VisionVNCMac.app/Contents/MacOS/VisionVNCMac")
+          echo "Architectures: $ARCHS"
+          [[ "$ARCHS" == *arm64* && "$ARCHS" == *x86_64* ]] || { echo "::error::VisionVNCMac is not a universal arm64+x86_64 binary"; exit 1; }
 
       - name: Zip full macOS app
         run: |
@@ -303,8 +326,8 @@ jobs:
           **Assets**
           - \`VisionVNC-…-unsigned.ipa\` — VNC + Audio only (Moonlight disabled). All MIT-compatible.
           - \`VisionVNC-…-moonlight-unsigned.ipa\` — the Moonlight-enabled build (**GPLv3** — see below).
-          - \`VisionVNCCompanion-…-unsigned.zip\` — the small macOS companion (menu-bar host: audio streaming, now-playing, broadcast/OBS, keyboard injection, SSH keys). MIT.
-          - \`VisionVNCMac-…-unsigned.zip\` — the **full macOS app**: the VNC/Moonlight/Audio/SSH **client** plus all the companion host features in one app. Links Moonlight, so **GPLv3** (see below).
+          - \`VisionVNCCompanion-…-unsigned.zip\` — the small macOS companion (menu-bar host: audio streaming, now-playing, broadcast/OBS, keyboard injection, SSH keys). Universal binary (Apple Silicon + Intel). MIT.
+          - \`VisionVNCMac-…-unsigned.zip\` — the **full macOS app**: the VNC/Moonlight/Audio/SSH **client** plus all the companion host features in one app. Universal binary (Apple Silicon + Intel). Links Moonlight, so **GPLv3** (see below).
           - \`VisionVNCHotspotCompanion-…-x64-Setup.exe\` / \`…-arm64-Setup.exe\` — *if present*, the Windows Hotspot Companion installer (**Beta**), built natively for Intel/AMD (x64) and Windows-on-ARM (arm64). Ships with a signed build-provenance attestation; verify before running with \`gh attestation verify <file> --repo ${{ github.repository }}\`.
 
           **Running the macOS apps**

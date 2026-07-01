@@ -788,6 +788,7 @@
 		AA10AD10000000000000000A /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				ARCHS = "arm64 x86_64";
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
@@ -817,6 +818,7 @@
 		AA10AD10000000000000000B /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				ARCHS = "arm64 x86_64";
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
@@ -887,6 +889,7 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = AA10AD10000000000000000C /* VisionVNC.xcconfig */;
 			buildSettings = {
+				ARCHS = "arm64 x86_64";
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
@@ -919,6 +922,7 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = AA10AD10000000000000000C /* VisionVNC.xcconfig */;
 			buildSettings = {
+				ARCHS = "arm64 x86_64";
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;

@@ -83,6 +83,9 @@ else
         cp ../../ci/deps/opus/include/module.modulemap include/
         # Patch opus.h to include multistream API for SPM umbrella header
         git apply ../../ci/patches/opus-spm-umbrella.patch
+        # Guard the ARM NEON intrinsic sources so they no-op when compiled
+        # for x86_64 (needed for the universal arm64+x86_64 macOS targets)
+        git apply ../../ci/patches/opus-x86_64-universal.patch
     )
 fi
 
