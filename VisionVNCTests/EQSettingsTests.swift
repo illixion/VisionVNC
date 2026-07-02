@@ -82,6 +82,26 @@ final class EQSettingsTests: XCTestCase {
         XCTAssertEqual(EQSettings.load(from: defaults), settings)
     }
 
+    func testDecodingLegacyJSONDefaultsAutoPreampOn() throws {
+        // Settings saved before the autoPreamp field existed must decode
+        // with the flag on, not fail or reset the EQ.
+        let legacy = Data(#"{"enabled":true,"preampDB":-3,"bands":[]}"#.utf8)
+        let decoded = try JSONDecoder().decode(EQSettings.self, from: legacy)
+        XCTAssertTrue(decoded.autoPreamp)
+        XCTAssertTrue(decoded.enabled)
+        XCTAssertEqual(decoded.preampDB, -3)
+    }
+
+    func testAutoPreampFlagRoundTrips() {
+        let defaults = UserDefaults(suiteName: #function)!
+        defaults.removePersistentDomain(forName: #function)
+        var settings = EQSettings()
+        settings.autoPreamp = false
+        settings.preampDB = -2
+        settings.save(to: defaults)
+        XCTAssertEqual(EQSettings.load(from: defaults), settings)
+    }
+
     func testLoadReturnsDefaultsWhenAbsentOrCorrupt() {
         let defaults = UserDefaults(suiteName: #function)!
         defaults.removePersistentDomain(forName: #function)

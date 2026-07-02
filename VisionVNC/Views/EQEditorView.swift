@@ -23,14 +23,9 @@ struct EQEditorView: View {
     @State private var showSavePreset = false
     @State private var newPresetName = ""
 
-    private let graphHeight: CGFloat = 230
-
-    /// Draw mode halves the y-axis range: a finger stroke maps to ±12 dB
-    /// instead of ±24, doubling gain precision. Band handles keep the
-    /// full range.
-    private var gainRange: Double {
-        mode == .draw ? EQSettings.gainRange / 2 : EQSettings.gainRange
-    }
+    private let editorWidth: CGFloat = 810
+    private let graphHeight: CGFloat = 345
+    private var gainRange: Double { EQSettings.gainRange }
 
     var body: some View {
         @Bindable var audioManager = audioManager
@@ -41,7 +36,7 @@ struct EQEditorView: View {
             footer(settings: $audioManager.eqSettings)
         }
         .padding(20)
-        .frame(width: 540)
+        .frame(width: editorWidth)
     }
 
     // MARK: - Header
@@ -176,7 +171,7 @@ struct EQEditorView: View {
                                  at: CGPoint(x: gx + 2, y: size.height - 8), anchor: .leading)
                 }
             }
-            // Gain grid (range shrinks in Draw mode for finer strokes).
+            // Gain grid.
             for db in stride(from: -(gainRange - 6), through: gainRange - 6, by: 6) {
                 let gy = y(db: db, in: size)
                 var line = Path()
@@ -324,36 +319,44 @@ struct EQEditorView: View {
 
     private func footer(settings: Binding<EQSettings>) -> some View {
         let bands = settings.wrappedValue.bands
-        return HStack(spacing: 12) {
-            if let idx = bands.firstIndex(where: { $0.id == selectedBandID }),
-               bands[idx].type == .parametric {
-                Text("Q")
+        return VStack(spacing: 10) {
+            HStack(spacing: 12) {
+                Text("Preamp")
                     .font(.callout)
-                    .frame(width: 24, alignment: .leading)
-                Slider(value: qSliderBinding(settings: settings, index: idx), in: -1...1)
-                    .frame(maxWidth: 220)
-                Text(String(format: "%.2f", bands[idx].q))
+                    .frame(width: 64, alignment: .leading)
+                Slider(value: settings.preampDB, in: -12...0, step: 0.5)
+                    .disabled(settings.wrappedValue.autoPreamp)
+                Text(String(format: "%.1f dB", settings.wrappedValue.preampDB))
                     .font(.callout.monospacedDigit())
-                    .frame(width: 48, alignment: .trailing)
-            } else {
-                Text(mode == .draw
-                     ? "Release to fit the drawn curve to bands"
-                     : "Tap the graph to add a band · drag to shape")
-                    .font(.callout)
+                    .frame(width: 64, alignment: .trailing)
+                Toggle("Auto", isOn: settings.autoPreamp)
+                    .toggleStyle(.button)
+                    .help("Trim headroom automatically so boosts never play louder than flat; turn off for a manual preamp (boosts may clip)")
+            }
+
+            HStack(spacing: 12) {
+                if let idx = bands.firstIndex(where: { $0.id == selectedBandID }),
+                   bands[idx].type == .parametric {
+                    Text("Q")
+                        .font(.callout)
+                        .frame(width: 64, alignment: .leading)
+                    Slider(value: qSliderBinding(settings: settings, index: idx), in: -1...1)
+                        .frame(maxWidth: 300)
+                    Text(String(format: "%.2f", bands[idx].q))
+                        .font(.callout.monospacedDigit())
+                        .frame(width: 48, alignment: .trailing)
+                } else {
+                    Text(mode == .draw
+                         ? "Release to fit the drawn curve to bands"
+                         : "Tap the graph to add a band · drag to shape")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 0)
+                Text("\(bands.count)/\(EQSettings.maxBands)")
+                    .font(.callout.monospacedDigit())
                     .foregroundStyle(.secondary)
             }
-            Spacer(minLength: 0)
-            // Preamp is automatic: it always offsets the peak boost so the
-            // EQ never plays louder than flat.
-            if settings.wrappedValue.preampDB != 0 {
-                Text(String(format: "Preamp %.1f dB", settings.wrappedValue.preampDB))
-                    .font(.callout.monospacedDigit())
-                    .foregroundStyle(.secondary)
-                    .help("Automatic headroom trim — offsets the largest boost")
-            }
-            Text("\(bands.count)/\(EQSettings.maxBands)")
-                .font(.callout.monospacedDigit())
-                .foregroundStyle(.secondary)
         }
     }
 

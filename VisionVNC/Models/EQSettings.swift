@@ -45,7 +45,23 @@ nonisolated struct EQSettings: Codable, Equatable, Sendable {
     /// Headroom trim, dB. Cut-only (−12…0) by design: boosts happen in
     /// bands, the preamp only makes room for them.
     var preampDB: Double = 0
+    /// When true (default) the preamp re-trims on every band change so
+    /// the EQ never plays louder than flat. Off = manual slider; boosts
+    /// can then clip on purpose.
+    var autoPreamp: Bool = true
     var bands: [EQBandSetting] = []
+
+    init() {}
+
+    // Tolerant decoding so settings saved by older builds (or with future
+    // fields removed) fall back to defaults instead of resetting the EQ.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        enabled = try container.decodeIfPresent(Bool.self, forKey: .enabled) ?? false
+        preampDB = try container.decodeIfPresent(Double.self, forKey: .preampDB) ?? 0
+        autoPreamp = try container.decodeIfPresent(Bool.self, forKey: .autoPreamp) ?? true
+        bands = try container.decodeIfPresent([EQBandSetting].self, forKey: .bands) ?? []
+    }
 
     /// Matches the AVAudioUnitEQ band count allocated at node init
     /// (immutable after creation) — unused bands are bypassed.
@@ -102,8 +118,7 @@ nonisolated struct EQSettings: Codable, Equatable, Sendable {
 
     /// Sets the preamp to exactly offset the peak band boost (clamped to
     /// the −12 dB trim floor), so an EQ curve never plays louder than
-    /// flat. Called on every band change — the preamp is fully automatic,
-    /// not user-editable.
+    /// flat. Called on band changes while `autoPreamp` is on.
     mutating func autoTrimPreamp() {
         preampDB = -min(12, max(0, peakBandBoostDB()))
     }
