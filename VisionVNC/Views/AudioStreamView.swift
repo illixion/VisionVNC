@@ -14,6 +14,8 @@ struct AudioStreamView: View {
     /// square of this size, iTunes-mini-player style.
     private static let playerWidth: CGFloat = 400
 
+    @State private var showEQ = false
+
     var body: some View {
         VStack(spacing: 0) {
             AudioPlayerPanel(width: Self.playerWidth)
@@ -88,6 +90,19 @@ struct AudioStreamView: View {
             .help(audioManager.audioMode == .music
                   ? "Music Mode — exclusive playback with Control Center; pauses on interruption"
                   : "Speaker Mode — mixes with other audio and auto-recovers")
+
+            Button {
+                showEQ.toggle()
+            } label: {
+                Image(systemName: "waveform")
+            }
+            // `waveform` has no .fill variant — tint marks the EQ as active.
+            .tint(audioManager.eqSettings.enabled ? .accentColor : nil)
+            .popover(isPresented: $showEQ, arrowEdge: .bottom) {
+                EQEditorView()
+                    .environment(audioManager)
+            }
+            .help("Equalizer")
         }
         .buttonStyle(.borderless)
         .font(.title3)

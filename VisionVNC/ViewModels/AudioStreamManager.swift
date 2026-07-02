@@ -91,6 +91,18 @@ final class AudioStreamManager {
             }
         }
     }
+
+    /// Receiver-side EQ (global, like `volume`/`audioMode`). Persisted as
+    /// a JSON blob; every edit (including per-tick drag updates from the
+    /// editor) is pushed to the live engine — AVAudioUnitEQ parameters are
+    /// settable while running, no rebuild needed.
+    var eqSettings: EQSettings = .load() {
+        didSet {
+            guard eqSettings != oldValue else { return }
+            eqSettings.save()
+            receiver?.setEQ(eqSettings)
+        }
+    }
     /// True when the audio window was opened via pushWindow from the
     /// connection manager — dismissing it then restores the manager
     /// automatically. False after a space-restoration relaunch (standalone).
@@ -213,7 +225,7 @@ final class AudioStreamManager {
         defaults.set(token, forKey: DefaultsKeys.token)
         defaults.set(lowLatency, forKey: DefaultsKeys.lowLatency)
 
-        let receiver = AudioStreamReceiver(hostname: hostname, port: port, token: token, lowLatency: lowLatency, volume: Float(volume), mode: audioMode)
+        let receiver = AudioStreamReceiver(hostname: hostname, port: port, token: token, lowLatency: lowLatency, volume: Float(volume), mode: audioMode, eq: eqSettings)
         receiver.onEvent = { [weak self] event in
             Task { @MainActor in
                 self?.handle(event)
@@ -599,8 +611,11 @@ final class AudioStreamReceiver: @unchecked Sendable {
     private nonisolated(unsafe) var sessionObservers: [any NSObjectProtocol] = []
     /// Output gain (0…1) applied to the player node; survives engine rebuilds.
     private nonisolated(unsafe) var volume: Float
+    /// EQ configuration applied to `eqNode`; survives engine rebuilds.
+    private nonisolated(unsafe) var eqSettings: EQSettings
+    private nonisolated(unsafe) var eqNode: AVAudioUnitEQ?
 
-    nonisolated init(hostname: String, port: UInt16, token: String, lowLatency: Bool = false, volume: Float = 1.0, mode: AudioMode = .speaker) {
+    nonisolated init(hostname: String, port: UInt16, token: String, lowLatency: Bool = false, volume: Float = 1.0, mode: AudioMode = .speaker, eq: EQSettings = EQSettings()) {
         self.hostname = hostname
         self.port = port
         self.token = token
@@ -608,6 +623,7 @@ final class AudioStreamReceiver: @unchecked Sendable {
         self.mode = mode
         self.prebufferFrameCount = lowLatency ? 2 : 4
         self.volume = volume
+        self.eqSettings = eq
     }
 
     /// Adjusts output gain live (and for subsequent engine rebuilds).
@@ -615,6 +631,14 @@ final class AudioStreamReceiver: @unchecked Sendable {
         queue.async { [self] in
             volume = newValue
             playerNode?.volume = newValue
+        }
+    }
+
+    /// Applies new EQ settings live (and for subsequent engine rebuilds).
+    nonisolated func setEQ(_ settings: EQSettings) {
+        queue.async { [self] in
+            eqSettings = settings
+            if let eqNode { apply(settings, to: eqNode) }
         }
     }
 
@@ -1149,8 +1173,15 @@ final class AudioStreamReceiver: @unchecked Sendable {
         let engine = AVAudioEngine()
         let player = AVAudioPlayerNode()
         player.volume = volume
+        // EQ sits between the player and the mixer. Always in the graph
+        // (bypassed when disabled) so enabling it never needs a rebuild;
+        // Float32 processing, no lookahead — quality/latency neutral.
+        let eq = AVAudioUnitEQ(numberOfBands: EQSettings.maxBands)
         engine.attach(player)
-        engine.connect(player, to: engine.mainMixerNode, format: format)
+        engine.attach(eq)
+        engine.connect(player, to: eq, format: format)
+        engine.connect(eq, to: engine.mainMixerNode, format: format)
+        apply(eqSettings, to: eq)
 
         do {
             try engine.start()
@@ -1161,6 +1192,7 @@ final class AudioStreamReceiver: @unchecked Sendable {
 
         audioEngine = engine
         playerNode = player
+        eqNode = eq
         audioFormat = format
         scheduledFrames = 0
 
@@ -1203,6 +1235,35 @@ final class AudioStreamReceiver: @unchecked Sendable {
         }
     }
 
+    /// Pushes an EQSettings snapshot into the node's fixed 16-band array:
+    /// active bands get the user's parameters (Q converted to the node's
+    /// bandwidth-in-octaves unit), the rest are bypassed. Called on `queue`
+    /// only — at engine build and live from `setEQ`.
+    private nonisolated func apply(_ settings: EQSettings, to eq: AVAudioUnitEQ) {
+        eq.bypass = !settings.enabled
+        eq.globalGain = Float(min(max(settings.preampDB, -12), 0))
+        // Band centers above Nyquist make the filter misbehave — clamp to
+        // the actual wire rate, not the nominal 20 kHz editor limit.
+        let maxHz = header.map { $0.sampleRate / 2 * 0.95 } ?? EQSettings.maxFrequency
+        for (i, node) in eq.bands.enumerated() {
+            guard settings.enabled, i < settings.bands.count else {
+                node.bypass = true
+                node.gain = 0
+                continue
+            }
+            let band = settings.bands[i].clamped()
+            switch band.type {
+            case .parametric: node.filterType = .parametric
+            case .lowShelf: node.filterType = .lowShelf
+            case .highShelf: node.filterType = .highShelf
+            }
+            node.frequency = Float(min(band.frequency, maxHz))
+            node.gain = Float(band.gain)
+            node.bandwidth = Float(EQSettings.bandwidthOctaves(q: band.q))
+            node.bypass = false
+        }
+    }
+
     private nonisolated func teardownAudio() {
         if let engineObserver {
             NotificationCenter.default.removeObserver(engineObserver)
@@ -1214,8 +1275,13 @@ final class AudioStreamReceiver: @unchecked Sendable {
             engine.disconnectNodeOutput(player)
             engine.detach(player)
         }
+        if let engine = audioEngine, let eq = eqNode {
+            engine.disconnectNodeOutput(eq)
+            engine.detach(eq)
+        }
         audioEngine = nil
         playerNode = nil
+        eqNode = nil
         audioFormat = nil
     }
 
