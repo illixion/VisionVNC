@@ -26,7 +26,7 @@
 - **VoIP calls steal the audio session** (e.g. Google Meet in Safari): interruption *began* fires when the call starts (no ended/route-change until it finishes) and playback dies silently while TCP keeps flowing. Engine-only rebuilds do NOT recover — only a fresh receiver that re-asserts `setCategory`/`setActive` does. The receiver observes interruption (began+ended), `AVAudioEngineConfigurationChange`, and the silence-secondary-audio hint, and emits `.reloadRequested` → the manager reconnects immediately (loop guard: a second reload within 2 s falls back to backoff retry). Configure the session **once per receiver** — re-asserting it mid-call breaks the call's audio.
 - **`setActive(true)` on every engine build** — after an interruption the session is deactivated; `engine.start()` alone reports running but pumps audio nowhere.
 - **Apple Music streaming tracks expose no artwork** via the Music scripting interface (`artwork 1 of current track` is empty) — only local/downloaded files have it. The mini player falls back to the speaker status glyph; there is no public workaround.
-- **Audio-session / window-lifecycle changes can only be verified on device** — build, then leave uncommitted for on-device testing before committing.
+- **Audio-session / window-lifecycle changes can only be verified on device** — build, then commit right away; on-device testing happens after the commit, and a bad change is reverted rather than held back. Call out what to test on the Vision Pro in the commit summary.
 
 ## Broadcast
 
