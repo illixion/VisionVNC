@@ -19,8 +19,18 @@ struct EQEditorView: View {
     @State private var selectedBandID: UUID?
     /// In-flight freehand stroke (graph coordinates), Draw mode only.
     @State private var drawStroke: [CGPoint] = []
+    @State private var customPresets: [EQPreset] = EQPreset.loadCustom()
+    @State private var showSavePreset = false
+    @State private var newPresetName = ""
 
     private let graphHeight: CGFloat = 230
+
+    /// Draw mode halves the y-axis range: a finger stroke maps to ±12 dB
+    /// instead of ±24, doubling gain precision. Band handles keep the
+    /// full range.
+    private var gainRange: Double {
+        mode == .draw ? EQSettings.gainRange / 2 : EQSettings.gainRange
+    }
 
     var body: some View {
         @Bindable var audioManager = audioManager
@@ -37,7 +47,7 @@ struct EQEditorView: View {
     // MARK: - Header
 
     private func header(settings: Binding<EQSettings>) -> some View {
-        HStack(spacing: 16) {
+        HStack(spacing: 14) {
             Toggle("Equalizer", isOn: settings.enabled)
                 .toggleStyle(.switch)
                 .fixedSize()
@@ -52,6 +62,8 @@ struct EQEditorView: View {
             .fixedSize()
             .labelsHidden()
 
+            presetsMenu(settings: settings)
+
             Button("Reset") {
                 selectedBandID = nil
                 drawStroke = []
@@ -60,6 +72,67 @@ struct EQEditorView: View {
             }
             .disabled(settings.wrappedValue.bands.isEmpty && settings.wrappedValue.preampDB == 0)
         }
+        .alert("Save Preset", isPresented: $showSavePreset) {
+            TextField("Name", text: $newPresetName)
+            Button("Save") { saveCurrentAsPreset() }
+                .disabled(newPresetName.trimmingCharacters(in: .whitespaces).isEmpty)
+            Button("Cancel", role: .cancel) { newPresetName = "" }
+        } message: {
+            Text("Saves the current bands as a custom preset.")
+        }
+    }
+
+    private func presetsMenu(settings: Binding<EQSettings>) -> some View {
+        Menu {
+            Section("Presets") {
+                ForEach(EQPreset.builtIns) { preset in
+                    Button(preset.name) { apply(preset, to: settings) }
+                }
+            }
+            if !customPresets.isEmpty {
+                Section("Custom") {
+                    ForEach(customPresets) { preset in
+                        Button(preset.name) { apply(preset, to: settings) }
+                    }
+                }
+            }
+            Divider()
+            Button {
+                showSavePreset = true
+            } label: {
+                Label("Save as Preset…", systemImage: "square.and.arrow.down")
+            }
+            .disabled(settings.wrappedValue.bands.isEmpty)
+            if !customPresets.isEmpty {
+                Menu("Delete Custom Preset") {
+                    ForEach(customPresets) { preset in
+                        Button(preset.name, role: .destructive) {
+                            customPresets.removeAll { $0.id == preset.id }
+                            EQPreset.saveCustom(customPresets)
+                        }
+                    }
+                }
+            }
+        } label: {
+            Image(systemName: "slider.horizontal.3")
+        }
+        .help("Presets")
+    }
+
+    private func apply(_ preset: EQPreset, to settings: Binding<EQSettings>) {
+        selectedBandID = nil
+        var updated = settings.wrappedValue
+        updated.bands = preset.bands
+        updated.enabled = true
+        settings.wrappedValue = updated // preamp auto-trims in the manager
+    }
+
+    private func saveCurrentAsPreset() {
+        let name = newPresetName.trimmingCharacters(in: .whitespaces)
+        newPresetName = ""
+        guard !name.isEmpty else { return }
+        customPresets.append(EQPreset(name: name, bands: audioManager.eqSettings.bands))
+        EQPreset.saveCustom(customPresets)
     }
 
     // MARK: - Graph
@@ -103,8 +176,8 @@ struct EQEditorView: View {
                                  at: CGPoint(x: gx + 2, y: size.height - 8), anchor: .leading)
                 }
             }
-            // Gain grid.
-            for db in stride(from: -18.0, through: 18, by: 6) {
+            // Gain grid (range shrinks in Draw mode for finer strokes).
+            for db in stride(from: -(gainRange - 6), through: gainRange - 6, by: 6) {
                 let gy = y(db: db, in: size)
                 var line = Path()
                 line.move(to: CGPoint(x: 0, y: gy))
@@ -251,45 +324,36 @@ struct EQEditorView: View {
 
     private func footer(settings: Binding<EQSettings>) -> some View {
         let bands = settings.wrappedValue.bands
-        let maxBoost = bands.map(\.gain).max() ?? 0
-        return VStack(spacing: 10) {
-            HStack(spacing: 12) {
-                Text("Preamp")
+        return HStack(spacing: 12) {
+            if let idx = bands.firstIndex(where: { $0.id == selectedBandID }),
+               bands[idx].type == .parametric {
+                Text("Q")
                     .font(.callout)
-                    .frame(width: 64, alignment: .leading)
-                Slider(value: settings.preampDB, in: -12...0, step: 0.5)
-                Text(String(format: "%.1f dB", settings.wrappedValue.preampDB))
+                    .frame(width: 24, alignment: .leading)
+                Slider(value: qSliderBinding(settings: settings, index: idx), in: -1...1)
+                    .frame(maxWidth: 220)
+                Text(String(format: "%.2f", bands[idx].q))
                     .font(.callout.monospacedDigit())
-                    .frame(width: 64, alignment: .trailing)
-                Button("Auto") {
-                    settings.wrappedValue.preampDB = max(-12, -max(0, maxBoost))
-                }
-                .help("Trim headroom to offset the largest boost")
-                .disabled(maxBoost <= 0)
-            }
-
-            HStack(spacing: 12) {
-                if let idx = bands.firstIndex(where: { $0.id == selectedBandID }),
-                   bands[idx].type == .parametric {
-                    Text("Q")
-                        .font(.callout)
-                        .frame(width: 64, alignment: .leading)
-                    Slider(value: qSliderBinding(settings: settings, index: idx), in: -1...1)
-                    Text(String(format: "%.2f", bands[idx].q))
-                        .font(.callout.monospacedDigit())
-                        .frame(width: 64, alignment: .trailing)
-                } else {
-                    Text(mode == .draw
-                         ? "Release to fit the drawn curve to bands"
-                         : "Tap the graph to add a band · drag to shape")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                }
-                Spacer(minLength: 0)
-                Text("\(bands.count)/\(EQSettings.maxBands)")
-                    .font(.callout.monospacedDigit())
+                    .frame(width: 48, alignment: .trailing)
+            } else {
+                Text(mode == .draw
+                     ? "Release to fit the drawn curve to bands"
+                     : "Tap the graph to add a band · drag to shape")
+                    .font(.callout)
                     .foregroundStyle(.secondary)
             }
+            Spacer(minLength: 0)
+            // Preamp is automatic: it always offsets the peak boost so the
+            // EQ never plays louder than flat.
+            if settings.wrappedValue.preampDB != 0 {
+                Text(String(format: "Preamp %.1f dB", settings.wrappedValue.preampDB))
+                    .font(.callout.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                    .help("Automatic headroom trim — offsets the largest boost")
+            }
+            Text("\(bands.count)/\(EQSettings.maxBands)")
+                .font(.callout.monospacedDigit())
+                .foregroundStyle(.secondary)
         }
     }
 
@@ -318,10 +382,10 @@ struct EQEditorView: View {
     }
 
     private func y(db: Double, in size: CGSize) -> CGFloat {
-        CGFloat(0.5 - db / (EQSettings.gainRange * 2)) * size.height
+        CGFloat(0.5 - db / (gainRange * 2)) * size.height
     }
 
     private func db(y: CGFloat, in size: CGSize) -> Double {
-        (0.5 - Double(min(max(y / size.height, 0), 1))) * EQSettings.gainRange * 2
+        (0.5 - Double(min(max(y / size.height, 0), 1))) * gainRange * 2
     }
 }

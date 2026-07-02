@@ -149,4 +149,84 @@ final class EQSettingsTests: XCTestCase {
         XCTAssertTrue(EQSettings.fit(drawnCurve: []).isEmpty)
         XCTAssertTrue(EQSettings.fit(drawnCurve: [(hz: -5, db: .infinity)]).isEmpty)
     }
+
+    // MARK: - Auto preamp
+
+    func testAutoTrimOffsetsPeakBoost() {
+        var settings = EQSettings()
+        settings.bands = [EQBandSetting(frequency: 100, gain: 8, q: 1.41)]
+        settings.autoTrimPreamp()
+        XCTAssertEqual(settings.preampDB, -8, accuracy: 0.2)
+        // Peak of the full response (bands + preamp) never exceeds 0 dB.
+        let peak = settings.responseCurve().map(\.db).max() ?? 0
+        XCTAssertLessThanOrEqual(peak, 0.1)
+    }
+
+    func testAutoTrimAccountsForOverlappingBoosts() {
+        var settings = EQSettings()
+        // Two overlapping +6 dB bands sum to ~+12 at the shared center.
+        settings.bands = [
+            EQBandSetting(frequency: 1_000, gain: 6, q: 1.41),
+            EQBandSetting(frequency: 1_000, gain: 6, q: 1.41),
+        ]
+        settings.autoTrimPreamp()
+        XCTAssertEqual(settings.preampDB, -12, accuracy: 0.3)
+    }
+
+    func testAutoTrimZeroForCutOnlyCurve() {
+        var settings = EQSettings()
+        settings.preampDB = -5 // stale trim from removed boosts
+        settings.bands = [EQBandSetting(frequency: 300, gain: -9, q: 1)]
+        settings.autoTrimPreamp()
+        XCTAssertEqual(settings.preampDB, 0, accuracy: 0.1)
+    }
+
+    func testAutoTrimIsIdempotent() {
+        var settings = EQSettings()
+        settings.bands = [EQBandSetting(frequency: 4_000, gain: 10, q: 2)]
+        settings.autoTrimPreamp()
+        let once = settings.preampDB
+        settings.autoTrimPreamp()
+        XCTAssertEqual(settings.preampDB, once, accuracy: 0.001)
+    }
+
+    func testAutoTrimClampsToFloor() {
+        var settings = EQSettings()
+        settings.bands = [
+            EQBandSetting(frequency: 1_000, gain: 24, q: 1.41),
+        ]
+        settings.autoTrimPreamp()
+        XCTAssertEqual(settings.preampDB, -12) // trim floor
+    }
+
+    // MARK: - Presets
+
+    func testCustomPresetRoundTrip() {
+        let defaults = UserDefaults(suiteName: #function)!
+        defaults.removePersistentDomain(forName: #function)
+
+        let presets = [
+            EQPreset(name: "My Curve", bands: [
+                EQBandSetting(type: .lowShelf, frequency: 90, gain: 3),
+                EQBandSetting(frequency: 3_000, gain: -4, q: 2.5),
+            ]),
+        ]
+        EQPreset.saveCustom(presets, to: defaults)
+        XCTAssertEqual(EQPreset.loadCustom(from: defaults), presets)
+    }
+
+    func testLoadCustomPresetsEmptyWhenAbsent() {
+        let defaults = UserDefaults(suiteName: #function)!
+        defaults.removePersistentDomain(forName: #function)
+        XCTAssertTrue(EQPreset.loadCustom(from: defaults).isEmpty)
+    }
+
+    func testBuiltInPresetsAreWithinLimits() {
+        for preset in EQPreset.builtIns {
+            XCTAssertLessThanOrEqual(preset.bands.count, EQSettings.maxBands)
+            for band in preset.bands {
+                XCTAssertEqual(band.clamped(), band, "\(preset.name) band out of range")
+            }
+        }
+    }
 }

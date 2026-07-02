@@ -95,10 +95,15 @@ final class AudioStreamManager {
     /// Receiver-side EQ (global, like `volume`/`audioMode`). Persisted as
     /// a JSON blob; every edit (including per-tick drag updates from the
     /// editor) is pushed to the live engine — AVAudioUnitEQ parameters are
-    /// settable while running, no rebuild needed.
+    /// settable while running, no rebuild needed. The preamp is recomputed
+    /// on every band change so a boosted curve never plays louder than
+    /// flat (re-assignment inside didSet doesn't re-trigger the observer).
     var eqSettings: EQSettings = .load() {
         didSet {
             guard eqSettings != oldValue else { return }
+            if eqSettings.bands != oldValue.bands {
+                eqSettings.autoTrimPreamp()
+            }
             eqSettings.save()
             receiver?.setEQ(eqSettings)
         }

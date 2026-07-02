@@ -92,6 +92,22 @@ nonisolated struct EQSettings: Codable, Equatable, Sendable {
         bands.reduce(preampDB) { $0 + Self.bandResponseDB(band: $1, hz: hz) }
     }
 
+    /// Peak of the bands-only response (preamp excluded), in dB. Adjacent
+    /// boosts sum, so this can exceed any single band's gain.
+    func peakBandBoostDB() -> Double {
+        guard !bands.isEmpty else { return 0 }
+        let peak = responseCurve().map(\.db).max() ?? 0
+        return peak - preampDB
+    }
+
+    /// Sets the preamp to exactly offset the peak band boost (clamped to
+    /// the −12 dB trim floor), so an EQ curve never plays louder than
+    /// flat. Called on every band change — the preamp is fully automatic,
+    /// not user-editable.
+    mutating func autoTrimPreamp() {
+        preampDB = -min(12, max(0, peakBandBoostDB()))
+    }
+
     /// Samples the combined response at `count` log-spaced frequencies
     /// across the editor's 20 Hz–20 kHz axis. Returns (hz, dB) pairs.
     func responseCurve(samples count: Int = 200) -> [(hz: Double, db: Double)] {
@@ -220,5 +236,53 @@ nonisolated struct EQSettings: Codable, Equatable, Sendable {
                 : .parametric
             return EQBandSetting(type: type, frequency: hz, gain: gain, q: fitQ)
         }
+    }
+}
+
+/// A named band curve the user can apply and then tweak. Built-ins are
+/// fixed starting points; custom presets are saved snapshots of the
+/// current bands, persisted app-wide next to `EQSettings`. Only bands are
+/// stored — enabled state stays with the session and the preamp is
+/// recomputed automatically on apply.
+nonisolated struct EQPreset: Codable, Identifiable, Equatable, Sendable {
+    var id: UUID = UUID()
+    var name: String
+    var bands: [EQBandSetting]
+
+    static let customDefaultsKey = "audioEQCustomPresets"
+
+    static let builtIns: [EQPreset] = [
+        EQPreset(name: "Flat", bands: []),
+        EQPreset(name: "Bass Boost", bands: [
+            EQBandSetting(type: .lowShelf, frequency: 120, gain: 5.5),
+        ]),
+        EQPreset(name: "Bass Reducer", bands: [
+            EQBandSetting(type: .lowShelf, frequency: 120, gain: -5.5),
+        ]),
+        EQPreset(name: "Treble Boost", bands: [
+            EQBandSetting(type: .highShelf, frequency: 6_000, gain: 4.5),
+        ]),
+        EQPreset(name: "Vocal", bands: [
+            EQBandSetting(type: .lowShelf, frequency: 150, gain: -2.5),
+            EQBandSetting(frequency: 2_500, gain: 4, q: 0.9),
+            EQBandSetting(type: .highShelf, frequency: 10_000, gain: -1.5),
+        ]),
+        EQPreset(name: "Loudness", bands: [
+            EQBandSetting(type: .lowShelf, frequency: 100, gain: 4.5),
+            EQBandSetting(frequency: 1_800, gain: -2, q: 0.8),
+            EQBandSetting(type: .highShelf, frequency: 8_000, gain: 4),
+        ]),
+    ]
+
+    static func loadCustom(from defaults: UserDefaults = .standard) -> [EQPreset] {
+        guard let data = defaults.data(forKey: customDefaultsKey),
+              let presets = try? JSONDecoder().decode([EQPreset].self, from: data)
+        else { return [] }
+        return presets
+    }
+
+    static func saveCustom(_ presets: [EQPreset], to defaults: UserDefaults = .standard) {
+        guard let data = try? JSONEncoder().encode(presets) else { return }
+        defaults.set(data, forKey: customDefaultsKey)
     }
 }
