@@ -13,6 +13,7 @@ import SwiftUI
 /// shape it.
 struct EQEditorView: View {
     @Environment(AudioStreamManager.self) private var audioManager
+    @Environment(\.dismiss) private var dismiss
 
     private enum EditorMode: Hashable { case bands, draw }
     @State private var mode: EditorMode = .bands
@@ -66,6 +67,14 @@ struct EQEditorView: View {
                 settings.wrappedValue.preampDB = 0
             }
             .disabled(settings.wrappedValue.bands.isEmpty && settings.wrappedValue.preampDB == 0)
+
+            // Sheet presentation has no tap-outside dismissal.
+            Button {
+                dismiss()
+            } label: {
+                Image(systemName: "xmark")
+            }
+            .help("Close")
         }
         .alert("Save Preset", isPresented: $showSavePreset) {
             TextField("Name", text: $newPresetName)

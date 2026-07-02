@@ -98,7 +98,10 @@ struct AudioStreamView: View {
             }
             // `waveform` has no .fill variant — tint marks the EQ as active.
             .tint(audioManager.eqSettings.enabled ? .accentColor : nil)
-            .popover(isPresented: $showEQ, arrowEdge: .bottom) {
+            // A sheet, not a popover: the editor is wider than this 400 pt
+            // window, and visionOS clips popovers to their anchor window's
+            // presentation bounds.
+            .sheet(isPresented: $showEQ) {
                 EQEditorView()
                     .environment(audioManager)
             }
