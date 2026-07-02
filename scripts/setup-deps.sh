@@ -70,17 +70,25 @@ fi
 
 if [[ -d repos/opus ]]; then
     echo "==> repos/opus exists — skipping (use --force to redo)"
+    # Migration: drop the hand-written modulemap from older checkouts. Xcode
+    # already generates an umbrella-header modulemap for the Opus target
+    # (opus.h matches the module name case-insensitively), and Xcode 26.6's
+    # clang dependency scanner errors on the resulting double coverage
+    # ("umbrella for module 'Opus' already covers this directory").
+    rm -f repos/opus/include/module.modulemap
 else
     echo "==> Cloning and patching Opus ($OPUS_REF)"
     git clone https://github.com/xiph/opus.git repos/opus
     (
         cd repos/opus
         git checkout "$OPUS_REF"
-        # Add SPM Package.swift wrapper and config files
+        # Add SPM Package.swift wrapper and config files. No custom
+        # module.modulemap: Xcode generates an umbrella-header one from
+        # opus.h, and shipping our own alongside it breaks Xcode 26.6+
+        # dependency scanning (duplicate umbrella coverage of include/).
         cp ../../ci/deps/opus/Package.swift .
         mkdir -p spm-config
         cp ../../ci/deps/opus/spm-config/config.h spm-config/
-        cp ../../ci/deps/opus/include/module.modulemap include/
         # Patch opus.h to include multistream API for SPM umbrella header
         git apply ../../ci/patches/opus-spm-umbrella.patch
         # Guard the ARM NEON intrinsic sources so they no-op when compiled

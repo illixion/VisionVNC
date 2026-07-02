@@ -1,4 +1,0 @@
-module Opus {
-    umbrella "."
-    export *
-}
