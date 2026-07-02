@@ -8,6 +8,10 @@ import os
 struct CompanionMenuView: View {
     @Bindable var controller: AudioStreamerController
     @Bindable var broadcastServer: BroadcastServerManager
+    /// When set (the full VisionVNC app), the primary button opens the main app
+    /// window instead of the companion/settings window. The small menu-bar
+    /// companion leaves this nil and opens its Settings window.
+    var openMainAction: (() -> Void)? = nil
     @Environment(\.openSettings) private var openSettings
 
     var body: some View {
@@ -47,11 +51,19 @@ struct CompanionMenuView: View {
 
             Divider()
 
-            Button("Open Companion Window…") {
-                openSettings()
-                NSApp.activate(ignoringOtherApps: true)
+            if let openMainAction {
+                Button("Open VisionVNC") {
+                    openMainAction()
+                    NSApp.activate(ignoringOtherApps: true)
+                }
+                .help("Open the main VisionVNC window.")
+            } else {
+                Button("Open Companion Window…") {
+                    openSettings()
+                    NSApp.activate(ignoringOtherApps: true)
+                }
+                .help("Access token, broadcast server (OBS), SSH keys, and keyboard control.")
             }
-            .help("Access token, broadcast server (OBS), SSH keys, and keyboard control.")
 
             Button("Quit") {
                 controller.stop()

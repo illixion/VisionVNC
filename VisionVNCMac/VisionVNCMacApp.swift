@@ -120,10 +120,14 @@ private struct MenuBarHostContent: View {
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
-        CompanionMenuView(controller: controller, broadcastServer: broadcastServer)
-            .onReceive(NotificationCenter.default.publisher(for: MacAppDelegate.summonMainWindow)) { _ in
-                NSApp.activate(ignoringOtherApps: true)
-                openWindow(id: "main")
-            }
+        CompanionMenuView(
+            controller: controller,
+            broadcastServer: broadcastServer,
+            openMainAction: { openWindow(id: "main") }
+        )
+        .onReceive(NotificationCenter.default.publisher(for: MacAppDelegate.summonMainWindow)) { _ in
+            NSApp.activate(ignoringOtherApps: true)
+            openWindow(id: "main")
+        }
     }
 }
