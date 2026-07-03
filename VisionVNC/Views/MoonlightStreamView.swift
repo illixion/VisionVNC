@@ -51,6 +51,7 @@ struct MoonlightStreamView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openWindow) private var openWindow
     @Environment(\.dismissWindow) private var dismissWindow
+    @Environment(\.scenePhase) private var scenePhase
     @State private var showStats = false
     @State private var showDisconnectAlert = false
 
@@ -115,6 +116,12 @@ struct MoonlightStreamView: View {
                         .controlSize(.large)
                     Text(manager.statusMessage)
                         .foregroundStyle(.secondary)
+                    if case .error = manager.connectionState, manager.canReconnect {
+                        Button("Reconnect Now") {
+                            manager.reconnectNow()
+                        }
+                        .buttonStyle(.borderedProminent)
+                    }
                 }
             }
 
@@ -135,6 +142,13 @@ struct MoonlightStreamView: View {
             }
         }
         .handlesGameControllerEvents(matching: .gamepad)
+        .onChange(of: scenePhase) { _, newPhase in
+            // Headset donned / window refocused: retry a dropped stream
+            // immediately instead of waiting out the backoff timer.
+            if newPhase == .active {
+                manager.sceneBecameActive()
+            }
+        }
         .onDisappear {
             manager.stopStreaming()
             dismissWindow(id: "moonlight-keyboard")

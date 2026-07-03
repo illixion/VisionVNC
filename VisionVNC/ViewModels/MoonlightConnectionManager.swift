@@ -104,6 +104,18 @@ class MoonlightConnectionManager: MoonlightStreamDelegate {
     /// server-initiated termination) issuing overlapping LiStopConnection calls.
     private var isTearingDown = false
 
+    // MARK: - Auto-reconnect state
+
+    /// Last app the user asked to stream — the target for automatic resume
+    /// when the stream drops without the user asking (headset doffed, network
+    /// blip). Cleared on clean stream end and user-initiated session quit.
+    private var lastLaunchedApp: MoonlightApp?
+    /// True while an unexpected drop is being retried automatically.
+    private(set) var isAutoReconnecting = false
+    private var reconnectTask: Task<Void, Never>?
+    private var reconnectDelay: TimeInterval = 2
+    private let maxReconnectDelay: TimeInterval = 30
+
     // FPS tracking
     private var fpsFrameCount: UInt64 = 0
     private var fpsLastSampleTime: CFTimeInterval = 0
@@ -255,6 +267,12 @@ class MoonlightConnectionManager: MoonlightStreamDelegate {
         } else {
             displayOverride = nil
         }
+
+        // A fresh launch supersedes any pending automatic retry (but keeps
+        // auto-reconnect mode, so a failed retry launch schedules the next one).
+        reconnectTask?.cancel()
+        reconnectTask = nil
+        lastLaunchedApp = app
 
         connectionState = .launching
         statusMessage = "Launching \(app.name)..."
@@ -414,6 +432,7 @@ class MoonlightConnectionManager: MoonlightStreamDelegate {
                         self.teardownStream {
                             self.connectionState = .error("Failed to start stream (error: \(result))")
                             self.statusMessage = "Stream failed"
+                            if self.isAutoReconnecting { self.scheduleReconnect() }
                         }
                     }
                 }
@@ -422,6 +441,7 @@ class MoonlightConnectionManager: MoonlightStreamDelegate {
                 await MainActor.run {
                     self.connectionState = .error("Launch failed: \(error.localizedDescription)")
                     self.statusMessage = "Launch failed"
+                    if self.isAutoReconnecting { self.scheduleReconnect() }
                 }
             }
         }
@@ -429,6 +449,7 @@ class MoonlightConnectionManager: MoonlightStreamDelegate {
 
     /// Stop the active streaming session.
     func stopStreaming() {
+        cancelReconnect()
         teardownStream {
             self.connectionState = .ready
             self.statusMessage = "Disconnected from stream"
@@ -608,6 +629,8 @@ class MoonlightConnectionManager: MoonlightStreamDelegate {
         Task { @MainActor in
             self.connectionState = .streaming
             self.statusMessage = "Streaming"
+            self.isAutoReconnecting = false
+            self.reconnectDelay = 2
             self.startDisplayLink()
             self.startGamepadManager()
             self.startMouseManager()
@@ -626,9 +649,16 @@ class MoonlightConnectionManager: MoonlightStreamDelegate {
                 if errorCode == 0 {
                     self.connectionState = .ready
                     self.statusMessage = "Stream ended"
+                    self.lastLaunchedApp = nil
                 } else {
+                    // Unexpected drop (headset doffed, network blip, host
+                    // hiccup). The host session was not quit, so auto-resume
+                    // instead of parking in a dead-end error state — the
+                    // retry hits the resumeApp path while currentGameId is
+                    // still set on the server.
                     self.connectionState = .error("Stream terminated (error: \(errorCode))")
-                    self.statusMessage = "Stream lost"
+                    self.statusMessage = "Stream lost — reconnecting"
+                    self.scheduleReconnect()
                 }
             }
         }
@@ -717,6 +747,8 @@ class MoonlightConnectionManager: MoonlightStreamDelegate {
 
     /// Stop the local stream AND quit the app on the server.
     func stopStreamingAndQuit() {
+        cancelReconnect()
+        lastLaunchedApp = nil
         teardownStream(quitOnServer: true) {
             self.connectionState = .ready
             self.statusMessage = "Session ended"
@@ -725,6 +757,8 @@ class MoonlightConnectionManager: MoonlightStreamDelegate {
 
     /// Disconnect and reset state.
     func disconnect() {
+        cancelReconnect()
+        lastLaunchedApp = nil
         if isStreamActive {
             stopStreaming()
         }
@@ -734,6 +768,79 @@ class MoonlightConnectionManager: MoonlightStreamDelegate {
         serverInfo = nil
         apps = []
         statusMessage = ""
+    }
+
+    // MARK: - Auto-reconnect
+
+    /// Whether a dropped stream can be resumed (there is a remembered app and
+    /// no stream is active) — drives the Reconnect button in the stream view.
+    var canReconnect: Bool {
+        lastLaunchedApp != nil && !isStreamActive && !isTearingDown
+    }
+
+    /// Cancel any pending automatic reconnect and leave auto-reconnect mode.
+    private func cancelReconnect() {
+        reconnectTask?.cancel()
+        reconnectTask = nil
+        isAutoReconnecting = false
+        reconnectDelay = 2
+    }
+
+    /// Schedule the next automatic reconnect attempt with exponential backoff.
+    private func scheduleReconnect() {
+        guard lastLaunchedApp != nil else { return }
+        isAutoReconnecting = true
+        let delay = reconnectDelay
+        reconnectDelay = min(reconnectDelay * 2, maxReconnectDelay)
+        AppLog.moonlightStream.line("Reconnecting in \(Int(delay)) s")
+        reconnectTask?.cancel()
+        reconnectTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(delay))
+            guard !Task.isCancelled else { return }
+            await self?.attemptReconnect()
+        }
+    }
+
+    /// Try to resume the dropped session. Refreshes server info first so
+    /// `launchApp` takes the resumeApp path when the host session is still
+    /// alive (an unexpected drop never quits the app on the server).
+    private func attemptReconnect() async {
+        guard let app = lastLaunchedApp, let client = httpClient else { return }
+        guard connectionState != .streaming, connectionState != .launching else { return }
+        if isStreamActive || isTearingDown {
+            // Teardown still in flight — try again after the next backoff.
+            scheduleReconnect()
+            return
+        }
+        statusMessage = "Reconnecting to \(app.name)..."
+        do {
+            serverInfo = try await client.getServerInfo()
+            launchApp(app)
+        } catch {
+            AppLog.moonlightStream.line("Reconnect failed: \(error.localizedDescription)")
+            connectionState = .error("Reconnect failed: \(error.localizedDescription)")
+            statusMessage = "Reconnect failed"
+            scheduleReconnect()
+        }
+    }
+
+    /// Retry immediately, resetting backoff. Wired to the stream window
+    /// returning to the foreground (headset donned) and the Reconnect button.
+    func reconnectNow() {
+        guard canReconnect else { return }
+        reconnectDelay = 2
+        isAutoReconnecting = true
+        reconnectTask?.cancel()
+        reconnectTask = Task { [weak self] in
+            await self?.attemptReconnect()
+        }
+    }
+
+    /// Scene became active (headset donned / window refocused): if an
+    /// automatic reconnect is pending, don't wait out the backoff timer.
+    func sceneBecameActive() {
+        guard isAutoReconnecting else { return }
+        reconnectNow()
     }
 
     /// Retry connection after an error.
